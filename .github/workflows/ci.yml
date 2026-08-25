@@ -37,9 +37,8 @@ jobs:
       - run: echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
       # Exercise the installed console script, not only the source tree, so a
       # broken entry point fails here rather than in a consumer's checkout.
-      - run: deadeye --help
-      - run: deadeye schema
-      - run: deadeye doctor --json
+      # The Makefile owns these three invocations; CI and locals share them.
+      - run: make smoke
       - run: make check test
 
   coverage-badge:

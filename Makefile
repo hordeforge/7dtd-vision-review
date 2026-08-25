@@ -65,8 +65,8 @@ endif
 test:
 	PYTHONPATH=src $(PYTHON) -m pytest -q
 
-# The same three CLI invocations CI runs before the suite, so a broken
-# console script or capability registry surfaces before push, not after.
+# The three CLI entry points CI runs (make smoke) before the suite, so a
+# broken console script or capability registry surfaces before push, not after.
 smoke:
 	$(DEADEYE) --help > /dev/null
 	$(DEADEYE) schema > /dev/null
