@@ -92,3 +92,12 @@ def test_a_single_frame_index_or_second_normalizes_to_a_pair() -> None:
     # A negative single frame index is still refused.
     with pytest.raises(DeadeyeError, match="at_frame must be"):
         validate_result({**VALID, "issues": [{"description": "x", "at_frame": -1}]})
+
+
+def test_an_explicit_null_moment_is_allowed_like_an_absent_one() -> None:
+    data = {
+        **VALID,
+        "issues": [{"description": "whole-clip read", "at_frame": None, "at_seconds": None}],
+    }
+    result = validate_result(data)
+    assert result["issues"][0] == {"description": "whole-clip read"}
