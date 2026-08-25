@@ -80,3 +80,15 @@ def test_model_json_is_extracted_from_fences_and_refuses_non_json() -> None:
         parse_model_json("I think it looks fine.")
     with pytest.raises(DeadeyeError, match="not an object"):
         parse_model_json("[1, 2, 3]")
+
+
+def test_a_single_frame_index_or_second_normalizes_to_a_pair() -> None:
+    result = validate_result({**VALID, "issues": [{"description": "pops at 10", "at_frame": 10}]})
+    assert result["issues"][0]["at_frame"] == [10.0, 10.0]
+    result = validate_result(
+        {**VALID, "issues": [{"description": "starts at 2s", "at_seconds": 2}]}
+    )
+    assert result["issues"][0]["at_seconds"] == [2.0, 2.0]
+    # A negative single frame index is still refused.
+    with pytest.raises(DeadeyeError, match="at_frame must be"):
+        validate_result({**VALID, "issues": [{"description": "x", "at_frame": -1}]})

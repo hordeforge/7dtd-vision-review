@@ -35,8 +35,8 @@ def build_prompt(
         "Answer with exactly one JSON object, no prose outside it, with these keys:",
         '  "summary": string - overall reading in two or three sentences;',
         '  "strengths": array of strings;',
-        '  "issues": array of {"description": string, "at_seconds": [start, end] | null,'
-        ' "at_frame": [start, end] | null}',
+        '  "issues": array of {"description": string, "at_seconds": [start, end] | number | null,'
+        ' "at_frame": [start, end] | number | null}',
         "    - concrete problems tied to a moment where you can place one; name",
         "      either seconds from clip start or the frame index, whichever is",
         "      most honest for the moment;",
