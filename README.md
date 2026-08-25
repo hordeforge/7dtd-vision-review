@@ -1,4 +1,11 @@
-# 7dtd-vision-review — deadeye
+# 👁️ Deadeye (7DTD Vision Review)
+
+> **Part of [HordeForge](https://github.com/hordeforge)**: High-Performance Systems Engineering for 7 Days to Die.
+
+![CI](https://github.com/hordeforge/7dtd-vision-review/actions/workflows/ci.yml/badge.svg)
+![coverage](https://raw.githubusercontent.com/hordeforge/7dtd-vision-review/badges/coverage.svg)
+![license](https://img.shields.io/github/license/hordeforge/7dtd-vision-review)
+![last commit](https://img.shields.io/github/last-commit/hordeforge/7dtd-vision-review)
 
 **deadeye** is the shared vision-model review gateway for hordeforge. It
 forwards a clip (a muxed video or a frame sequence) plus the author's recorded
@@ -158,8 +165,20 @@ scripts/bootstrap
 make check test
 ```
 
+`make` alone prints the target list; `make coverage` runs the suite under
+coverage and prints the report CI turns into the badge above.
+
+Contribution rules, the two boundaries that must not blur, and what a new
+provider owes are in [CONTRIBUTING.md](CONTRIBUTING.md); consumer-visible
+changes are recorded in [CHANGELOG.md](CHANGELOG.md).
+
 The suite is fully offline: the fake provider pins the boundary (exact bytes,
 complete intent) without any network, and no test reads a credential.
+
+## Security
+
+Credential handling, the network-consent boundary, and what an evidence
+envelope may contain are documented in [SECURITY.md](SECURITY.md).
 
 ## License
 

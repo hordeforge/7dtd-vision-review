@@ -14,3 +14,7 @@ htmlcov/
 # Local provider config: API keys and machine-local overrides. See
 # config.local.toml.example and config.toml.
 config.local.toml
+
+# Scratch and machine-local working trees: never committed, never in src/.
+.scratch/
+.local/
