@@ -47,7 +47,7 @@ def test_manifest_and_version_mirror_agree() -> None:
 def test_version_is_a_final_release_triple() -> None:
     # The tag gate in .github/workflows/release.yml pairs a vX.Y.Z tag with
     # this version. A pre-release needs a conscious change here first.
-    assert FINAL_VERSION.match(__version__), BREAKING
+    assert FINAL_VERSION.fullmatch(__version__), BREAKING
 
 
 def test_result_key_set_is_pinned() -> None:

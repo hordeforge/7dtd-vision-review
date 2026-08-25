@@ -2,8 +2,9 @@
 
 Keep a Changelog flow: rename `## Unreleased` to `## X.Y.Z` before tagging,
 then this script hands that section to `gh release create --notes-file`.
-Headings are matched on the bare version, with an optional leading "v" and
-optional square brackets, so `## 0.1.0`, `## [0.1.0]`, and `## v0.1.0` all hit.
+Headings are matched on their first word as the bare version, with an
+optional leading "v" and optional square brackets, so `## 0.1.0`,
+`## [0.1.0]`, `## v0.1.0`, and the dated `## [0.1.0] - 2026-08-26` all hit.
 
 Exit 0 and print the section when found; exit 3 when no section carries the
 version (the caller falls back); any other failure exits nonzero loudly.
@@ -21,7 +22,11 @@ _NOT_FOUND = 3
 
 
 def _normalise(heading: str) -> str:
-    return heading.strip().lstrip("[").rstrip("]").removeprefix("v").strip()
+    """The bare version in a section heading: `0.1.0` out of `[0.1.0] - date`."""
+    words = heading.split()
+    if not words:
+        return ""
+    return words[0].strip("[]").removeprefix("v").strip()
 
 
 def extract(changelog: str, version: str) -> str | None:

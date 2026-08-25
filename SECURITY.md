@@ -2,9 +2,10 @@
 
 ## Supported versions
 
-Only the latest release is supported: **0.1.0** (canonical constant in
-`src/deadeye/_version.py`, mirrored by `pyproject.toml`; older releases
-receive no fixes).
+Only the latest tagged release is supported; older releases receive no
+fixes. The version lives in `src/deadeye/_version.py`, mirrored by
+`pyproject.toml`. Until the first `vX.Y.Z` tag exists there is no supported
+release and `main` is the only surface.
 
 ## Trust boundaries
 

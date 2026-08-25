@@ -19,60 +19,6 @@ left to be discovered by a failing parse downstream.
 below is unreleased, and the first tag will close this section rather than
 open a new one.
 
-### Fixed
-
-- Per-request byte budgets now count the size media reaches the wire as:
-  every adapter submits inline base64, where 3 raw bytes become 4, so a
-  budget check on raw file bytes waved through submissions (for example an
-  18 MiB video against Gemini's published ~20 MB request cap, which base64
-  inflates past the limit) that the provider then refused after the full
-  upload. The video budget and the per-request total both compare the
-  encoded size and name it in their refusals; the disclosure's
-  `total_bytes` still reports the files' raw sizes.
-- A completed review whose evidence file cannot be written (disk full,
-  permissions) no longer discards the billed verdict: the refusal keeps its
-  `ERROR:` line and non-zero exit while the full envelope still reaches the
-  caller (stdout with `--json` or the human summary on the CLI, the
-  `isError` tool result over MCP), so recovering it never means resubmitting
-  the same media as a second billable review.
-- An occupied `--output` path is refused before anything is contacted, so a
-  rerun into existing evidence never reaches the provider; previously the
-  guard fired only at write time, after the submission had been paid for.
-- An issue naming a moment with only one half of a `start_frame`/`end_frame`
-  or `start_seconds`/`end_seconds` pair is refused with the missing partner
-  named, instead of the half being silently dropped while the rest of the
-  verdict validated.
-- A kept raw provider response (`--keep-raw-response`) is now actually
-  redacted. The backstop walks JSON mappings, but a raw response arrives as
-  one string, so a response whose text parsed as a JSON document passed
-  through untouched and credential-named keys inside it rode straight into
-  stored evidence despite the "redacted" claim on the refusal line and in the
-  docs. JSON-object/array responses are now parsed, redacted, and
-  re-serialized; model prose, bare scalars, and broken JSON come back
-  byte-identical.
-- Per-provider generation parameters (`max_tokens`, `reasoning_budget`,
-  `temperature`, `top_p`, `max_output_tokens`) are validated instead of
-  silently ignored: a value that is present but unusable — a string where a
-  number belongs, a boolean, a non-finite float such as `nan` — now refuses
-  the submission with the offending key named, rather than quietly sending
-  the built-in default so the request differs from the configuration on
-  record. An absent key still falls back to the built-in default.
-- `deadeye doctor` validates every per-provider `endpoint` override and
-  prints the reason when one is unusable (for example a plain-`http` root on
-  a non-loopback host), so the fault surfaces at diagnosis time instead of at
-  review start. Doctor still contacts nothing.
-
-- The reviewer prompt's author-statement fence can no longer be escaped by
-  the text it fences: an intent field, list entry, reference purpose, or
-  reference path containing a `-----BEGIN AUTHOR STATEMENT-----` /
-  `-----END AUTHOR STATEMENT-----` marker is refused at parse time, before
-  anything is submitted, because such a marker could close the data-only
-  fence early and let the rest of the statement speak as gateway
-  instructions. Filenames rendered into prompt text (attachment labels, the
-  reference listing, media summaries) have control characters flattened, so
-  a name carrying a newline cannot forge extra label-shaped lines; evidence
-  keeps the true paths.
-
 ### Added
 
 - Vendored end-to-end test: `scripts/e2e.sh` runs the full chain against a
@@ -162,10 +108,60 @@ open a new one.
 - Property-based fuzz targets (`tests/test_fuzz_parsers.py`, Hypothesis) for
   the two untrusted-input parsers: model output through
   `parse_model_json`/`validate_result`, and intent documents through
-  `parse_intent_text` plus the `redact` credentials backstop.
+  `load_intent` plus the `redact` credentials backstop.
 
 ### Fixed
 
+- Per-request byte budgets now count the size media reaches the wire as:
+  every adapter submits inline base64, where 3 raw bytes become 4, so a
+  budget check on raw file bytes waved through submissions (for example an
+  18 MiB video against Gemini's published ~20 MB request cap, which base64
+  inflates past the limit) that the provider then refused after the full
+  upload. The video budget and the per-request total both compare the
+  encoded size and name it in their refusals; the disclosure's
+  `total_bytes` still reports the files' raw sizes.
+- A completed review whose evidence file cannot be written (disk full,
+  permissions) no longer discards the billed verdict: the refusal keeps its
+  `ERROR:` line and non-zero exit while the full envelope still reaches the
+  caller (stdout with `--json` or the human summary on the CLI, the
+  `isError` tool result over MCP), so recovering it never means resubmitting
+  the same media as a second billable review.
+- An occupied `--output` path is refused before anything is contacted, so a
+  rerun into existing evidence never reaches the provider; previously the
+  guard fired only at write time, after the submission had been paid for.
+- An issue naming a moment with only one half of a `start_frame`/`end_frame`
+  or `start_seconds`/`end_seconds` pair is refused with the missing partner
+  named, instead of the half being silently dropped while the rest of the
+  verdict validated.
+- A kept raw provider response (`--keep-raw-response`) is now actually
+  redacted. The backstop walks JSON mappings, but a raw response arrives as
+  one string, so a response whose text parsed as a JSON document passed
+  through untouched and credential-named keys inside it rode straight into
+  stored evidence despite the "redacted" claim on the refusal line and in the
+  docs. JSON-object/array responses are now parsed, redacted, and
+  re-serialized; model prose, bare scalars, and broken JSON come back
+  byte-identical.
+- Per-provider generation parameters (`max_tokens`, `reasoning_budget`,
+  `temperature`, `top_p`, `max_output_tokens`) are validated instead of
+  silently ignored: a value that is present but unusable — a string where a
+  number belongs, a boolean, a non-finite float such as `nan` — now refuses
+  the submission with the offending key named, rather than quietly sending
+  the built-in default so the request differs from the configuration on
+  record. An absent key still falls back to the built-in default.
+- `deadeye doctor` validates every per-provider `endpoint` override and
+  prints the reason when one is unusable (for example a plain-`http` root on
+  a non-loopback host), so the fault surfaces at diagnosis time instead of at
+  review start. Doctor still contacts nothing.
+- The reviewer prompt's author-statement fence can no longer be escaped by
+  the text it fences: an intent field, list entry, reference purpose, or
+  reference path containing a `-----BEGIN AUTHOR STATEMENT-----` /
+  `-----END AUTHOR STATEMENT-----` marker is refused at parse time, before
+  anything is submitted, because such a marker could close the data-only
+  fence early and let the rest of the statement speak as gateway
+  instructions. Filenames rendered into prompt text (attachment labels, the
+  reference listing, media summaries) have control characters flattened, so
+  a name carrying a newline cannot forge extra label-shaped lines; evidence
+  keeps the true paths.
 - Evidence envelopes are written as raw bytes instead of text mode, so the
   `evidence.sha256` a review reports always hashes the file's exact contents:
   a platform whose text writes translate newlines to CRLF would otherwise
