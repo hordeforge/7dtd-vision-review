@@ -43,6 +43,7 @@ dev = [
 deadeye = "deadeye.cli:main"
 
 [project.urls]
+Homepage = "https://github.com/hordeforge/7dtd-vision-review#readme"
 Repository = "https://github.com/hordeforge/7dtd-vision-review"
 Issues = "https://github.com/hordeforge/7dtd-vision-review/issues"
 
