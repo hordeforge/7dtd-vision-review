@@ -112,8 +112,10 @@ def test_attachment_labels_address_the_prompt_order() -> None:
 
 
 @pytest.mark.skipif(
-    os.environ.get("DEADEYE_NETWORK_TESTS") != "nvidia" or not os.environ.get("NVIDIA_API_KEY"),
-    reason="opt-in live run: set DEADEYE_NETWORK_TESTS=nvidia and NVIDIA_API_KEY",
+    os.environ.get("DEADEYE_NETWORK_TESTS") != "nvidia"
+    or not NvidiaProvider().is_configured(),
+    reason="opt-in live run: set DEADEYE_NETWORK_TESTS=nvidia and configure an "
+    "NVIDIA key (env or config.local.toml)",
 )
 def test_live_nvidia_reviews_a_frame_sequence(tmp_path) -> None:  # noqa: ANN001
     import struct
