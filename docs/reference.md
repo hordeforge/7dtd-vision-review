@@ -8,9 +8,9 @@ of the contract a caller or a future editor needs verbatim.
 ## The command
 
 ```bash
-deadeye review CLIP --intent FILE --provider PROVIDER [--model MODEL] \
-    [--allow-network] [--json] [--output PATH] [--keep-raw-response] \
-    [--force] [--timeout SECONDS]
+deadeye review CLIP --intent FILE --provider PROVIDER [--intent-text JSON] \
+    [--model MODEL] [--allow-network] [--json] [--output PATH] \
+    [--keep-raw-response] [--force] [--timeout SECONDS]
 ```
 
 The bare `deadeye` is the installed entry point (`uv tool install`). From a

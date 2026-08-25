@@ -89,7 +89,8 @@ including that frames travel as base64 bytes, never filesystem paths.
 1. a module under `src/deadeye/providers/` implementing the protocol in
    `base.py` with the standard library;
 2. one line in `PROVIDERS` in `surface.py`;
-3. a row in the README provider table and a section on this page;
+3. a row in the provider table in [reference.md](reference.md) and a section
+   on this page;
 4. an offline test proving actual media bytes reach the adapter (`fake.py`'s
    boundary test shows the pattern), plus an opt-in live test that never runs
    in the offline suite.

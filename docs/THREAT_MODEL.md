@@ -9,9 +9,9 @@ and handed to sec-review.
 - **Last reviewed:** 2026-08-25 (against `d9d70b5`)
 - **Owner / review cadence:** organizational note — this document needs a
   named security owner and a review cadence; neither is defined in this
-  repository yet. Re-review after any new provider adapter, the planned MCP
-  server ([mcp-server.md](mcp-server.md)), or any change to `config.py`,
-  `review.py`, or `intent.py`.
+  repository yet. Re-review after any new provider adapter, any change to the
+  MCP stdio transport ([mcp-server.md](mcp-server.md)), or any change to
+  `config.py`, `review.py`, or `intent.py`.
 
 ## Risk-ranked summary
 
@@ -48,7 +48,10 @@ plus its intent context.
 ## Entry points
 
 No network listener exists; everything is invoked locally. The MCP server is
-designed, not built ([mcp-server.md](mcp-server.md)).
+built (`deadeye mcp`, [mcp-server.md](mcp-server.md)): newline-delimited
+JSON-RPC 2.0 on the console's stdin/stdout, so it adds a local IPC entry point,
+not a network one. The entry-point table below was enumerated at the reviewed
+commit and predates that transport.
 
 | Entry point | Reference | Input |
 |---|---|---|

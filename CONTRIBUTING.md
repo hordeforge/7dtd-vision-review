@@ -59,8 +59,8 @@ contract. It must:
 - arrive with tests against a recorded response fixture, covering both an
   accepted response and a rejected one.
 
-Document it in the README provider table and in
-[docs/providers.md](docs/providers.md) in the same change.
+Document it in the provider table in [docs/reference.md](docs/reference.md)
+and in [docs/providers.md](docs/providers.md) in the same change.
 
 ## Changing a contract
 
