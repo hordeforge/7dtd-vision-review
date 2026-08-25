@@ -256,6 +256,23 @@ def load_intent_file(path: Path) -> tuple[ReviewIntent, bytes]:
     return parse_intent(_decode_json(raw, f"intent file {path}"), f"intent file {path}"), raw
 
 
+def load_intent(path: Path | None, text: str | None) -> tuple[ReviewIntent, bytes]:
+    """The intent from exactly one of a file path or inline text, with its bytes.
+
+    The one home for the exactly-one rule, so the CLI and the MCP server
+    refuse identically instead of drifting into two wordings.
+    """
+    if path is not None and text is not None:
+        raise DeadeyeError("takes exactly one of --intent PATH or --intent-text JSON, never both")
+    if path is not None:
+        return load_intent_file(path)
+    if text is not None:
+        return parse_intent_text(text)
+    raise DeadeyeError(
+        "needs exactly one of --intent PATH (the reproducible route) or --intent-text JSON"
+    )
+
+
 def parse_intent_text(text: str) -> tuple[ReviewIntent, bytes]:
     """Validate an inline intent document; return it with its exact bytes."""
     raw = text.encode("utf-8")
@@ -289,7 +306,7 @@ def redact(value: Any, parts: tuple[str, ...] = SENSITIVE_KEY_PARTS) -> Any:
     return value
 
 
-def _is_sensitive_key(key: str, parts: tuple[str, ...] = SENSITIVE_KEY_PARTS) -> bool:
+def _is_sensitive_key(key: str, parts: tuple[str, ...]) -> bool:
     lowered = key.lower()
     return lowered == "key" or any(part in lowered for part in parts)
 

@@ -71,8 +71,7 @@ class NvidiaProvider:
 
     @property
     def default_model(self) -> str:
-        configured = config.value(("providers", "nvidia", "model"))
-        return configured if isinstance(configured, str) and configured else DEFAULT_MODEL
+        return config.text(("providers", "nvidia", "model")) or DEFAULT_MODEL
 
     @property
     def limits(self) -> ProviderLimits:

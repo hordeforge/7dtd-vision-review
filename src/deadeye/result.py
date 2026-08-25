@@ -73,7 +73,7 @@ BASE_RUBRIC: tuple[RubricDimension, ...] = (
 )
 
 
-def _moment(value: Any, key: str, *, non_negative: bool) -> list[float] | None:
+def _moment(value: Any, *, non_negative: bool) -> list[float] | None:
     """Normalize an issue moment: `[start, end]` or a single value -> `[n, n]`.
 
     Models point at a moment with either shape; a single frame index or
@@ -184,19 +184,29 @@ def validate_result(
             # The live NVIDIA model names a moment with the singular aliases
             # `frame` / `seconds` as often as the canonical `at_frame` /
             # `at_seconds`; normalize them before the shape check so a real
-            # verdict is not thrown away for a naming variant.
+            # verdict is not thrown away for a naming variant. A canonical
+            # key already present wins over an alias.
             if "frame" in entry:
                 entry.setdefault("at_frame", entry.pop("frame"))
             if "seconds" in entry:
                 entry.setdefault("at_seconds", entry.pop("seconds"))
             # Start/end pairs: {"start_frame": 9, "end_frame": 11} is the
-            # same moment as {"at_frame": [9, 11]}.
-            start, end = entry.pop("start_frame", None), entry.pop("end_frame", None)
-            if "at_frame" not in entry and start is not None and end is not None:
-                entry["at_frame"] = [start, end]
-            start, end = entry.pop("start_seconds", None), entry.pop("end_seconds", None)
-            if "at_seconds" not in entry and start is not None and end is not None:
-                entry["at_seconds"] = [start, end]
+            # same moment as {"at_frame": [9, 11]}. A lone half names a
+            # boundary with no other, and dropping it would silently lose
+            # where the model pointed, so it is refused instead.
+            marked = len(problems)
+            for start_key, end_key, canonical in (
+                ("start_frame", "end_frame", "at_frame"),
+                ("start_seconds", "end_seconds", "at_seconds"),
+            ):
+                start = entry.pop(start_key, None)
+                end = entry.pop(end_key, None)
+                if start is not None and end is not None:
+                    entry.setdefault(canonical, [start, end])
+                elif start is not None or end is not None:
+                    problems.append(f"issue #{index + 1} needs {start_key} and {end_key} together")
+            if len(problems) > marked:
+                continue
             unexpected = sorted(set(entry) - {"description", "at_seconds", "at_frame"})
             if unexpected:
                 problems.append(
@@ -208,7 +218,7 @@ def validate_result(
                 problems.append(f"issue #{index + 1} needs a non-empty description")
                 continue
             issue: dict[str, Any] = {"description": description.strip()}
-            seconds = _moment(entry.get("at_seconds"), "at_seconds", non_negative=False)
+            seconds = _moment(entry.get("at_seconds"), non_negative=False)
             if "at_seconds" in entry and entry["at_seconds"] is not None and seconds is None:
                 problems.append(
                     f"issue #{index + 1} at_seconds must be [start, end] numbers "
@@ -217,7 +227,7 @@ def validate_result(
                 continue
             if seconds is not None:
                 issue["at_seconds"] = seconds
-            frame = _moment(entry.get("at_frame"), "at_frame", non_negative=True)
+            frame = _moment(entry.get("at_frame"), non_negative=True)
             if "at_frame" in entry and entry["at_frame"] is not None and frame is None:
                 problems.append(
                     f"issue #{index + 1} at_frame must be [start, end] non-negative "

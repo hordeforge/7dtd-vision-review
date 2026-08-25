@@ -118,3 +118,18 @@ def test_non_finite_provider_numbers_cannot_reach_the_envelope(http_opener) -> N
     assert envelope["usage"]["notes"][0]["cost"] is None
     assert envelope["modelVersion"] == "gemini-2.5-flash"
     json.dumps(envelope)  # strict round trip: no bare NaN/Infinity tokens
+
+
+def test_a_deeply_nested_envelope_is_refused_not_crashed(http_opener) -> None:
+    """Nesting beyond the interpreter limit is a malformed answer, not a bug
+    here: it must be refused like any other bad structure (the treatment
+    parse_model_json and the MCP loop give theirs), never escaped as a raw
+    RecursionError that would tear through the one-error-line contract."""
+    body = ("[" * 20000 + "]" * 20000).encode("utf-8")
+
+    def nested_open(request, timeout):
+        return io.BytesIO(body)
+
+    http_opener(nested_open)
+    with pytest.raises(DeadeyeError, match="nested too deeply"):
+        _post()

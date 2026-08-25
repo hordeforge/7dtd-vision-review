@@ -18,6 +18,7 @@ import urllib.request
 from typing import Any
 
 from ..errors import DeadeyeError
+from ..sampling import flat_label_text
 
 _REDIRECT_CODES = frozenset({301, 302, 303, 307, 308})
 # How much of a provider's error body may ride in a refusal line: enough to
@@ -117,9 +118,9 @@ def post_json(
         with contextlib.suppress(OSError):
             exc.close()
         # The body is provider-controlled text that lands in stderr lines;
-        # flatten control characters so one response cannot forge extra
-        # disclosure-shaped lines in an operator's transcript.
-        detail = "".join(char if char.isprintable() else " " for char in detail)
+        # the same flattening prompt labels get: one response cannot forge
+        # extra disclosure-shaped lines in an operator's transcript.
+        detail = flat_label_text(detail)
         if exc.code in _REDIRECT_CODES:
             raise DeadeyeError(
                 f"provider {provider!r} answered with HTTP {exc.code} (redirect); "
@@ -155,6 +156,14 @@ def post_json(
         ) from exc
     except json.JSONDecodeError as exc:
         raise DeadeyeError(f"provider {provider!r} returned a non-JSON envelope: {exc}") from exc
+    except RecursionError as exc:
+        # An envelope nested beyond the interpreter limit is a malformed
+        # answer, not a fault here: refuse it like any other bad structure
+        # (the same treatment parse_model_json and the MCP loop give theirs),
+        # instead of letting the recursion escape as a raw traceback.
+        raise DeadeyeError(
+            f"provider {provider!r} returned an envelope nested too deeply to parse"
+        ) from exc
     except (http.client.HTTPException, OSError) as exc:
         # A connection that dies mid-body (reset, truncated chunked
         # response) surfaces here, not as a traceback: the request was

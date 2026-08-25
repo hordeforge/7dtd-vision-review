@@ -175,6 +175,13 @@ def value(keys: str | tuple[str, ...]) -> Any:
     return _Cache.loaded.value(keys)
 
 
+def text(keys: str | tuple[str, ...]) -> str | None:
+    """The value iff a non-empty string, else None; the one home for the
+    configured-string idiom (`default_model`, an api_key) every reader shares."""
+    found = value(keys)
+    return found if isinstance(found, str) and found else None
+
+
 def credential_for(provider: str, env_names: tuple[str, ...]) -> str | None:
     """A provider's key: environment first, then config, per the documented order.
 
@@ -186,13 +193,7 @@ def credential_for(provider: str, env_names: tuple[str, ...]) -> str | None:
         found = os.environ.get(name)
         if found:
             return found
-    configured = value(("providers", provider, "api_key"))
-    if isinstance(configured, str) and configured:
-        return configured
-    top_level = value(("api_key",))
-    if isinstance(top_level, str) and top_level:
-        return top_level
-    return None
+    return text(("providers", provider, "api_key")) or text(("api_key",))
 
 
 def _override_root(keys: tuple[str, ...]) -> str | None:

@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 from . import config, sampling
 from .errors import DeadeyeError
-from .intent import CAMERA_PATHS, INTENT_SCHEMA_VERSION, load_intent_file, parse_intent_text
+from .intent import CAMERA_PATHS, INTENT_SCHEMA_VERSION, load_intent
 from .prompt import build_prompt, preview_media
 from .providers import FakeProvider, GeminiProvider, NvidiaProvider
 from .result import BASE_RUBRIC, RESULT_KEYS, RUBRIC_VERSION
@@ -103,16 +103,7 @@ def build_preview_prompt(
     `prompt` tool wraps it, so they cannot drift. Exactly one intent route is
     required; `clip` is optional context for the media summary.
     """
-    if intent_path is not None and intent_text is not None:
-        raise DeadeyeError(
-            "takes exactly one of --intent PATH / intent or --intent-text JSON, never both"
-        )
-    if intent_path is not None:
-        intent, _ = load_intent_file(Path(intent_path))
-    elif intent_text is not None:
-        intent, _ = parse_intent_text(intent_text)
-    else:
-        raise DeadeyeError("needs exactly one of --intent PATH / intent or --intent-text JSON")
+    intent, _ = load_intent(intent_path, intent_text)
 
     media = sampling.discover(Path(clip)) if clip is not None else None
     media_summary, frame_note = preview_media(media)

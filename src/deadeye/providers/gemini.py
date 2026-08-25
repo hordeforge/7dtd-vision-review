@@ -53,8 +53,7 @@ class GeminiProvider:
 
     @property
     def default_model(self) -> str:
-        configured = config.value(("providers", "gemini", "model"))
-        return configured if isinstance(configured, str) and configured else "gemini-2.5-flash"
+        return config.text(("providers", "gemini", "model")) or "gemini-2.5-flash"
 
     @property
     def limits(self) -> ProviderLimits:

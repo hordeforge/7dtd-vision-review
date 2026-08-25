@@ -158,8 +158,10 @@ def float_setting(provider: str, key: str, fallback: float) -> float:
     value = config.value(("providers", provider, key))
     if value is None:
         return fallback
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise _unusable(provider, key, value, "a finite number")
-    if not math.isfinite(float(value)):
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(float(value))
+    ):
         raise _unusable(provider, key, value, "a finite number")
     return float(value)

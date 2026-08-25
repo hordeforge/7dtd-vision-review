@@ -22,15 +22,16 @@ than averaged.
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from . import config, sampling
 from .errors import DeadeyeError
 from .evidence import build_envelope, sha256_file, write_evidence
-from .intent import load_intent_file, parse_intent_text, redact_json_text
+from .intent import ReviewIntent, load_intent, redact_json_text
 from .prompt import build_prompt
-from .providers.base import MediaPayload, ReviewRequest
+from .providers.base import MediaPayload, ProviderLimits, ReviewRequest
 from .result import BASE_RUBRIC, parse_model_json, validate_result
 from .sampling import mime_for_suffix
 
@@ -76,82 +77,34 @@ def run_review(
     # file would read as "no credential" and send the operator chasing an API
     # key while the actual fault is one bad line of TOML.
     config.load()
-    if intent_path is not None and intent_text is not None:
-        raise DeadeyeError(
-            "deadeye review takes exactly one of --intent PATH or --intent-text JSON, never both"
-        )
-    if intent_path is not None:
-        intent, intent_raw = load_intent_file(Path(intent_path))
-    elif intent_text is not None:
-        intent, intent_raw = parse_intent_text(intent_text)
-    else:
-        raise DeadeyeError(
-            "deadeye review needs exactly one of --intent PATH (the reproducible route) "
-            "or --intent-text JSON"
-        )
+    intent, intent_raw = load_intent(intent_path, intent_text)
 
     media = sampling.discover(clip)
     if model is not None:
         resolved_model = model
     else:
-        configured_default = config.value(("default_model",))
-        resolved_model = (
-            configured_default
-            if isinstance(configured_default, str) and configured_default
-            else provider.default_model
-        )
+        resolved_model = config.text(("default_model",)) or provider.default_model
     if not provider.is_configured():
         raise DeadeyeError(
             f"provider {provider.name!r} is not configured: {provider.configuration_hint()}"
         )
 
-    limits = provider.limits
-    for reference in intent.references:
-        if not reference.path.is_file():
-            raise DeadeyeError(f"no such reference file: {reference.path}")
-        if reference.path.suffix.lower() not in limits.suffixes:
-            raise DeadeyeError(
-                f"reference {reference.path} ({reference.path.suffix or 'no suffix'}) is not "
-                f"a format provider {provider.name!r} accepts ({', '.join(limits.suffixes)})"
-            )
-
-    candidate_record = sampling.sample(
-        media,
-        max_frames=limits.max_frames,
-        video_capable=limits.accepts_video,
-        max_video_bytes=limits.max_video_bytes,
-    )
-
-    submitted: list[tuple[str, sampling.MediaKind]] = [
-        *candidate_record.submitted_files,
-        *((str(reference.path), "reference") for reference in intent.references),
-    ]
-    # Per entry, not per unique path: the same file listed twice (a repeated
-    # reference, a reference inside the clip) is uploaded twice, and the
-    # disclosure must count every byte that leaves the machine.
-    hashed = [sha256_file(Path(path)) for path, _ in submitted]
-    total_bytes = sum(size for _, size in hashed)
-    if limits.max_bytes is not None and total_bytes > limits.max_bytes:
-        raise DeadeyeError(
-            f"submission is {total_bytes} bytes; provider {provider.name!r} accepts at "
-            f"most {limits.max_bytes} per request. Sample fewer frames, shorten the "
-            "clip, or drop reference media"
-        )
+    submission = _prepare_submission(media, intent, provider.limits, provider_name=provider.name)
 
     if notify is not None:
         notify(f"provider: {provider.name} ({provider.endpoint_mode})")
         notify(f"model: {resolved_model}")
         notify(
-            f"submitting {len(submitted)} file(s), {total_bytes} bytes: "
-            + ", ".join(path for path, _ in submitted)
+            f"submitting {len(submission.files)} file(s), {submission.total_bytes} bytes: "
+            + ", ".join(path for path, _ in submission.files)
         )
         notify(
             f"warning: the media leaves this machine for {provider.name}; retention is "
             "governed by that provider's terms, so send only assets you may disclose"
         )
 
-    media_summary = _media_summary(candidate_record, media, total_bytes)
-    frame_note = _frame_timing_note(candidate_record)
+    media_summary = _media_summary(submission.record, media, submission.total_bytes)
+    frame_note = _frame_timing_note(submission.record)
     prompt = build_prompt(
         intent, BASE_RUBRIC, media_summary=media_summary, frame_timing_note=frame_note
     )
@@ -163,7 +116,7 @@ def run_review(
             kind=kind,
             data=Path(path).read_bytes(),
         )
-        for path, kind in submitted
+        for path, kind in submission.files
     )
     request = ReviewRequest(
         prompt=prompt,
@@ -188,18 +141,6 @@ def run_review(
         ) from exc
     elapsed_seconds = time.perf_counter() - submitted_at
 
-    media_entries: list[dict[str, Any]] = []
-    for (path, kind), (digest, size) in zip(submitted, hashed, strict=True):
-        media_entries.append(
-            {
-                "path": path,
-                "sha256": digest,
-                "bytes": size,
-                "mime_type": mime_for_suffix(Path(path).suffix),
-                "kind": kind,
-            }
-        )
-
     def envelope_for(
         *,
         result: dict[str, Any] | None,
@@ -209,8 +150,8 @@ def run_review(
     ) -> dict[str, Any]:
         """The envelope for this submission; the one home for shared fields."""
         return build_envelope(
-            media_entries=tuple(media_entries),
-            sampling=candidate_record,
+            media_entries=submission.entries,
+            sampling=submission.record,
             intent=intent,
             intent_raw=intent_raw,
             provider_name=provider.name,
@@ -219,7 +160,7 @@ def run_review(
             model_reported=response.model_reported,
             prompt=prompt,
             usage=response.usage,
-            total_bytes=total_bytes,
+            total_bytes=submission.total_bytes,
             elapsed_seconds=elapsed_seconds,
             result=result,
             error=error,
@@ -268,6 +209,79 @@ def run_review(
         evidence = {"path": str(evidence_path), "sha256": evidence_sha256}
     document["evidence"] = evidence
     return document
+
+
+@dataclass(frozen=True)
+class _Submission:
+    """What a submission would send: the sampling decision and every entry."""
+
+    record: sampling.SamplingRecord
+    files: tuple[tuple[str, sampling.MediaKind], ...]
+    """(path, kind) per file sent, clip media first, then references."""
+    entries: tuple[dict[str, Any], ...]
+    """The envelope's `media` entries, hashed once here."""
+    total_bytes: int
+
+
+def _prepare_submission(
+    media: sampling.ClipMedia,
+    intent: ReviewIntent,
+    limits: ProviderLimits,
+    *,
+    provider_name: str,
+) -> _Submission:
+    """The local-only phase before anything is contacted.
+
+    Reference checks, sampling to the provider's declared limits, hashing, and
+    the total-size budget all happen here, so every refusal is cheap and no
+    byte is hashed twice.
+    """
+    for reference in intent.references:
+        if not reference.path.is_file():
+            raise DeadeyeError(f"no such reference file: {reference.path}")
+        if reference.path.suffix.lower() not in limits.suffixes:
+            raise DeadeyeError(
+                f"reference {reference.path} ({reference.path.suffix or 'no suffix'}) is not "
+                f"a format provider {provider_name!r} accepts ({', '.join(limits.suffixes)})"
+            )
+
+    record = sampling.sample(
+        media,
+        max_frames=limits.max_frames,
+        video_capable=limits.accepts_video,
+        max_video_bytes=limits.max_video_bytes,
+    )
+    files: list[tuple[str, sampling.MediaKind]] = [
+        *record.submitted_files,
+        *((str(reference.path), "reference") for reference in intent.references),
+    ]
+    # Per entry, not per unique path: the same file listed twice (a repeated
+    # reference, a reference inside the clip) is uploaded twice, and the
+    # disclosure must count every byte that leaves the machine.
+    hashed = [sha256_file(Path(path)) for path, _ in files]
+    total_bytes = sum(size for _, size in hashed)
+    if limits.max_bytes is not None and total_bytes > limits.max_bytes:
+        raise DeadeyeError(
+            f"submission is {total_bytes} bytes; provider {provider_name!r} accepts at "
+            f"most {limits.max_bytes} per request. Sample fewer frames, shorten the "
+            "clip, or drop reference media"
+        )
+    entries = [
+        {
+            "path": path,
+            "sha256": digest,
+            "bytes": size,
+            "mime_type": mime_for_suffix(Path(path).suffix),
+            "kind": kind,
+        }
+        for (path, kind), (digest, size) in zip(files, hashed, strict=True)
+    ]
+    return _Submission(
+        record=record,
+        files=tuple(files),
+        entries=tuple(entries),
+        total_bytes=total_bytes,
+    )
 
 
 def _media_summary(

@@ -228,10 +228,13 @@ def _evenly_spaced(frames: list[Path], count: int) -> list[Path]:
         return frames
     if count == 1:
         return [frames[0]]
-    indices = {round(index * (len(frames) - 1) / (count - 1)) for index in range(count)}
-    indices.add(0)
-    indices.add(len(frames) - 1)
-    return [frames[index] for index in sorted(indices)][:count]
+    # The step (len - 1) / (count - 1) is strictly greater than 1 here, so the
+    # rounded indices are distinct; index 0 maps to the first frame and
+    # count - 1 to the last.
+    return [
+        frames[index]
+        for index in sorted(round(i * (len(frames) - 1) / (count - 1)) for i in range(count))
+    ]
 
 
 def flat_label_text(value: str) -> str:

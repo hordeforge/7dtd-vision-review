@@ -306,8 +306,8 @@ def _handle_doctor(args: argparse.Namespace) -> int:
             print(f"default_provider: {_resolve_provider(None)}")
         except DeadeyeError as exc:
             print(f"default_provider: not usable ({exc})")
-        default_model = config.value(("default_model",))
-        if isinstance(default_model, str) and default_model:
+        default_model = config.text(("default_model",))
+        if default_model:
             print(f"default_model: {default_model}")
         try:
             print(f"timeout_seconds: {_resolve_timeout(None):g}")

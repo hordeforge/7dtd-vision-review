@@ -156,3 +156,29 @@ def test_start_end_pairs_normalize_to_moment_ranges() -> None:
         {**VALID, "issues": [{"description": "warp", "start_seconds": 1.0, "end_seconds": 3.5}]}
     )
     assert result["issues"][0]["at_seconds"] == [1.0, 3.5]
+
+
+def test_a_lone_half_of_a_start_end_pair_is_refused_not_dropped() -> None:
+    """A boundary with no other says nothing about a moment; discarding it
+    would silently lose where the model pointed."""
+    with pytest.raises(DeadeyeError, match="needs start_frame and end_frame together"):
+        validate_result({**VALID, "issues": [{"description": "warp", "start_frame": 9}]})
+    with pytest.raises(DeadeyeError, match="needs start_seconds and end_seconds together"):
+        validate_result({**VALID, "issues": [{"description": "warp", "end_seconds": 3.5}]})
+
+
+def test_a_canonical_moment_wins_over_a_full_start_end_pair() -> None:
+    result = validate_result(
+        {
+            **VALID,
+            "issues": [
+                {
+                    "description": "warp",
+                    "at_frame": [1, 2],
+                    "start_frame": 9,
+                    "end_frame": 11,
+                }
+            ],
+        }
+    )
+    assert result["issues"][0]["at_frame"] == [1.0, 2.0]

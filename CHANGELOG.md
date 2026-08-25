@@ -21,6 +21,10 @@ open a new one.
 
 ### Fixed
 
+- An issue naming a moment with only one half of a `start_frame`/`end_frame`
+  or `start_seconds`/`end_seconds` pair is refused with the missing partner
+  named, instead of the half being silently dropped while the rest of the
+  verdict validated.
 - A kept raw provider response (`--keep-raw-response`) is now actually
   redacted. The backstop walks JSON mappings, but a raw response arrives as
   one string, so a response whose text parsed as a JSON document passed
