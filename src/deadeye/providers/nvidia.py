@@ -45,7 +45,9 @@ IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp")
 MAX_REQUEST_BYTES = 20 * 1024 * 1024
 # Multi-image vision-chat limits sit well below a 10s/4fps clip's 40 frames,
 # so the sampling layer drops to this with even spacing, first and last kept.
-MAX_FRAMES_PER_REQUEST = 16
+# 12 is the API's own published bound, verified live: a 16-frame submission
+# was refused with "At most 12 image(s) may be provided in one prompt".
+MAX_FRAMES_PER_REQUEST = 12
 
 DEFAULT_MODEL = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
 DEFAULT_MAX_TOKENS = 65536
