@@ -28,13 +28,18 @@ deadeye sees:
 
 ```bash
 cp config.local.toml.example config.local.toml
-deadeye doctor
+uv run deadeye doctor
 ```
+
+Inside a checkout, invoke the CLI through `uv run`: bootstrap builds the
+project venv (`.venv`) and installs nothing globally, so plain `deadeye`
+is not on your PATH unless you activate that venv or install the wheel
+with `uv tool install`.
 
 Review a clip:
 
 ```bash
-deadeye review CLIP --intent intent.json --provider nvidia --allow-network --json
+uv run deadeye review CLIP --intent intent.json --provider nvidia --allow-network --json
 ```
 
 That is the whole interface. `CLIP` is a frames folder or a video file,
@@ -58,7 +63,7 @@ says what the review should judge — one required field, `purpose`:
 Then:
 
 ```bash
-deadeye review PATH/TO/CLIP --intent intent.json --provider nvidia --allow-network --json
+uv run deadeye review PATH/TO/CLIP --intent intent.json --provider nvidia --allow-network --json
 ```
 
 The full intent schema and the result shape are in
@@ -86,7 +91,13 @@ and `uv` on `PATH`. Prerequisites, options, and artifacts:
 ### No game and no network
 
 `--provider fake` reviews without credentials or upload — it proves the CLI
-plumbing works offline.
+plumbing works offline. `--allow-network` is still required: every review
+passes the same consent gate, and nothing leaves the machine for the fake
+provider.
+
+```bash
+uv run deadeye review CLIP --intent intent.json --provider fake --allow-network --json
+```
 
 ### From another repository or from code
 

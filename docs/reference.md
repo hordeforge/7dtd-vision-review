@@ -13,6 +13,10 @@ deadeye review CLIP --intent FILE --provider PROVIDER [--model MODEL] \
     [--force] [--timeout SECONDS]
 ```
 
+The bare `deadeye` is the installed entry point (`uv tool install`). From a
+source checkout, run the same commands through the project venv instead:
+`uv run deadeye ...`.
+
 | Flag | Meaning |
 |---|---|
 | `CLIP` | a clip directory (frames, optional muxed video, optional `client.log`) or a single video/image file |
