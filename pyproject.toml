@@ -91,6 +91,10 @@ select = [
   "PGH",   # blanket noqa / untyped type:ignore are forbidden
   "PIE",   # unnecessary constructs (duplicate kwargs, useless classes)
   "PERF",  # perflint: accidental quadratic patterns
+  "PTH",   # pathlib over os.path string surgery
+  "ERA",   # commented-out code must not survive a commit
+  "FURB",  # refurb: cleaner stdlib idioms for common operations
+  "LOG",   # logging call hygiene (exc_info, warn vs warning)
   "RET",   # redundant returns and collapsible return paths
   "RSE",   # needless parens on raised exceptions
   "SLOT",  # __slots__ where a class declares it
@@ -129,10 +133,12 @@ enable_error_code = [
   "truthy-bool",        # objects whose __bool__ is always True used as conditions
   "redundant-expr",     # a check one side already guarantees
   "deprecated",         # calls into deprecated API surfaces
+  "ignore-without-code", # every silence must name the finding it silences
 ]
 # The test files are runtime-asserted by pytest, not statically checked; the
-# strict contract applies to the shipped package.
-files = ["src"]
+# strict contract applies to the shipped package plus the scripts CI itself
+# executes (coverage badge, release notes), which already type-check clean.
+files = ["src", "scripts"]
 mypy_path = ["src"]
 
 [tool.pytest.ini_options]

@@ -52,7 +52,7 @@ endif
 
 typecheck:
 ifdef MYPY
-	$(MYPY) src
+	$(MYPY) src scripts
 else
 	@if [ -n "$${CI:-}" ]; then \
 		echo "ERROR: CI requires mypy; run scripts/bootstrap or: uv tool install mypy" >&2; \
