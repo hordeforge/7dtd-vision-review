@@ -188,6 +188,14 @@ def validate_result(
                 entry.setdefault("at_frame", entry.pop("frame"))
             if "seconds" in entry:
                 entry.setdefault("at_seconds", entry.pop("seconds"))
+            # Start/end pairs: {"start_frame": 9, "end_frame": 11} is the
+            # same moment as {"at_frame": [9, 11]}.
+            start, end = entry.pop("start_frame", None), entry.pop("end_frame", None)
+            if "at_frame" not in entry and start is not None and end is not None:
+                entry["at_frame"] = [start, end]
+            start, end = entry.pop("start_seconds", None), entry.pop("end_seconds", None)
+            if "at_seconds" not in entry and start is not None and end is not None:
+                entry["at_seconds"] = [start, end]
             unexpected = sorted(set(entry) - {"description", "at_seconds", "at_frame"})
             if unexpected:
                 problems.append(
