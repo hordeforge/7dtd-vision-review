@@ -64,6 +64,9 @@ any provider. `deadeye schema` prints the intent and result schemas.
 `deadeye prompt --intent FILE` renders the exact reviewer prompt the gateway
 would inject for that intent, without running a review — the harness for
 verifying what a model will be asked before anything is submitted.
+`deadeye mcp` serves the same surface as a Model Context Protocol server on
+stdio, so an MCP client (an agent, a dashboard) reaches the gateway over
+standard JSON-RPC; see [docs/mcp-server.md](docs/mcp-server.md).
 
 The machine contract is the exit code and the JSON on stdout: `review --json`
 prints the evidence envelope, and every refusal exits non-zero with one

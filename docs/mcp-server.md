@@ -1,9 +1,11 @@
-# MCP server (planned)
+# MCP server
 
-The CLI is the transport today; a Model Context Protocol server is the
-planned second surface, so the same review capability becomes reachable from
-any MCP client (an agent, a dashboard, a homegrown control script) over
-standard JSON-RPC instead of a subprocess.
+Implemented (2026-08-25): `deadeye mcp` serves the CLI surface as a Model
+Context Protocol server on stdio — newline-delimited JSON-RPC 2.0, no third-
+party SDK — so the same review capability is reachable from any MCP client
+(an agent, a dashboard, a homegrown control script) without a subprocess.
+`tests/test_mcp.py` pins the protocol offline: handshake, tool listing, tool
+calls, spec error codes, and the review consent boundary.
 
 ## Design intent
 
@@ -26,8 +28,11 @@ standard JSON-RPC instead of a subprocess.
 
 ## Out of scope for now
 
-stdio framing and session handling are only designed, not built; the MCP spec
-version is not pinned; no third-party MCP SDK is adopted yet. This page exists
-so the CLI's contract (stderr disclosure, stdout envelope, exit-code
-semantics) does not drift into a shape a server transport could not reuse.
-Build the server only when a real consumer needs an MCP client to reach it.
+stdio framing and session handling are built; the pinned protocol version is
+`2025-06-18`; no third-party MCP SDK is adopted (the surface stays in the
+standard library). Deliberately deferred, per the original design: SSE push,
+MCP sampling, resources/prompts beyond the tool surface, multi-session
+management, and authentication (the server inherits the CLI's env/config
+credential boundary). This page exists so the CLI's contract (stderr
+disclosure, stdout envelope, exit-code semantics) does not drift into a shape
+a server transport could not reuse.

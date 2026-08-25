@@ -123,7 +123,19 @@ def _build_parser() -> argparse.ArgumentParser:
         "generic summary is used)",
     )
     prompt.set_defaults(handler=_handle_prompt)
+
+    mcp = subparsers.add_parser(
+        "mcp",
+        help="serve the same surface as a Model Context Protocol server on stdio",
+    )
+    mcp.set_defaults(handler=_handle_mcp)
     return parser
+
+
+def _handle_mcp(args: argparse.Namespace) -> int:
+    from .mcp import serve
+
+    return serve()
 
 
 def main(argv: list[str] | None = None) -> int:
