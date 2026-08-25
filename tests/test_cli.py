@@ -128,11 +128,12 @@ def test_doctor_reports_offline_state(capsys) -> None:
     assert code == 0
     states = json.loads(out)
     by_name = {state["name"]: state for state in states}
-    assert set(by_name) == {"fake", "gemini"}
+    assert set(by_name) == {"fake", "gemini", "nvidia"}
     assert by_name["fake"]["state"] == "configured"
-    # gemini's state depends on the host's env; what matters is that doctor
-    # reports *something* without contacting any provider.
+    # gemini/nvidia's state depends on the host's env; what matters is that
+    # doctor reports *something* without contacting any provider.
     assert by_name["gemini"]["state"] in ("configured", "unavailable")
+    assert by_name["nvidia"]["state"] in ("configured", "unavailable")
 
 
 def test_schema_prints_the_contract(capsys) -> None:

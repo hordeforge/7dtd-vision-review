@@ -112,6 +112,7 @@ earlier envelope by default.
 |---|---|---|
 | `fake` | frames or video | nothing — offline plumbing checks and dry runs |
 | `gemini` | muxed video inline or a frame sequence | `GEMINI_API_KEY` or `GOOGLE_API_KEY` |
+| `nvidia` | a frame sequence (multi-image, NVIDIA NIM vision-chat) | `NVIDIA_API_KEY` |
 
 Credentials come only from environment variables, never as a command
 argument, printed output, or stored evidence. `deadeye doctor` reports state

@@ -38,6 +38,28 @@ The live path is covered by an opt-in test
 (`DEADEYE_NETWORK_TESTS=gemini` + `GEMINI_API_KEY`); the offline suite pins
 limits, MIME mapping, credential presence, and the request-body labels instead.
 
+## nvidia
+
+`nvidia` is the second hosted adapter: NVIDIA's NIM chat-completions endpoint
+(`integrate.api.nvidia.com/v1/chat/completions`), an OpenAI-compatible
+vision-chat surface. Local frames are submitted as base64 data URLs in
+`image_url` content parts — no upload round trip — and the endpoint takes
+images only, so the sampling layer always sends the frame sequence (sampled
+down to the adapter's frame budget, recorded in the evidence), never a muxed
+video. The default model is
+`nvidia/nemotron-3-nano-omni-30b-a3b-reasoning` with the generation settings
+its verified payload uses (`max_tokens`, `reasoning_budget`, `temperature`,
+`top_p`), all module constants rather than per-review knobs.
+
+The key arrives from `NVIDIA_API_KEY`, travels in an `Authorization` header
+(never a query string), and is never printed, logged, or written into
+evidence.
+
+The live path is covered by an opt-in test
+(`DEADEYE_NETWORK_TESTS=nvidia` + `NVIDIA_API_KEY`); the offline suite pins
+limits, MIME mapping, credential presence, and the exact request body —
+including that frames travel as base64 bytes, never filesystem paths.
+
 ## Adding one
 
 1. a module under `src/deadeye/providers/` implementing the protocol in
