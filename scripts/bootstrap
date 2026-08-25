@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 # Sync the dev environment from the committed lockfile with the dev group.
+# --locked, like CI: it refuses to install when uv.lock no longer matches
+# pyproject.toml, so a stale lock fails loudly here instead of silently
+# giving contributors an environment that differs from what CI verifies.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -10,4 +13,4 @@ if ! command -v uv >/dev/null 2>&1; then
     exit 127
 fi
 
-uv sync --frozen
+uv sync --locked
