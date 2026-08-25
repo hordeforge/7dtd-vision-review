@@ -77,6 +77,25 @@ select = [
   "RUF",  # ruff-specific: unused-noqa hygiene, sorted __all__
   "C4",   # comprehensions over manual accumulation
   "I",    # import sorting
+  # Correctness and hygiene groups the whole tree already passes; each was
+  # proven clean by a run before being pinned here.
+  "A",     # flake8-builtins: shadowing a builtin is a latent bug
+  "ASYNC", # blocking calls inside async code
+  "DTZ",   # naive datetimes: every datetime here must be tz-explicit
+  "EXE",   # executable-bit and shebang consistency for scripts
+  "FBT",   # boolean traps on positional parameters
+  "FLY",   # join() over concatenated literals
+  "G",     # logging call format-string mistakes
+  "ICN",   # import conventions
+  "INT",   # gettext i18n mistakes
+  "PGH",   # blanket noqa / untyped type:ignore are forbidden
+  "PIE",   # unnecessary constructs (duplicate kwargs, useless classes)
+  "PERF",  # perflint: accidental quadratic patterns
+  "RET",   # redundant returns and collapsible return paths
+  "RSE",   # needless parens on raised exceptions
+  "SLOT",  # __slots__ where a class declares it
+  "T10",   # debugger imports/calls never reach a commit
+  "YTT",   # sys.version comparisons that break on future Pythons
 ]
 ignore = [
   # Function-scope imports are deliberate architecture: optional adapters
@@ -101,6 +120,16 @@ ignore = [
 [tool.mypy]
 python_version = "3.11"
 strict = true
+# Beyond strict: flag code paths the type system cannot reach and variable
+# uses that can precede assignment on some branch. Both proven clean by a
+# run before being pinned here.
+warn_unreachable = true
+enable_error_code = [
+  "possibly-undefined", # a use that some branch can reach before assignment
+  "truthy-bool",        # objects whose __bool__ is always True used as conditions
+  "redundant-expr",     # a check one side already guarantees
+  "deprecated",         # calls into deprecated API surfaces
+]
 # The test files are runtime-asserted by pytest, not statically checked; the
 # strict contract applies to the shipped package.
 files = ["src"]
