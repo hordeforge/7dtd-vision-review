@@ -184,10 +184,10 @@ def validate_result(
             # `frame` / `seconds` as often as the canonical `at_frame` /
             # `at_seconds`; normalize them before the shape check so a real
             # verdict is not thrown away for a naming variant.
-            if "frame" in entry and "at_frame" not in entry:
-                entry["at_frame"] = entry.pop("frame")
-            if "seconds" in entry and "at_seconds" not in entry:
-                entry["at_seconds"] = entry.pop("seconds")
+            if "frame" in entry:
+                entry.setdefault("at_frame", entry.pop("frame"))
+            if "seconds" in entry:
+                entry.setdefault("at_seconds", entry.pop("seconds"))
             unexpected = sorted(set(entry) - {"description", "at_seconds", "at_frame"})
             if unexpected:
                 problems.append(
