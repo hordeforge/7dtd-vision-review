@@ -218,6 +218,10 @@ if [[ -z "$CLIP" ]]; then
     COMPAT="${COMPAT:-$(compat_for_game "$GAME")}"
     [[ -n "$COMPAT" ]] || die "cannot derive the Proton prefix for $GAME (not below a Steam library); export COMPAT"
     export GAME COMPAT CLIENT_PLATFORM="${CLIENT_PLATFORM:-local}"
+    # shamway resolves the client install from SEVEN_DAYS_TO_DIE_DIR (not
+    # GAME, which launch_client.sh reads); without it `acceptance-provider
+    # --install` and `client deploy` cannot find the client's Mods folder.
+    export SEVEN_DAYS_TO_DIE_DIR="$GAME"
     if [[ -z "$GAME_SRV" ]]; then
         GAME_SRV="$(detect_server)"
         [[ -n "$GAME_SRV" ]] || die "no dedicated server found; export SEVEN_DAYS_TO_DIE_SERVER_DIR=<server install> or pass --game-srv"
