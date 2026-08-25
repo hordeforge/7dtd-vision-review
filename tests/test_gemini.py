@@ -1,0 +1,113 @@
+"""Gemini adapter: offline-pinnable surface, opt-in live run.
+
+The HTTP path cannot run without a credential, so it is covered by an
+opt-in live test (`DEADEYE_NETWORK_TESTS=gemini` + `GEMINI_API_KEY`), never by
+the offline suite. Everything else — limits, MIME mapping, credential
+presence, the request body shape the adapter would send — is pinned offline.
+"""
+
+from __future__ import annotations
+
+import os
+
+import pytest
+
+from deadeye.errors import DeadeyeError
+from deadeye.providers.base import MediaPayload
+from deadeye.providers.gemini import (
+    MIME_BY_SUFFIX,
+    GeminiProvider,
+    _label_for,
+)
+
+
+def test_limits_declare_video_and_frames() -> None:
+    limits = GeminiProvider().limits
+    assert limits.accepts_video
+    assert limits.max_frames is not None and limits.max_frames > 0
+    assert ".mp4" in limits.suffixes
+    assert ".png" in limits.suffixes
+
+
+def test_mime_mapping_covers_images_and_video() -> None:
+    assert MIME_BY_SUFFIX[".png"] == "image/png"
+    assert MIME_BY_SUFFIX[".mp4"] == "video/mp4"
+
+
+def test_credential_presence_never_contacts_the_provider(monkeypatch) -> None:
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    provider = GeminiProvider()
+    assert not provider.is_configured()
+    assert "GEMINI_API_KEY" in provider.configuration_hint()
+    monkeypatch.setenv("GOOGLE_API_KEY", "x")
+    assert provider.is_configured()
+
+
+def test_review_without_credential_refuses_locally(monkeypatch) -> None:
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    from deadeye.providers.base import ReviewRequest
+
+    request = ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0)
+    with pytest.raises(DeadeyeError, match="no credential"):
+        GeminiProvider().review(request)
+
+
+def test_attachment_labels_address_the_prompt_order() -> None:
+    frame = MediaPayload(name="f.png", mime_type="image/png", kind="frame", data=b"")
+    video = MediaPayload(name="c.mp4", mime_type="video/mp4", kind="video", data=b"")
+    reference = MediaPayload(name="r.png", mime_type="image/png", kind="reference", data=b"")
+    assert _label_for(frame) == "frame attachment: f.png"
+    assert _label_for(video) == "video attachment: c.mp4"
+    assert _label_for(reference) == "reference image: r.png"
+
+
+@pytest.mark.skipif(
+    os.environ.get("DEADEYE_NETWORK_TESTS") != "gemini" or not os.environ.get("GEMINI_API_KEY"),
+    reason="opt-in live run: set DEADEYE_NETWORK_TESTS=gemini and GEMINI_API_KEY",
+)
+def test_live_gemini_reviews_a_frame_sequence(tmp_path) -> None:
+    from deadeye.providers.base import ReviewRequest
+
+    clip = tmp_path / "clip"
+    clip.mkdir()
+    # A tiny solid-colour PNG, so the live run submits real image bytes.
+    import struct
+    import zlib
+
+    def solid_png(colour: tuple[int, int, int]) -> bytes:
+        width = height = 16
+        raw = b"".join(b"\x00" + bytes(colour) * width for _ in range(height))
+
+        def chunk(tag: bytes, data: bytes) -> bytes:
+            return (
+                struct.pack(">I", len(data))
+                + tag
+                + data
+                + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+            )
+
+        ihdr = chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+        idat = chunk(b"IDAT", zlib.compress(raw))
+        iend = chunk(b"IEND", b"")
+        return b"\x89PNG\r\n\x1a\n" + ihdr + idat + iend
+
+    for index in range(3):
+        (clip / f"frame-{index:04d}.png").write_bytes(solid_png((40, 40, 40)))
+
+    provider = GeminiProvider()
+    request = ReviewRequest(
+        prompt="describe what you see in one sentence",
+        media=tuple(
+            MediaPayload(
+                name=path.name, mime_type="image/png", kind="frame", data=path.read_bytes()
+            )
+            for path in sorted(clip.iterdir())
+        ),
+        model=provider.default_model,
+        timeout_seconds=120.0,
+    )
+    response = provider.review(request)
+    assert response.raw_text.strip()
+    assert response.model_reported

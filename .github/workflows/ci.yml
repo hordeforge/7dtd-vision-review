@@ -1,0 +1,43 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# One run per ref: a fresh push cancels the superseded in-progress run
+# instead of queueing duplicate parallel jobs.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least privilege: the pipeline only needs to read the code.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      # Actions pinned by full commit SHA (tag in comment) so a moved tag or a
+      # compromised major-version release cannot inject code into the pipeline.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          enable-cache: true
+      - run: uv python install ${{ matrix.python-version }}
+      # The core has no runtime dependencies; `uv sync --locked` resolves from
+      # the committed uv.lock, verifies its hashes, and brings the dev group
+      # (ruff, mypy) that `make check` needs.
+      - run: uv sync --locked --python ${{ matrix.python-version }}
+      - run: echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+      # Exercise the installed console script, not only the source tree, so a
+      # broken entry point fails here rather than in a consumer's checkout.
+      - run: deadeye --help
+      - run: deadeye schema
+      - run: deadeye doctor --json
+      - run: make check test
