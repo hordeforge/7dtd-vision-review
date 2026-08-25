@@ -8,9 +8,10 @@ identifier is a default, not a contract: providers and model names change, so
 the caller can always pass `--model` and `deadeye doctor` reports
 configuration rather than hard-coding one vendor.
 
-The key arrives from `GEMINI_API_KEY` or `GOOGLE_API_KEY`, is sent in a
-header (never a query string, so it cannot land in an access log), and is
-never printed, logged, or written into evidence.
+The key arrives from `GEMINI_API_KEY` / `GOOGLE_API_KEY` (environment) or
+`providers.gemini.api_key` in `config.local.toml` (see `config.py` for the
+precedence), is sent in a header (never a query string, so it cannot land in
+an access log), and is never printed, logged, or written into evidence.
 
 Media policy: a muxed video goes inline when it fits the per-request inline
 budget; otherwise (or when the clip has no muxed video) the sampled frame
@@ -24,10 +25,10 @@ from __future__ import annotations
 import base64
 import contextlib
 import json
-import os
 import urllib.error
 import urllib.request
 
+from .. import config
 from ..errors import DeadeyeError
 from .base import MediaPayload, ProviderLimits, ReviewRequest, ReviewResponse
 
@@ -56,10 +57,12 @@ class GeminiProvider:
     name = "gemini"
     endpoint_mode = "hosted-api:inline-base64"
     requires_credential = True
+    credential_env_names = CREDENTIAL_ENV_VARS
 
     @property
     def default_model(self) -> str:
-        return "gemini-2.5-flash"
+        configured = config.value(("providers", "gemini", "model"))
+        return configured if isinstance(configured, str) and configured else "gemini-2.5-flash"
 
     @property
     def limits(self) -> ProviderLimits:
@@ -72,20 +75,19 @@ class GeminiProvider:
         )
 
     def credential(self) -> str | None:
-        """The configured key, or None. Never logged; callers send it only."""
-        for name in CREDENTIAL_ENV_VARS:
-            value = os.environ.get(name)
-            if value:
-                return value
-        return None
+        """The configured key (env first, then config.local.toml), or None.
+
+        Never logged; callers send it only.
+        """
+        return config.credential_for("gemini", CREDENTIAL_ENV_VARS)
 
     def is_configured(self) -> bool:
         return self.credential() is not None
 
     def configuration_hint(self) -> str:
         return (
-            f"export {CREDENTIAL_ENV_VARS[0]}=<key> with a key from "
-            "https://aistudio.google.com/apikey"
+            f"set {CREDENTIAL_ENV_VARS[0]} or put api_key under [providers.gemini] "
+            "in config.local.toml; create a key at https://aistudio.google.com/apikey"
         )
 
     def review(self, request: ReviewRequest) -> ReviewResponse:
@@ -108,11 +110,13 @@ class GeminiProvider:
             "contents": [{"role": "user", "parts": parts}],
             "generationConfig": {"response_mime_type": "application/json"},
         }
+        endpoint = config.value(("providers", "gemini", "endpoint"))
+        api_root = endpoint if isinstance(endpoint, str) and endpoint else API_ROOT
         # Both audited statements carry the same justification: the URL is
-        # this module's fixed https constant plus the requested model name;
-        # scheme and host are never caller-controlled.
+        # this module's fixed https constant (or the config override) plus
+        # the requested model name; scheme and host are never caller-controlled.
         http_request = urllib.request.Request(  # noqa: S310
-            f"{API_ROOT}/{request.model}:generateContent",
+            f"{api_root}/{request.model}:generateContent",
             data=json.dumps(body).encode("utf-8"),
             headers={
                 "Content-Type": "application/json",
@@ -135,7 +139,7 @@ class GeminiProvider:
             if exc.code in (401, 403):
                 raise DeadeyeError(
                     f"provider 'gemini' rejected the credential (HTTP {exc.code}); "
-                    "check the key in GEMINI_API_KEY / GOOGLE_API_KEY"
+                    "check the key in GEMINI_API_KEY or config.local.toml"
                 ) from exc
             if exc.code == 429:
                 raise DeadeyeError(

@@ -10,12 +10,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from . import __version__
+from . import __version__, config
 from .errors import DeadeyeError
 from .providers.fake import FakeProvider
 from .providers.gemini import GeminiProvider
@@ -63,8 +64,7 @@ def _build_parser() -> argparse.ArgumentParser:
     review.add_argument(
         "--provider",
         choices=sorted(PROVIDERS),
-        required=True,
-        help="the vision-model provider to use",
+        help="the vision-model provider to use (default: config default_provider)",
     )
     review.add_argument("--model", help="provider model identifier; default per provider")
     review.add_argument(
@@ -82,8 +82,8 @@ def _build_parser() -> argparse.ArgumentParser:
     review.add_argument(
         "--timeout",
         type=float,
-        default=120.0,
-        help="seconds to wait for the provider (default 120)",
+        default=None,
+        help="seconds to wait for the provider (default: config timeout_seconds or 120)",
     )
     review.add_argument(
         "--force",
@@ -112,23 +112,35 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         return int(args.handler(args))
-    except DeadeyeError as exc:
+    except (DeadeyeError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
+
+
+def _resolve_provider(name: str | None) -> str:
+    """The provider to use: the flag, else config's default_provider, else gemini."""
+    if name:
+        return name
+    configured = config.value(("default_provider",))
+    if isinstance(configured, str) and configured in PROVIDERS:
+        return configured
+    return "gemini"
 
 
 def _handle_review(args: argparse.Namespace) -> int:
     def notify(line: str) -> None:
         print(line, file=sys.stderr)
 
+    provider_name = _resolve_provider(args.provider)
+    timeout = args.timeout or config.value(("timeout_seconds",)) or 120.0
     envelope = run_review(
         args.clip,
-        provider=PROVIDERS[args.provider](),
+        provider=PROVIDERS[provider_name](),
         intent_path=args.intent,
         intent_text=args.intent_text,
         model=args.model,
         allow_network=args.allow_network,
-        timeout_seconds=args.timeout,
+        timeout_seconds=timeout,
         keep_raw_response=args.keep_raw_response,
         output=args.output,
         force=args.force,
@@ -149,6 +161,21 @@ def _handle_review(args: argparse.Namespace) -> int:
     return 0
 
 
+def _credential_detail(provider: VideoReviewProvider) -> str:
+    """Where the provider's credential came from, for doctor; never the value."""
+    env_names = provider.credential_env_names if hasattr(provider, "credential_env_names") else ()
+    from_env = any(os.environ.get(name) for name in env_names)
+    from_local = config.value(("providers", provider.name, "api_key"))
+    top_level = config.value(("api_key",))
+    if from_env:
+        return "key from environment"
+    if isinstance(from_local, str) and from_local:
+        return "key from config.local.toml"
+    if isinstance(top_level, str) and top_level:
+        return "key from config.local.toml (top-level api_key)"
+    return provider.configuration_hint()
+
+
 def _handle_doctor(args: argparse.Namespace) -> int:
     states: list[dict[str, Any]] = []
     for name, constructor in sorted(PROVIDERS.items()):
@@ -159,14 +186,26 @@ def _handle_doctor(args: argparse.Namespace) -> int:
                 "name": name,
                 "endpoint_mode": provider.endpoint_mode,
                 "state": "configured" if configured else "unavailable",
-                "detail": provider.configuration_hint() if not configured else "credential present",
+                "detail": _credential_detail(provider),
             }
         )
+    load_failure = config.load_failure()
+    try:
+        sources = config.load().sources()
+    except ValueError:
+        # A broken config is reported below, never a crash.
+        sources = []
     if args.json:
         print(json.dumps(states, indent=2, sort_keys=True))
     else:
         for state in states:
             print(f"{state['name']}: {state['state']} ({state['detail']})")
+        if sources:
+            print("config: " + ", ".join(str(path) for path in sources))
+        else:
+            print("config: none (see config.toml and config.local.toml.example)")
+        if load_failure:
+            print(f"config error: {load_failure}")
     return 0
 
 

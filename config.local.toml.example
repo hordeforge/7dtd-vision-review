@@ -1,0 +1,12 @@
+# Local overrides (gitignored - safe for your API key). Copy this file to
+# config.local.toml and set your key; everything here wins over config.toml.
+#
+# A single key (like the sibling llm-proxy) works for the provider you use:
+#   api_key = "nvapi-..."
+# Or set per provider, which wins over the top-level key:
+#   [providers.nvidia]
+#   api_key = "nvapi-..."
+#
+# You may also override any config.toml key here, e.g.:
+#   [providers.nvidia]
+#   model = "nvidia/another-vision-model"

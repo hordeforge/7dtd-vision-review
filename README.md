@@ -114,9 +114,30 @@ earlier envelope by default.
 | `gemini` | muxed video inline or a frame sequence | `GEMINI_API_KEY` or `GOOGLE_API_KEY` |
 | `nvidia` | a frame sequence (multi-image, NVIDIA NIM vision-chat) | `NVIDIA_API_KEY` |
 
-Credentials come only from environment variables, never as a command
-argument, printed output, or stored evidence. `deadeye doctor` reports state
-from environment presence only and never contacts a provider.
+Credentials come from the environment or from `config.local.toml` (see
+Configuration), never as a command argument, printed output, or stored
+evidence. `deadeye doctor` reports state without contacting a provider and
+names where each key came from.
+
+## Configuration
+
+Two TOML files in one directory, loaded in order (`config.local.toml` wins),
+mirroring the sibling llm-proxy convention:
+
+- `config.toml` — committed, shared settings: `default_provider`,
+  `timeout_seconds`, and per-provider `model` / `endpoint` / generation
+  parameters.
+- `config.local.toml` — **gitignored**, for your API key and machine-local
+  overrides. Copy `config.local.toml.example` to `config.local.toml` and set
+  the key; no `export` needed per shell.
+
+Precedence: CLI flags > environment variables > `config.local.toml` >
+`config.toml` > built-in defaults. Discovery (first directory holding any
+config file wins): `DEADEYE_CONFIG_DIR`, then the current directory, then
+`~/.config/deadeye/`. A key may be top-level (`api_key = "nvapi-..."`, like
+llm-proxy) or per provider (`[providers.nvidia] api_key = "..."`), with the
+per-provider one winning. `deadeye doctor` prints which files were loaded and
+where each key came from — never the value.
 
 ## Consuming repositories
 

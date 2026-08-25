@@ -1,0 +1,27 @@
+# Shared deadeye configuration (committed). Secrets and machine-local
+# overrides go in config.local.toml (gitignored), which wins on conflict.
+# Precedence: CLI flags > env vars > config.local.toml > config.toml >
+# built-in defaults. Copy config.local.toml.example to config.local.toml and
+# put your provider key there instead of exporting it per shell.
+
+# The provider `review` uses when --provider is omitted.
+default_provider = "gemini"
+
+# Seconds to wait for a provider when --timeout is omitted.
+timeout_seconds = 120
+
+# Per-provider settings. `model` overrides the built-in default model for
+# that provider; `endpoint` overrides the fixed API root (rare, for a
+# self-hosted proxy); the generation parameters are the NVIDIA omni-model
+# defaults. Each key here is a fallback: config.local.toml and the
+# environment can both override them.
+[providers.gemini]
+model = "gemini-2.5-flash"
+
+[providers.nvidia]
+model = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
+endpoint = "https://integrate.api.nvidia.com/v1/chat/completions"
+max_tokens = 65536
+reasoning_budget = 16384
+temperature = 0.6
+top_p = 0.95
