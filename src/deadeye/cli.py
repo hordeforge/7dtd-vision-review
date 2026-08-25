@@ -19,6 +19,7 @@ from . import __version__
 from .errors import DeadeyeError
 from .providers.fake import FakeProvider
 from .providers.gemini import GeminiProvider
+from .providers.nvidia import NvidiaProvider
 from .review import run_review
 
 if TYPE_CHECKING:
@@ -29,6 +30,7 @@ if TYPE_CHECKING:
 PROVIDERS: dict[str, Callable[[], VideoReviewProvider]] = {
     "fake": FakeProvider,
     "gemini": GeminiProvider,
+    "nvidia": NvidiaProvider,
 }
 
 
