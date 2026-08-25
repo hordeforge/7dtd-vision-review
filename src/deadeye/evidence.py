@@ -129,13 +129,24 @@ def build_envelope(
     }
 
 
-def write_evidence(path: Path, document: dict[str, Any], *, force: bool) -> tuple[Path, str]:
-    """Write an envelope atomically; refuse to overwrite an earlier one."""
+def ensure_writable(path: Path, *, force: bool) -> None:
+    """Refuse an occupied evidence path before anything is contacted.
+
+    The one home for the overwrite predicate and its wording: `run_review`
+    calls it as a pre-flight check (a rerun into an existing path is refused
+    before credentials are read or any byte leaves the machine, so the guard
+    never has to be paid for), and `write_evidence` re-checks at write time.
+    """
     if path.is_file() and not force:
         raise DeadeyeError(
             f"{path} already holds an earlier review and a later review never "
             "overwrites one by default; compare the documents, or pass --force"
         )
+
+
+def write_evidence(path: Path, document: dict[str, Any], *, force: bool) -> tuple[Path, str]:
+    """Write an envelope atomically; refuse to overwrite an earlier one."""
+    ensure_writable(path, force=force)
     payload = json.dumps(document, indent=2, sort_keys=True)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)

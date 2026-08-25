@@ -27,8 +27,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from . import config, sampling
-from .errors import DeadeyeError
-from .evidence import build_envelope, sha256_file, write_evidence
+from .errors import DeadeyeError, EvidenceWriteError
+from .evidence import build_envelope, ensure_writable, sha256_file, write_evidence
 from .intent import ReviewIntent, load_intent, redact_json_text
 from .prompt import build_prompt
 from .providers.base import MediaPayload, ProviderLimits, ReviewRequest
@@ -59,11 +59,13 @@ def run_review(
 ) -> dict[str, Any]:
     """Submit the actual clip media plus recorded intent, return the envelope.
 
-    Order matters and is tested: consent gate, local intent validation, clip
-    discovery, provider configuration, local format/size limits, sampling,
-    disclosure, submission, structural validation, evidence. A failure at any
-    step raises one user-actionable message and preserves no partial verdict as
-    a completed review.
+    Order matters and is tested: consent gate, evidence-path guard, local
+    intent validation, clip discovery, provider configuration, local
+    format/size limits, sampling, disclosure, submission, structural
+    validation, evidence. A failure at any step raises one user-actionable
+    message and preserves no partial verdict as a completed review; a fault
+    at the last step (after a billed submission) carries the full envelope
+    on `EvidenceWriteError` so the verdict survives it.
     """
     if not allow_network:
         # First of all, before credentials are read or anything is contacted.
@@ -71,6 +73,12 @@ def run_review(
             "deadeye review sends the authored media to a third-party service; "
             "pass --allow-network to consent to that upload"
         )
+    if output is not None:
+        # Second of all, still before anything is contacted: a rerun into an
+        # occupied evidence path is refused here, so obeying the guard never
+        # costs a billable submission. `write_evidence` re-checks at write
+        # time; this early check is what makes the plain rerun free.
+        ensure_writable(output, force=force)
     # The submission path reads provider configuration, so a config that
     # cannot parse must fail here with its real cause. Reading it through the
     # fail-soft `config.value` instead would degrade silently: an unparseable
@@ -179,7 +187,10 @@ def run_review(
                 raw_response=redact_json_text(response.raw_text),
                 params={},
             )
-            write_evidence(output, document, force=force)
+            try:
+                write_evidence(output, document, force=force)
+            except DeadeyeError as exc:
+                raise _evidence_write_fault(exc, document) from exc
             raise DeadeyeError(
                 "the model response failed structural validation; a redacted raw "
                 f"response was preserved at {output} because keep-raw was requested"
@@ -205,10 +216,27 @@ def run_review(
 
     evidence: dict[str, str | None] = {"path": None, "sha256": None}
     if output is not None:
-        evidence_path, evidence_sha256 = write_evidence(output, document, force=force)
+        try:
+            evidence_path, evidence_sha256 = write_evidence(output, document, force=force)
+        except DeadeyeError as exc:
+            # The submission completed and was billed; losing the envelope to
+            # a local write fault would make recovery a second billable
+            # review of the same bytes. The refusal carries the full document
+            # so every transport can still deliver the verdict.
+            raise _evidence_write_fault(exc, document) from exc
         evidence = {"path": str(evidence_path), "sha256": evidence_sha256}
     document["evidence"] = evidence
     return document
+
+
+def _evidence_write_fault(exc: DeadeyeError, document: dict[str, Any]) -> EvidenceWriteError:
+    """Wrap a failed evidence write so the billed verdict survives the refusal."""
+    return EvidenceWriteError(
+        f"{exc} the provider returned a complete verdict for this billed "
+        "submission; the full envelope rides this failure (stdout on the CLI, "
+        "the tool result over MCP) so recovering it needs no second submission",
+        document=document,
+    )
 
 
 @dataclass(frozen=True)

@@ -29,8 +29,10 @@ Deadeye performs exactly one provider submission per invocation and never
 retries; duplicate execution comes from callers. A rerun of the same command
 is a second billable upload that yields an independent envelope with a fresh
 `review_id`: verdicts are not deterministic, and disagreement is preserved,
-never averaged. An existing `--output` path is refused without `--force`, so
-a rerun cannot silently replace earlier evidence.
+never averaged. An existing `--output` path is refused without `--force`,
+so a rerun cannot silently replace earlier evidence — and the refusal comes
+before anything is contacted, so a plain rerun into an occupied path never
+reaches the provider at all.
 
 If a submission times out or the connection dies before a complete response,
 the refusal on stderr states that the attempt may still have completed and
@@ -39,6 +41,12 @@ outcome as ambiguous: resubmitting bills a second review, it does not resume
 the first. Retries are therefore safest only after an unambiguous local
 refusal (consent, configuration, limits), all of which happen before any
 bytes leave the machine.
+
+A completed review whose evidence file cannot be written keeps its non-zero
+exit and `ERROR:` line but still delivers the full envelope on its machine
+channel (stdout for the CLI, the `isError` tool result over MCP). Treat that
+payload as the verdict: persisting or forwarding it recovers the review with
+no second submission.
 
 ## What the consumer adds
 

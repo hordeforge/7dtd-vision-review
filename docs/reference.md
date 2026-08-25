@@ -129,10 +129,19 @@ never retries one. Re-running the same command therefore sends the media a
 second time and produces an independent envelope with its own `review_id` —
 verdicts are not deterministic, and disagreement is preserved rather than
 averaged. An earlier envelope at `--output` is refused (use `--force` to
-replace it deliberately). When a submission times out or the connection dies
-before a complete response, the refusal says so explicitly: the provider may
-still have completed and billed that attempt server-side, so resubmitting is
-a second billable review, not a retry of the first.
+replace it deliberately), and that refusal happens before anything is
+contacted: a rerun into an occupied path never reaches the provider, so
+obeying the guard costs no submission. When a submission times out or the
+connection dies before a complete response, the refusal says so explicitly:
+the provider may still have completed and billed that attempt server-side,
+so resubmitting is a second billable review, not a retry of the first.
+
+If a review completes but its evidence file cannot be written (disk full,
+permissions), the failure keeps its `ERROR:` line and non-zero exit while
+the full envelope still reaches you — stdout with `--json`, otherwise the
+human summary; over MCP it rides the `isError` tool result. A completed,
+billable verdict is never discarded to a local write fault, so recovering
+it never means submitting the media twice.
 
 ## Providers
 

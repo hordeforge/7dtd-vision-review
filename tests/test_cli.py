@@ -160,7 +160,9 @@ def test_an_unwritable_output_path_is_named_in_the_refusal(
 ) -> None:
     """A write failure at --output must refuse like every other failure, and
     the one ERROR line must name the evidence path instead of a bare errno,
-    so the caller can tell which argument failed."""
+    so the caller can tell which argument failed. The submission itself
+    completed and was billed, so its verdict still reaches stdout: recovery
+    never requires paying for the same media twice."""
     from deadeye import evidence
 
     intent = tmp_path / "i.json"
@@ -186,12 +188,50 @@ def test_an_unwritable_output_path_is_named_in_the_refusal(
         capsys,
     )
     assert code == 1
-    assert out == ""
-    # Disclosure lines precede the refusal on stderr; the final line names
-    # the evidence path and the reason, never a bare errno.
+    # The billed verdict rides the failure on the machine channel.
+    envelope = json.loads(out)
+    assert envelope["kind"] == "deadeye-review"
+    assert envelope["result"]["summary"]
+    # The refusal on stderr still names the evidence path and the reason,
+    # never a bare errno.
     last = err.rstrip().splitlines()[-1]
     assert last.startswith("ERROR: cannot write evidence file ")
     assert "Permission denied" in last
+
+
+def test_a_rerun_into_an_occupied_output_never_reaches_the_provider(
+    clip_dir, tmp_path, capsys, monkeypatch
+) -> None:
+    """The overwrite guard fires before anything is contacted, so obeying it
+    costs no billable submission; nothing is printed to stdout either."""
+    from deadeye.providers.fake import FakeProvider
+
+    def unreachable(self, request):
+        raise AssertionError("the provider must not be contacted for an occupied --output")
+
+    monkeypatch.setattr(FakeProvider, "review", unreachable)
+    intent = tmp_path / "i.json"
+    intent.write_text(MINIMAL_INTENT)
+    output = tmp_path / "evidence.json"
+    output.write_text("{}")
+    code, out, err = _run(
+        [
+            "review",
+            str(clip_dir),
+            "--intent",
+            str(intent),
+            "--provider",
+            "fake",
+            "--allow-network",
+            "--json",
+            "--output",
+            str(output),
+        ],
+        capsys,
+    )
+    assert code == 1
+    assert out == ""
+    assert "already holds an earlier review" in err
 
 
 def test_doctor_reports_offline_state(capsys) -> None:

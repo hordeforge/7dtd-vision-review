@@ -78,6 +78,65 @@ def test_an_earlier_evidence_envelope_is_never_overwritten_by_default(
     assert envelope["evidence"]["path"] == str(output)
 
 
+def test_a_rerun_into_an_occupied_output_refuses_before_any_submission(
+    clip_dir, intent_path, tmp_path, monkeypatch
+) -> None:
+    """The overwrite guard is checked before anything is contacted: a plain
+    rerun into an existing --output is refused for free instead of paying
+    for a full billable submission and only then refusing to write."""
+    output = tmp_path / "evidence.json"
+    output.write_text("{}")
+
+    submissions: list[object] = []
+    provider = FakeProvider()
+    real_review = provider.review
+
+    def counting(request):
+        submissions.append(request)
+        return real_review(request)
+
+    monkeypatch.setattr(provider, "review", counting)
+    with pytest.raises(DeadeyeError, match="already holds an earlier review"):
+        run_review(
+            clip_dir,
+            provider=provider,
+            intent_path=intent_path,
+            allow_network=True,
+            output=output,
+        )
+    assert submissions == []
+
+
+def test_a_failed_evidence_write_still_delivers_the_billed_verdict(
+    clip_dir, intent_path, tmp_path, monkeypatch
+) -> None:
+    """A write fault after a completed submission must not discard the
+    verdict: the refusal carries the full envelope, so recovering it never
+    means resubmitting (and re-billing) the same media."""
+    from pathlib import Path
+
+    from deadeye.errors import EvidenceWriteError
+
+    output = tmp_path / "evidence.json"
+
+    def no_space(self, *args, **kwargs):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(Path, "write_bytes", no_space)
+    with pytest.raises(EvidenceWriteError) as exc_info:
+        run_review(
+            clip_dir,
+            provider=FakeProvider(),
+            intent_path=intent_path,
+            allow_network=True,
+            output=output,
+        )
+    document = exc_info.value.document
+    assert document["kind"] == "deadeye-review"
+    assert document["result"]["summary"]
+    assert document["provider"]["name"] == "fake"
+
+
 def test_evidence_is_written_and_hashes_address_it(clip_dir, intent_path, tmp_path) -> None:
     import hashlib
 

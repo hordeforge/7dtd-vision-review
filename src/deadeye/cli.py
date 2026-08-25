@@ -20,9 +20,10 @@ import json
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 from . import __version__, config
-from .errors import DeadeyeError
+from .errors import DeadeyeError, EvidenceWriteError
 from .review import run_review
 from .surface import (
     PROVIDERS,
@@ -240,19 +241,33 @@ def _handle_review(args: argparse.Namespace) -> int:
 
     provider_name = _resolve_provider(args.provider)
     timeout = _resolve_timeout(args.timeout)
-    envelope = run_review(
-        args.clip,
-        provider=PROVIDERS[provider_name](),
-        intent_path=args.intent,
-        intent_text=args.intent_text,
-        model=args.model,
-        allow_network=args.allow_network,
-        timeout_seconds=timeout,
-        keep_raw_response=args.keep_raw_response,
-        output=args.output,
-        force=args.force,
-        notify=notify,
-    )
+    try:
+        envelope = run_review(
+            args.clip,
+            provider=PROVIDERS[provider_name](),
+            intent_path=args.intent,
+            intent_text=args.intent_text,
+            model=args.model,
+            allow_network=args.allow_network,
+            timeout_seconds=timeout,
+            keep_raw_response=args.keep_raw_response,
+            output=args.output,
+            force=args.force,
+            notify=notify,
+        )
+    except EvidenceWriteError as exc:
+        # The submission completed and was billed; only the evidence write
+        # failed. The refusal keeps its ERROR line and non-zero exit, but the
+        # verdict still reaches the caller's machine channel, so recovering
+        # it never means paying for the same media twice.
+        print(f"ERROR: {exc}", file=sys.stderr)
+        _present_review(args, exc.document)
+        return 1
+    _present_review(args, envelope)
+    return 0
+
+
+def _present_review(args: argparse.Namespace, envelope: dict[str, Any]) -> None:
     if args.json:
         print(json.dumps(envelope, indent=2, sort_keys=True))
     else:
@@ -263,9 +278,9 @@ def _handle_review(args: argparse.Namespace) -> int:
         print(f"model: {reported or requested}")
         print(f"summary: {result['summary']}")
         print(f"issues: {len(result['issues'])}")
-        if envelope["evidence"]["path"]:
-            print(f"evidence: {envelope['evidence']['path']}")
-    return 0
+        evidence = envelope.get("evidence") or {}
+        if evidence.get("path"):
+            print(f"evidence: {evidence['path']}")
 
 
 def _handle_prompt(args: argparse.Namespace) -> int:

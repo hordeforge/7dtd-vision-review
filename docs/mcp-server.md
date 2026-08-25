@@ -23,7 +23,11 @@ calls, spec error codes, and the review consent boundary.
   between frames, so a client that resends a `review` call (lost response,
   timeout, replay) triggers a second billable submission rather than
   retrieving the first attempt's verdict; the tool description says so, and
-  ambiguous transport failures carry the same warning as the CLI's.
+  ambiguous transport failures carry the same warning as the CLI's. One
+  partial failure is not allowed to force that resend: when a review
+  completes but its evidence file cannot be written, the `isError` tool
+  result carries the full envelope beside the error text, so the client
+  recovers the billed verdict without submitting the media again.
 - **stdout stays clean.** The MCP server speaks JSON-RPC on stdio (the
   standard MCP transport), which is why the CLI already routes disclosure to
   stderr: a future `deadeye serve` replaces the argparse dispatcher, not the

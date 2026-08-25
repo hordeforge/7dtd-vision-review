@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Any, TextIO
 
 from . import __version__
-from .errors import DeadeyeError
+from .errors import DeadeyeError, EvidenceWriteError
 from .review import run_review as run_review_core
 from .surface import (
     PROVIDERS,
@@ -199,6 +199,28 @@ def handle_frame(frame: dict[str, Any]) -> dict[str, Any] | None:
             return _error(request_id, -32602, f"Unknown tool: {name}")
         try:
             return {"jsonrpc": "2.0", "id": request_id, "result": _tool_result(call(arguments))}
+        except EvidenceWriteError as exc:
+            # Same contract as the CLI: the submission completed and was
+            # billed, only the evidence write failed. isError stays true
+            # (nothing was persisted), and the full envelope travels in the
+            # result text so an agent recovers it without resubmitting.
+            return {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "result": {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": json.dumps(
+                                {"error": str(exc), "envelope": exc.document},
+                                indent=2,
+                                sort_keys=True,
+                            ),
+                        }
+                    ],
+                    "isError": True,
+                },
+            }
         except DeadeyeError as exc:
             return {"jsonrpc": "2.0", "id": request_id, "result": _tool_error(str(exc))}
         except (KeyError, TypeError, ValueError, OSError) as exc:

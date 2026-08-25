@@ -69,6 +69,45 @@ def test_review_with_a_fake_provider_returns_the_envelope(tmp_path) -> None:
     assert envelope["provider"]["name"] == "fake"
 
 
+def test_a_failed_evidence_write_returns_the_envelope_as_an_error_result(
+    tmp_path, monkeypatch
+) -> None:
+    """The billed verdict rides the failure over MCP too: isError stays true
+    (nothing was persisted), and the tool result text carries the full
+    envelope so an agent recovers it without resubmitting the media."""
+    from pathlib import Path
+
+    clip = tmp_path / "clip"
+    clip.mkdir()
+    (clip / "frame-0000.png").write_bytes(b"x")
+    intent = tmp_path / "i.json"
+    intent.write_text(json.dumps({"purpose": "p"}), encoding="utf-8")
+    output = tmp_path / "evidence.json"
+
+    def no_space(self, *args, **kwargs):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(Path, "write_bytes", no_space)
+    response = _call(
+        "tools/call",
+        {
+            "name": "review",
+            "arguments": {
+                "clip": str(clip),
+                "intent": str(intent),
+                "provider": "fake",
+                "allow_network": True,
+                "output": str(output),
+            },
+        },
+    )
+    assert response["result"]["isError"] is True
+    payload = json.loads(response["result"]["content"][0]["text"])
+    assert payload["envelope"]["kind"] == "deadeye-review"
+    assert payload["envelope"]["result"]["summary"]
+    assert "cannot write evidence file" in payload["error"]
+
+
 def test_review_announces_the_disclosure_lines_on_stderr(tmp_path, capsys) -> None:
     """The CLI's disclosure contract carries over the transport unchanged:
     what will leave the machine is announced on stderr before submission,

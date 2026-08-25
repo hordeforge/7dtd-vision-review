@@ -21,6 +21,15 @@ open a new one.
 
 ### Fixed
 
+- A completed review whose evidence file cannot be written (disk full,
+  permissions) no longer discards the billed verdict: the refusal keeps its
+  `ERROR:` line and non-zero exit while the full envelope still reaches the
+  caller (stdout with `--json` or the human summary on the CLI, the
+  `isError` tool result over MCP), so recovering it never means resubmitting
+  the same media as a second billable review.
+- An occupied `--output` path is refused before anything is contacted, so a
+  rerun into existing evidence never reaches the provider; previously the
+  guard fired only at write time, after the submission had been paid for.
 - An issue naming a moment with only one half of a `start_frame`/`end_frame`
   or `start_seconds`/`end_seconds` pair is refused with the missing partner
   named, instead of the half being silently dropped while the rest of the
