@@ -292,3 +292,26 @@ def redact(value: Any, parts: tuple[str, ...] = SENSITIVE_KEY_PARTS) -> Any:
 def _is_sensitive_key(key: str, parts: tuple[str, ...] = SENSITIVE_KEY_PARTS) -> bool:
     lowered = key.lower()
     return lowered == "key" or any(part in lowered for part in parts)
+
+
+def redact_json_text(text: str, parts: tuple[str, ...] = SENSITIVE_KEY_PARTS) -> str:
+    """Redact credential-bearing keys from a JSON-encoded document string.
+
+    A raw provider response arrives as one string, which plain `redact()`
+    would return untouched however structured its contents are: the backstop
+    walks mappings, and a string is a leaf. When the text parses as a JSON
+    object or array, its mapping keys are redacted and the document
+    re-serialized; anything else (model prose, a bare scalar, broken or
+    truncated JSON) comes back byte-identical: there is nothing
+    structure-shaped to clean, and guessing further would rewrite the record.
+    """
+    stripped = text.strip()
+    if not stripped or stripped[0] not in "{[":
+        return text
+    try:
+        parsed = json.loads(stripped)
+    except (json.JSONDecodeError, RecursionError):
+        return text
+    if not isinstance(parsed, (dict, list)):
+        return text
+    return json.dumps(redact(parsed, parts))

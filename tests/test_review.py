@@ -136,6 +136,71 @@ def test_credentials_never_appear_in_evidence(clip_dir, intent_path, tmp_path) -
     assert "api_key" not in json.dumps(document)
 
 
+def test_a_json_raw_response_is_actually_redacted_before_it_is_kept(
+    clip_dir, intent_path, tmp_path, monkeypatch
+) -> None:
+    """`--keep-raw-response` claims a *redacted* copy; a raw response is a
+    string, so the mapping-walking backstop must be applied to its parsed
+    contents or credential-named keys ride straight into stored evidence."""
+    provider = FakeProvider()
+    original = provider.review
+
+    def echoing_review(request):
+        from deadeye.providers.base import ReviewResponse
+
+        original(request)
+        return ReviewResponse(
+            raw_text='{"summary": "verdict", "api_key": "nvapi-echoed"}',
+            usage=None,
+            model_reported=None,
+        )
+
+    monkeypatch.setattr(provider, "review", echoing_review)
+    output = tmp_path / "evidence.json"
+    with pytest.raises(DeadeyeError, match="redacted raw"):
+        run_review(
+            clip_dir,
+            provider=provider,
+            intent_path=intent_path,
+            allow_network=True,
+            keep_raw_response=True,
+            output=output,
+        )
+    document = json.loads(output.read_text())
+    assert "nvapi-echoed" not in document["raw_provider_response"]
+    assert '"summary": "verdict"' in document["raw_provider_response"]
+
+
+def test_non_json_prose_in_a_kept_raw_response_stays_byte_identical(
+    clip_dir, intent_path, tmp_path, monkeypatch
+) -> None:
+    """Redaction may only rewrite structure-shaped text: model prose that
+    fails to parse must survive exactly as the provider sent it."""
+    prose = "I could not produce JSON today; here is my verdict in words."
+    provider = FakeProvider()
+    original = provider.review
+
+    def prosing_review(request):
+        from deadeye.providers.base import ReviewResponse
+
+        original(request)
+        return ReviewResponse(raw_text=prose, usage=None, model_reported=None)
+
+    monkeypatch.setattr(provider, "review", prosing_review)
+    output = tmp_path / "evidence.json"
+    with pytest.raises(DeadeyeError, match="redacted raw"):
+        run_review(
+            clip_dir,
+            provider=provider,
+            intent_path=intent_path,
+            allow_network=True,
+            keep_raw_response=True,
+            output=output,
+        )
+    document = json.loads(output.read_text())
+    assert document["raw_provider_response"] == prose
+
+
 def test_invalid_structured_output_fails_validation(clip_dir, tmp_path, monkeypatch) -> None:
 
     provider = FakeProvider()

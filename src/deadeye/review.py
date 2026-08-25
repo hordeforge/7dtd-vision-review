@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, Any
 from . import config, sampling
 from .errors import DeadeyeError
 from .evidence import build_envelope, sha256_file, write_evidence
-from .intent import load_intent_file, parse_intent_text, redact
+from .intent import load_intent_file, parse_intent_text, redact_json_text
 from .prompt import build_prompt
 from .providers.base import MediaPayload, ReviewRequest
 from .result import BASE_RUBRIC, parse_model_json, validate_result
@@ -235,7 +235,7 @@ def run_review(
             document = envelope_for(
                 result=None,
                 error="the model response failed structural validation; see raw_provider_response",
-                raw_response=redact(response.raw_text),
+                raw_response=redact_json_text(response.raw_text),
                 params={},
             )
             write_evidence(output, document, force=force)
@@ -258,7 +258,7 @@ def run_review(
     document = envelope_for(
         result=result,
         error=None,
-        raw_response=redact(response.raw_text) if keep_raw_response else None,
+        raw_response=redact_json_text(response.raw_text) if keep_raw_response else None,
         params=params,
     )
 

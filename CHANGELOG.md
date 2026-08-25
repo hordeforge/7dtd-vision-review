@@ -21,6 +21,14 @@ open a new one.
 
 ### Fixed
 
+- A kept raw provider response (`--keep-raw-response`) is now actually
+  redacted. The backstop walks JSON mappings, but a raw response arrives as
+  one string, so a response whose text parsed as a JSON document passed
+  through untouched and credential-named keys inside it rode straight into
+  stored evidence despite the "redacted" claim on the refusal line and in the
+  docs. JSON-object/array responses are now parsed, redacted, and
+  re-serialized; model prose, bare scalars, and broken JSON come back
+  byte-identical.
 - Per-provider generation parameters (`max_tokens`, `reasoning_budget`,
   `temperature`, `top_p`, `max_output_tokens`) are validated instead of
   silently ignored: a value that is present but unusable — a string where a

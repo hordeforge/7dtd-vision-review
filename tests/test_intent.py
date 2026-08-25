@@ -14,6 +14,7 @@ from deadeye.intent import (
     parse_intent,
     parse_intent_text,
     redact,
+    redact_json_text,
 )
 
 
@@ -210,3 +211,39 @@ def test_redact_keeps_token_counters_for_usage() -> None:
 
     value = {"totalTokenCount": 12, "secret": "x"}
     assert redact(value, USAGE_SENSITIVE_KEY_PARTS) == {"totalTokenCount": 12}
+
+
+def test_redact_json_text_drops_credential_keys_from_a_document_string() -> None:
+    # A raw provider response arrives as one string, which plain `redact()`
+    # would pass through untouched however structured its contents are.
+    cleaned = json.loads(
+        redact_json_text(
+            '{"summary": "verdict", "api_key": "nvapi-x", "meta": {"token": "t", "keep": 1}}'
+        )
+    )
+    assert cleaned == {"summary": "verdict", "meta": {"keep": 1}}
+
+
+def test_redact_json_text_handles_an_array_document() -> None:
+    cleaned = json.loads(redact_json_text('[{"api_key": "k"}, {"ok": 1}]'))
+    assert cleaned == [{}, {"ok": 1}]
+
+
+def test_redact_json_text_leaves_prose_scalars_and_broken_json_byte_identical() -> None:
+    # Only structure-shaped text may be rewritten; anything else comes back
+    # exactly as it arrived so the record stays honest about what was said.
+    for text in (
+        "the model declined to answer in JSON",
+        'a bare scalar: "just words"',
+        "42",
+        "",
+        "   ",
+        '{"summary": "truncat',
+        "{not json at all}",
+    ):
+        assert redact_json_text(text) == text
+
+
+def test_redact_json_text_redacts_surrounding_whitespace_document() -> None:
+    cleaned = json.loads(redact_json_text('  \n{"summary": "s", "secret": "v"}\n  '))
+    assert cleaned == {"summary": "s"}
