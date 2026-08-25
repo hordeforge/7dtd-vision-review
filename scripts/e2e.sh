@@ -271,8 +271,12 @@ if [[ -z "$CLIP" ]]; then
 	<Version value="1.0.0" />
 </xml>
 EOF
+            # A rectangular footprint (0.4 wide x 0.2 deep, 0.5 tall): a
+            # square-footprint column is rotationally near-invisible, and the
+            # first live run's review honestly reported a static box. The
+            # turntable turn must be visible for the review to mean anything.
             "$SHAMWAY" generate mesh "assets-src/bundle/${CLIP_STEM}.glb" \
-                --shape box --size 0.2 0.2 0.5
+                --shape box --size 0.4 0.2 0.5
             cat >> .shamway.toml <<'EOF'
 
 [acceptance]
