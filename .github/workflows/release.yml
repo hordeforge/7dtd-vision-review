@@ -1,0 +1,88 @@
+name: release
+
+# Tag-driven releases, same shape as the other hordeforge projects: pushing
+# vX.Y.Z re-runs the suite on the tagged tree, then publishes a GitHub Release
+# carrying the sdist and wheel built from exactly that tree.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # Actions pinned by full commit SHA (tag in comment) so a moved tag or a
+      # compromised major-version release cannot inject code into the pipeline.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          enable-cache: true
+      - run: uv sync --locked --python 3.13
+      - run: echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+      # Exercise the installed console script, not only the source tree.
+      - run: deadeye --help
+      - run: deadeye schema
+      - run: make check test
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          enable-cache: true
+
+      # The published artifact version must equal the tag, so a wheel can
+      # never claim a version nobody tagged. src/deadeye/_version.py is a
+      # mirror and is checked against the same tag rather than trusted.
+      - name: Check the tag matches pyproject.toml and _version.py
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          case "$TAG" in v*) ;; *) echo "ERROR: tag '$TAG' does not start with 'v'" >&2; exit 1;; esac
+          PYPROJECT="$(sed -n 's/^version = "\(.*\)"$/\1/p' pyproject.toml | head -1)"
+          MIRROR="$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' src/deadeye/_version.py | head -1)"
+          if [ -z "$PYPROJECT" ]; then
+            echo "ERROR: no version = \"...\" line found in pyproject.toml" >&2
+            exit 1
+          fi
+          if [ "$PYPROJECT" != "${TAG#v}" ]; then
+            echo "ERROR: tag $TAG but pyproject.toml says version $PYPROJECT; make them match before tagging" >&2
+            exit 1
+          fi
+          if [ "$MIRROR" != "$PYPROJECT" ]; then
+            echo "ERROR: pyproject.toml says $PYPROJECT but src/deadeye/_version.py says $MIRROR" >&2
+            exit 1
+          fi
+          echo "ok: tag $TAG matches pyproject.toml and _version.py ($PYPROJECT)"
+
+      - run: uv build
+
+      # A CycloneDX 1.5 inventory of exactly what the committed uv.lock
+      # resolves to, attached beside the artifacts so consumers and
+      # vulnerability scanners see what shipped without parsing the wheel.
+      - run:
+          uv export --preview-features sbom-export --format cyclonedx1.5
+          --no-dev --all-extras -o dist/sbom.cdx.json
+
+      - name: Create the GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          gh release create "$TAG" dist/*.whl dist/*.tar.gz dist/sbom.cdx.json \
+            --title "Deadeye / Vision Review ${VERSION}" \
+            --notes "HordeForge Release ${TAG}: shared vision-model review gateway returning structured, hash-addressed, advisory evidence on a clip under its recorded intent."
