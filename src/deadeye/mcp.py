@@ -48,7 +48,10 @@ TOOLS: list[dict[str, Any]] = [
         "description": "Submit a clip (frame directory or muxed video) plus its "
         "recorded intent to a vision model and return the advisory evidence "
         "envelope. Uploads the clip to a third party: refuses without "
-        "allow_network=true.",
+        "allow_network=true. Every call is one new billable submission and "
+        "never retries: resending this call after a lost response or a "
+        "timeout submits the media again rather than replaying the first "
+        "attempt.",
         "inputSchema": {
             "type": "object",
             "properties": {

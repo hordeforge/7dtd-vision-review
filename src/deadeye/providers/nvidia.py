@@ -161,9 +161,14 @@ class NvidiaProvider:
                 f"provider 'nvidia' refused the review (HTTP {exc.code}): {detail}"
             ) from exc
         except TimeoutError as exc:
+            # The request may have reached the provider and completed there:
+            # a caller that resubmits starts a second billable review, it does
+            # not retry this one. Every ambiguous-outcome refusal says so.
             raise DeadeyeError(
                 f"provider 'nvidia' did not answer within {request.timeout_seconds:g}s; "
-                "no verdict was produced"
+                "no verdict arrived, and the submission may still have completed "
+                "and billed server-side: submitting again is a new billable "
+                "review, not a retry of this one"
             ) from exc
         except urllib.error.URLError as exc:
             raise DeadeyeError(
@@ -175,9 +180,14 @@ class NvidiaProvider:
             # A connection that dies mid-body (reset, truncated chunked
             # response) surfaces here, not as a traceback: the request was
             # billed and no verdict came back, which is a refusal to report.
+            # The server side may still finish and bill the attempt, so the
+            # refusal also warns against treating a resubmission as a retry.
             raise DeadeyeError(
                 f"provider 'nvidia' connection failed before a complete "
-                f"response arrived: {exc!r}; no verdict was produced"
+                f"response arrived: {exc!r}; no verdict arrived, and the "
+                "submission may still have completed and billed server-side: "
+                "submitting again is a new billable review, not a retry of "
+                "this one"
             ) from exc
 
         choices = envelope.get("choices") or []

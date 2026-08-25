@@ -170,9 +170,14 @@ def run_review(
     try:
         response = provider.review(request)
     except TimeoutError as exc:
+        # An adapter let its own timeout escape. The request was sent, so the
+        # provider may still complete and bill it: resubmitting is a second
+        # billable review, never a retry of this one.
         raise DeadeyeError(
             f"provider {provider.name!r} did not answer within {timeout_seconds:g}s; "
-            "no verdict was produced"
+            "no verdict arrived, and the submission may still have completed "
+            "and billed server-side: submitting again is a new billable "
+            "review, not a retry of this one"
         ) from exc
 
     media_entries: list[dict[str, Any]] = []

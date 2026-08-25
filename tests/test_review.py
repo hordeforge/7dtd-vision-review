@@ -169,3 +169,48 @@ def test_a_failed_evidence_write_strands_no_partial_temp_file(
     with pytest.raises(OSError, match="No space left"):
         write_evidence(output, {"kind": "deadeye-review"}, force=False)
     assert list(tmp_path.glob("*.tmp")) == []
+
+
+def test_a_timeout_refusal_warns_that_resubmitting_bills_again(
+    clip_dir, intent_path, monkeypatch
+) -> None:
+    """A timeout is ambiguous: the provider may have completed and billed the
+    attempt server-side. The refusal must say that resubmitting starts a new
+    billable review, so no caller mistakes it for a safe retry."""
+    provider = FakeProvider()
+
+    def slow_review(request):
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr(provider, "review", slow_review)
+    with pytest.raises(DeadeyeError, match="new billable review, not a retry"):
+        run_review(clip_dir, provider=provider, intent_path=intent_path, allow_network=True)
+
+
+def test_rerunning_a_review_preserves_both_envelopes_as_independent_evidence(
+    clip_dir, intent_path, tmp_path
+) -> None:
+    """Two executions of the same review never converge into one artifact:
+    each run submits again and writes its own envelope under its own
+    `review_id`, and the first file is untouched by the second run."""
+    import json
+
+    first_output = tmp_path / "first.json"
+    second_output = tmp_path / "second.json"
+    first = run_review(
+        clip_dir,
+        provider=FakeProvider(),
+        intent_path=intent_path,
+        allow_network=True,
+        output=first_output,
+    )
+    second = run_review(
+        clip_dir,
+        provider=FakeProvider(),
+        intent_path=intent_path,
+        allow_network=True,
+        output=second_output,
+    )
+    assert first["review_id"] != second["review_id"]
+    assert json.loads(first_output.read_text())["review_id"] == first["review_id"]
+    assert json.loads(second_output.read_text())["review_id"] == second["review_id"]

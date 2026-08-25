@@ -23,6 +23,23 @@ are written to stderr and are for humans; the caller should surface the
 provider, file count, and total bytes before invoking deadeye or relay the
 stderr lines after.
 
+## Running a review twice
+
+Deadeye performs exactly one provider submission per invocation and never
+retries; duplicate execution comes from callers. A rerun of the same command
+is a second billable upload that yields an independent envelope with a fresh
+`review_id`: verdicts are not deterministic, and disagreement is preserved,
+never averaged. An existing `--output` path is refused without `--force`, so
+a rerun cannot silently replace earlier evidence.
+
+If a submission times out or the connection dies before a complete response,
+the refusal on stderr states that the attempt may still have completed and
+been billed server-side. A caller with its own retry policy must treat that
+outcome as ambiguous: resubmitting bills a second review, it does not resume
+the first. Retries are therefore safest only after an unambiguous local
+refusal (consent, configuration, limits), all of which happen before any
+bytes leave the machine.
+
 ## What the consumer adds
 
 The envelope is the model-I/O record. The consumer's own evidence document

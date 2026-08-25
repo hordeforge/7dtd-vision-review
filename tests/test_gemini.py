@@ -96,7 +96,7 @@ def test_a_connection_fault_mid_response_is_a_refusal_not_a_crash(monkeypatch) -
             raise _fault
 
         monkeypatch.setattr("urllib.request.urlopen", broken_urlopen)
-        with pytest.raises(DeadeyeError, match="no verdict was produced"):
+        with pytest.raises(DeadeyeError, match="new billable review"):
             GeminiProvider().review(_review_request())
 
 

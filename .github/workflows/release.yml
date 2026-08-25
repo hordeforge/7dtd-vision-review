@@ -99,6 +99,15 @@ jobs:
             echo "WARNING: no CHANGELOG.md section for ${VERSION}; using the default note. Rename '## Unreleased' to '## ${VERSION}' before tagging." >&2
             printf '%s\n' "$DEFAULT_NOTES" > "$RUNNER_TEMP/release-notes.md"
           fi
-          gh release create "$TAG" dist/*.whl dist/*.tar.gz dist/sbom.cdx.json \
-            --title "Deadeye / Vision Review ${VERSION}" \
-            --notes-file "$RUNNER_TEMP/release-notes.md"
+          # Convergent on re-run: a failed attempt that already created the
+          # release (assets missing or partial) must not wedge the next run
+          # on "already exists". Create only when absent, then always upload
+          # with --clobber so both paths end with the same complete set.
+          if gh release view "$TAG" --json id -q .id >/dev/null 2>&1; then
+            echo "release $TAG already exists; replacing its assets"
+          else
+            gh release create "$TAG" \
+              --title "Deadeye / Vision Review ${VERSION}" \
+              --notes-file "$RUNNER_TEMP/release-notes.md"
+          fi
+          gh release upload "$TAG" dist/*.whl dist/*.tar.gz dist/sbom.cdx.json --clobber

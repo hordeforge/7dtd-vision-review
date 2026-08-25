@@ -18,6 +18,11 @@ calls, spec error codes, and the review consent boundary.
   explicit per-call parameter that refuses the upload when unset; credentials
   still come only from the environment; disclosure lines still precede
   submission.
+- **Duplicate calls are duplicate submissions.** The server keeps no state
+  between frames, so a client that resends a `review` call (lost response,
+  timeout, replay) triggers a second billable submission rather than
+  retrieving the first attempt's verdict; the tool description says so, and
+  ambiguous transport failures carry the same warning as the CLI's.
 - **stdout stays clean.** The MCP server speaks JSON-RPC on stdio (the
   standard MCP transport), which is why the CLI already routes disclosure to
   stderr: a future `deadeye serve` replaces the argparse dispatcher, not the
