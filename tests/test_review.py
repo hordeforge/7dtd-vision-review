@@ -214,3 +214,30 @@ def test_rerunning_a_review_preserves_both_envelopes_as_independent_evidence(
     assert first["review_id"] != second["review_id"]
     assert json.loads(first_output.read_text())["review_id"] == first["review_id"]
     assert json.loads(second_output.read_text())["review_id"] == second["review_id"]
+
+
+def test_disclosure_counts_every_submitted_copy_of_a_file(clip_dir, tmp_path) -> None:
+    """The same reference listed twice is uploaded twice: the disclosure and
+    the evidence must count every byte that leaves the machine, not unique
+    paths."""
+    reference = tmp_path / "ref.png"
+    reference.write_bytes(b"A" * 500)
+    intent = tmp_path / "i.json"
+    intent.write_text(
+        json.dumps(
+            {
+                "purpose": "p",
+                "references": [
+                    {"path": str(reference), "purpose": "a"},
+                    {"path": str(reference), "purpose": "b"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    provider = FakeProvider()
+    envelope = run_review(clip_dir, provider=provider, intent_path=intent, allow_network=True)
+    request = provider.requests[-1]
+    actual_bytes = sum(len(payload.data) for payload in request.media)
+    assert envelope["disclosure"]["total_bytes"] == actual_bytes
+    assert len(envelope["media"]) == len(request.media)

@@ -126,8 +126,11 @@ def run_review(
         *candidate_record.submitted_files,
         *((str(reference.path), "reference") for reference in intent.references),
     ]
-    digests = {path: sha256_file(Path(path)) for path, _ in submitted}
-    total_bytes = sum(size for _, size in digests.values())
+    # Per entry, not per unique path: the same file listed twice (a repeated
+    # reference, a reference inside the clip) is uploaded twice, and the
+    # disclosure must count every byte that leaves the machine.
+    hashed = [sha256_file(Path(path)) for path, _ in submitted]
+    total_bytes = sum(size for _, size in hashed)
     if limits.max_bytes is not None and total_bytes > limits.max_bytes:
         raise DeadeyeError(
             f"submission is {total_bytes} bytes; provider {provider.name!r} accepts at "
@@ -182,8 +185,7 @@ def run_review(
         ) from exc
 
     media_entries: list[dict[str, Any]] = []
-    for path, kind in submitted:
-        digest, size = digests[path]
+    for (path, kind), (digest, size) in zip(submitted, hashed, strict=True):
         media_entries.append(
             {
                 "path": path,

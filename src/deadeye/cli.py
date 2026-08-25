@@ -231,6 +231,10 @@ def _handle_review(args: argparse.Namespace) -> int:
 
 def _credential_detail(provider: VideoReviewProvider) -> str:
     """Where the provider's credential came from, for doctor; never the value."""
+    if not provider.requires_credential:
+        # A keyless provider (the fake) must not be described as holding a
+        # key just because some other provider's credential is configured.
+        return provider.configuration_hint()
     env_names = provider.credential_env_names if hasattr(provider, "credential_env_names") else ()
     from_env = any(os.environ.get(name) for name in env_names)
     from_local = config.value(("providers", provider.name, "api_key"))
@@ -325,11 +329,17 @@ def _handle_doctor(args: argparse.Namespace) -> int:
     return 0
 
 
-def _handle_schema(args: argparse.Namespace) -> int:
+def schema_document() -> dict[str, Any]:
+    """The intent and result schemas as one document.
+
+    The single home both surfaces print: `deadeye schema` and the MCP
+    `schema` tool return the same shapes by contract, so this is built once
+    and never allowed to drift into two versions.
+    """
     from .intent import CAMERA_PATHS, INTENT_SCHEMA_VERSION
     from .result import BASE_RUBRIC, RESULT_KEYS, RUBRIC_VERSION
 
-    schema = {
+    return {
         "intent": {
             "schema_version": INTENT_SCHEMA_VERSION,
             "required": ["purpose"],
@@ -356,7 +366,10 @@ def _handle_schema(args: argparse.Namespace) -> int:
             "dimensions": [item.key for item in BASE_RUBRIC],
         },
     }
-    print(json.dumps(schema, indent=2, sort_keys=True))
+
+
+def _handle_schema(args: argparse.Namespace) -> int:
+    print(json.dumps(schema_document(), indent=2, sort_keys=True))
     return 0
 
 

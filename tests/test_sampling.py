@@ -109,6 +109,19 @@ def test_video_only_without_frames_refused_when_provider_takes_images_only(
         sample(discover(clip), max_frames=8, video_capable=False, max_video_bytes=None)
 
 
+def test_an_over_budget_video_without_frames_names_the_budget_not_capability(
+    tmp_path,
+) -> None:
+    """A video-capable provider whose budget the file exceeds is a different
+    fault from a provider that cannot ingest video at all: the refusal must
+    name the byte budget and the fix (a shorter clip), not the capability."""
+    clip = tmp_path / "clip"
+    clip.mkdir()
+    (clip / "clip.mp4").write_bytes(b"v" * 100)
+    with pytest.raises(DeadeyeError, match=r"over the provider's 10-byte video budget"):
+        sample(discover(clip), max_frames=8, video_capable=True, max_video_bytes=10)
+
+
 def test_mime_for_suffix_covers_images_and_video() -> None:
     assert mime_for_suffix(".png") == "image/png"
     assert mime_for_suffix(".jpg") == "image/jpeg"

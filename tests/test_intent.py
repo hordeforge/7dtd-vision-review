@@ -42,6 +42,13 @@ def test_unsupported_schema_version_is_refused() -> None:
         parse_intent({"schema_version": 99, "purpose": "x"}, "intent")
 
 
+def test_a_boolean_schema_version_is_refused_not_read_as_one() -> None:
+    # True == 1 in Python; a JSON `true` must read as the malformed type it
+    # is, never silently pass the version check.
+    with pytest.raises(DeadeyeError, match="schema_version"):
+        parse_intent({"schema_version": True, "purpose": "x"}, "intent")
+
+
 def test_references_need_path_and_purpose() -> None:
     intent = parse_intent(
         {

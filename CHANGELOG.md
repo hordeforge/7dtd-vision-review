@@ -85,6 +85,26 @@ open a new one.
 
 ### Fixed
 
+- The MCP `review` tool now emits the same stderr disclosure lines as the CLI
+  (provider, model, every file and byte about to leave the machine, the
+  third-party retention warning) before submitting; previously the transport
+  documented disclosure but sent nothing, so an MCP-driven review uploaded
+  media unannounced. stdout stays protocol-only.
+- A clip whose muxed video exceeds the provider's video byte budget with no
+  frames to fall back on is refused with the real fault named ("over the
+  provider's N-byte video budget; shorten or recompress the clip") instead of
+  falsely claiming the provider cannot ingest video.
+- The disclosure line, the evidence's `disclosure.total_bytes`, and the
+  `media` list now count a file submitted more than once once per copy: the
+  same reference listed twice in an intent is uploaded twice and was
+  previously reported by unique path, understating what left the machine.
+- `deadeye doctor` no longer describes the credential-less `fake` provider as
+  holding a key just because another provider's key is configured.
+- The MCP `doctor` tool returns the same `detail` field as
+  `deadeye doctor --json`, and the MCP `schema` tool returns exactly what
+  `deadeye schema` prints (same surface, same shapes, one shared builder).
+- An intent `"schema_version": true` is refused instead of slipping through
+  the version check (`True == 1` in Python).
 - An intent file saved with a leading UTF-8 BOM (as some editors still write)
   now parses instead of dying as "not valid JSON"; evidence still hashes the
   file's exact bytes, BOM included.

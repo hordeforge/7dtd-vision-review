@@ -153,6 +153,16 @@ def sample(
     if media.video is not None and video_capable:
         size = media.video.stat().st_size
         if max_video_bytes is not None and size > max_video_bytes:
+            if not media.frames:
+                # The provider ingests video fine; the file is simply over its
+                # byte budget and there is nothing to fall back to. Naming the
+                # capability instead would send the operator hunting for a
+                # different provider when the clip is what must change.
+                raise DeadeyeError(
+                    f"{media.video} is {size} bytes, over the provider's "
+                    f"{max_video_bytes}-byte video budget, and there are no "
+                    "frames to sample instead; shorten or recompress the clip"
+                )
             note = (
                 f"muxed video {media.video.name} is {size} bytes, over the provider's "
                 f"{max_video_bytes}-byte video budget; sampled frames instead"
@@ -171,6 +181,11 @@ def sample(
     frames = list(media.frames)
     available = len(frames)
     if not frames:
+        if media.video is None:
+            # Unreachable through discover(), which refuses a clip holding
+            # neither frames nor video; kept so a hand-built ClipMedia with
+            # neither cannot pass silently.
+            raise DeadeyeError(f"{media.source} holds no media to submit")
         raise DeadeyeError(
             f"{media.source} has a video but the provider cannot ingest video and "
             "no frames are available to sample; the provider does not meet this "

@@ -69,6 +69,77 @@ def test_review_with_a_fake_provider_returns_the_envelope(tmp_path) -> None:
     assert envelope["provider"]["name"] == "fake"
 
 
+def test_review_announces_the_disclosure_lines_on_stderr(tmp_path, capsys) -> None:
+    """The CLI's disclosure contract carries over the transport unchanged:
+    what will leave the machine is announced on stderr before submission,
+    while stdout stays protocol-only."""
+    import io
+
+    from deadeye import mcp
+
+    clip = tmp_path / "clip"
+    clip.mkdir()
+    (clip / "frame-0000.png").write_bytes(b"x")
+    intent = tmp_path / "i.json"
+    intent.write_text(json.dumps({"purpose": "p"}), encoding="utf-8")
+    stdin = io.StringIO(
+        json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {
+                    "name": "review",
+                    "arguments": {
+                        "clip": str(clip),
+                        "intent": str(intent),
+                        "provider": "fake",
+                        "allow_network": True,
+                    },
+                },
+            }
+        )
+        + "\n"
+    )
+    stdout = io.StringIO()
+    assert mcp.serve(stdin, stdout) == 0
+    captured = capsys.readouterr()
+    err = captured.err
+    assert "provider: fake" in err
+    assert "submitting 1 file(s)" in err
+    assert "warning: the media leaves this machine" in err
+    # stdout carries exactly one protocol frame, no disclosure leakage.
+    lines = [line for line in stdout.getvalue().splitlines() if line.strip()]
+    assert len(lines) == 1
+    assert json.loads(lines[0])["result"].get("isError") is not True
+
+
+def test_doctor_tool_returns_the_same_shape_as_the_cli() -> None:
+    """Same contract, different transport: the doctor tool's states carry the
+    same `detail` field `deadeye doctor --json` prints, and a keyless
+    provider is never described as holding a key."""
+    payload = json.loads(
+        _call("tools/call", {"name": "doctor", "arguments": {}})["result"]["content"][0]["text"]
+    )
+    by_name = {state["name"]: state for state in payload["providers"]}
+    assert set(by_name) == {"fake", "gemini", "nvidia"}
+    assert all(state.get("detail") for state in payload["providers"])
+    assert by_name["fake"]["detail"] == (
+        "the fake provider needs no credentials; it exists for offline plumbing checks"
+    )
+
+
+def test_schema_tool_returns_exactly_what_deadeye_schema_prints() -> None:
+    from deadeye.cli import schema_document
+
+    payload = json.loads(
+        _call("tools/call", {"name": "schema", "arguments": {}})["result"]["content"][0]["text"]
+    )
+    assert payload == schema_document()
+    # The richer field documentation rides along, not just the key list.
+    assert "issues" in payload["result"]
+
+
 def test_review_honors_config_timeout_seconds(tmp_path, monkeypatch) -> None:
     """The MCP surface resolves the timeout exactly like the CLI flag."""
     from deadeye import config, mcp

@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__
-from .cli import PROVIDERS, _resolve_provider, _resolve_timeout
+from .cli import PROVIDERS, _credential_detail, _resolve_provider, _resolve_timeout, schema_document
 from .errors import DeadeyeError
 from .intent import load_intent_file, parse_intent_text
 from .prompt import build_prompt
@@ -115,6 +115,13 @@ def _call_review(params: dict[str, Any]) -> dict[str, Any]:
     # config's timeout_seconds, else the built-in default.
     timeout = _resolve_timeout(params.get("timeout_seconds"))
     output = Path(params["output"]) if params.get("output") else None
+
+    def notify(line: str) -> None:
+        # The CLI's disclosure contract carries over verbatim: what will
+        # leave the machine is announced on stderr before submission, and
+        # stdout stays protocol-only.
+        print(line, file=sys.stderr)
+
     return run_review_core(
         Path(params["clip"]),
         provider=PROVIDERS[provider_name](),
@@ -126,6 +133,7 @@ def _call_review(params: dict[str, Any]) -> dict[str, Any]:
         keep_raw_response=bool(params.get("keep_raw_response")),
         output=output,
         force=bool(params.get("force")),
+        notify=notify,
     )
 
 
@@ -138,39 +146,16 @@ def _call_doctor(params: dict[str, Any]) -> dict[str, Any]:
                 "name": name,
                 "endpoint_mode": provider.endpoint_mode,
                 "state": "configured" if provider.is_configured() else "unavailable",
+                # The same shape `deadeye doctor --json` prints: where the
+                # credential came from, never its value.
+                "detail": _credential_detail(provider),
             }
         )
     return {"providers": states}
 
 
 def _call_schema(params: dict[str, Any]) -> dict[str, Any]:
-    from .intent import CAMERA_PATHS, INTENT_SCHEMA_VERSION
-    from .result import RESULT_KEYS, RUBRIC_VERSION
-
-    return {
-        "intent": {
-            "schema_version": INTENT_SCHEMA_VERSION,
-            "required": ["purpose"],
-            "fields": {
-                "purpose": "string - what the clip is supposed to demonstrate",
-                "subject": "string - the asset or behavior on screen",
-                "camera_path": (f"string - one of {', '.join(CAMERA_PATHS)} or a free description"),
-                "desired_qualities": (
-                    "string - target proportions, silhouette, material read, timing"
-                ),
-                "avoid": "array of strings - clipping, popping, z-fighting, wrong scale, jitter",
-                "references": "array of {path, purpose} comparison assets",
-                "questions": "array of strings - concerns the reviewer must answer",
-                "suite": "string - playtest suite id",
-                "case": "string - playtest case id",
-            },
-        },
-        "result": {
-            "keys": list(RESULT_KEYS),
-            "rubric_version": RUBRIC_VERSION,
-            "dimensions": [item.key for item in BASE_RUBRIC],
-        },
-    }
+    return schema_document()
 
 
 def _call_prompt(params: dict[str, Any]) -> dict[str, Any]:

@@ -192,6 +192,35 @@ def test_doctor_reports_an_unusable_default_provider(tmp_path, monkeypatch, caps
         config.reset()
 
 
+def test_doctor_never_attributes_a_key_to_the_keyless_provider(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    """A configured top-level api_key belongs to the real providers; the fake
+    must still be reported as needing nothing, not as holding that key."""
+    from deadeye import config
+
+    cfg = tmp_path / "cfg"
+    cfg.mkdir()
+    (cfg / "config.local.toml").write_text('api_key = "nvapi-top"\n', encoding="utf-8")
+    monkeypatch.setenv("DEADEYE_CONFIG_DIR", str(cfg))
+    config.reset()
+    try:
+        code, out, _ = _run(["doctor"], capsys)
+        assert code == 0
+        err = capsys.readouterr().err
+        assert err == ""
+        fake_line = next(line for line in out.splitlines() if line.startswith("fake:"))
+        assert fake_line == (
+            "fake: configured (the fake provider needs no credentials; "
+            "it exists for offline plumbing checks)"
+        )
+        # The real providers do report where their key came from.
+        gemini_line = next(line for line in out.splitlines() if line.startswith("gemini:"))
+        assert "key from config.local.toml" in gemini_line
+    finally:
+        config.reset()
+
+
 def test_schema_prints_the_contract(capsys) -> None:
     code, out, _ = _run(["schema"], capsys)
     assert code == 0

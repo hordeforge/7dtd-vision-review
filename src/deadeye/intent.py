@@ -123,7 +123,9 @@ def parse_intent(data: Any, origin: str) -> ReviewIntent:
             + ", ".join(sorted(allowed))
         )
     version = data.get("schema_version", INTENT_SCHEMA_VERSION)
-    if version != INTENT_SCHEMA_VERSION:
+    # True == 1 in Python, so a bare isinstance check would read a JSON
+    # `true` as version 1; a boolean is the malformed type it looks like.
+    if isinstance(version, bool) or version != INTENT_SCHEMA_VERSION:
         raise DeadeyeError(
             f"{origin}: intent schema_version {version!r} is not supported by this "
             f"tool (it speaks version {INTENT_SCHEMA_VERSION}); re-record the intent "
