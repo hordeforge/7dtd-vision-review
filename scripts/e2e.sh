@@ -34,6 +34,10 @@
 #   E2E_OUT               artifact root (default: .local/e2e)
 #   E2E_MOD_DIR           fixture modlet dir (default: .local/vision-e2e-mod)
 #
+# Provider selection: --provider, else the config's default_provider when
+# that provider has a key, else the first configured real provider, else a
+# refusal naming what is missing.
+#
 # Exit codes:
 #   0  full chain reviewed and evidence written
 #   1  a step failed (preflight, capture, or review) - stderr says which
@@ -45,7 +49,7 @@ die() {
     exit 1
 }
 usage() {
-    sed -n '2,52p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,44p' "$0" | sed 's/^# \{0,1\}//'
     exit 0
 }
 
@@ -117,12 +121,27 @@ if [[ -z "$SHAMWAY" ]]; then
 fi
 
 # The provider the run will use: --provider, else the config's
-# default_provider, else refuse (never guess a provider).
-if [[ -z "$PROVIDER" ]]; then
-    PROVIDER="$(sed -n 's/^default_provider[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$ROOT/config.toml" | head -1)"
-fi
-[[ -n "$PROVIDER" ]] || die "no provider selected; pass --provider NAME or set default_provider in config.toml"
+# default_provider when that one has a key, else the first configured real
+# provider, else refuse. The e2e must validate a *configured* provider, so
+# an unconfigured default is never silently used.
 DOCTOR="$(deadeye doctor --json)" || die "deadeye doctor failed"
+if [[ -z "$PROVIDER" ]]; then
+    CONFIG_DEFAULT="$(sed -n 's/^default_provider[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$ROOT/config.toml" | head -1)"
+    PROVIDER="$(printf '%s' "$DOCTOR" | python3 -c '
+import json, sys
+doc = json.load(sys.stdin)
+preferred = sys.argv[1]
+for entry in doc:
+    if entry.get("name") == preferred and entry.get("state") == "configured":
+        print(preferred)
+        sys.exit(0)
+for entry in doc:
+    if entry.get("state") == "configured" and entry.get("name") != "fake":
+        print(entry.get("name"))
+        sys.exit(0)
+' "$CONFIG_DEFAULT" || true)"
+fi
+[[ -n "$PROVIDER" ]] || die "no configured provider; put a key in config.local.toml (see config.local.toml.example) or pass --provider NAME"
 PROVIDER_STATE="$(printf '%s' "$DOCTOR" | python3 -c '
 import json, sys
 try:
