@@ -11,13 +11,12 @@ import pytest
 
 from deadeye import config
 from deadeye.cli import _resolve_provider
+from deadeye.providers.base import MediaPayload, ReviewRequest
 from deadeye.providers.nvidia import build_body
-from deadeye.providers.base import ReviewRequest
-from deadeye.providers.base import MediaPayload
 
 
 @pytest.fixture(autouse=True)
-def _isolated_config(tmp_path, monkeypatch):  # noqa: ANN001, ANN202
+def _isolated_config(tmp_path, monkeypatch):
     """Every test gets a clean cache and its own config directory."""
     config.reset()
     directory = tmp_path / "cfg"
@@ -27,7 +26,7 @@ def _isolated_config(tmp_path, monkeypatch):  # noqa: ANN001, ANN202
     config.reset()
 
 
-def _write(directory, name: str, body: str) -> None:  # noqa: ANN001
+def _write(directory, name: str, body: str) -> None:
     (directory / name).write_text(body, encoding="utf-8")
 
 
@@ -37,7 +36,7 @@ def test_no_config_anywhere_is_empty() -> None:
     assert config.credential_for("nvidia", ("NVIDIA_API_KEY",)) is None
 
 
-def test_base_and_local_merge_with_local_winning(_isolated_config, monkeypatch) -> None:  # noqa: ANN001
+def test_base_and_local_merge_with_local_winning(_isolated_config, monkeypatch) -> None:
     _write(
         _isolated_config,
         "config.toml",
@@ -60,19 +59,19 @@ def test_base_and_local_merge_with_local_winning(_isolated_config, monkeypatch) 
     assert config.value(("providers", "nvidia", "max_tokens")) == 2000
 
 
-def test_local_without_base_is_fine(_isolated_config) -> None:  # noqa: ANN001
+def test_local_without_base_is_fine(_isolated_config) -> None:
     _write(_isolated_config, "config.local.toml", 'api_key = "nvapi-top"\n')
     assert config.value("api_key") == "nvapi-top"
 
 
-def test_environment_wins_over_local(_isolated_config, monkeypatch) -> None:  # noqa: ANN001
+def test_environment_wins_over_local(_isolated_config, monkeypatch) -> None:
     _write(_isolated_config, "config.local.toml", '[providers.nvidia]\napi_key = "from-local"\n')
     assert config.credential_for("nvidia", ("NVIDIA_API_KEY",)) == "from-local"
     monkeypatch.setenv("NVIDIA_API_KEY", "from-env")
     assert config.credential_for("nvidia", ("NVIDIA_API_KEY",)) == "from-env"
 
 
-def test_top_level_api_key_is_a_per_provider_fallback(_isolated_config) -> None:  # noqa: ANN001
+def test_top_level_api_key_is_a_per_provider_fallback(_isolated_config) -> None:
     _write(_isolated_config, "config.local.toml", 'api_key = "nvapi-top"\n')
     assert config.credential_for("nvidia", ("NVIDIA_API_KEY",)) == "nvapi-top"
     _write(
@@ -84,7 +83,7 @@ def test_top_level_api_key_is_a_per_provider_fallback(_isolated_config) -> None:
     assert config.credential_for("nvidia", ("NVIDIA_API_KEY",)) == "nvapi-specific"
 
 
-def test_a_malformed_config_fails_loudly_and_doctor_reports_it(_isolated_config, capsys) -> None:  # noqa: ANN001
+def test_a_malformed_config_fails_loudly_and_doctor_reports_it(_isolated_config, capsys) -> None:
     _write(_isolated_config, "config.toml", "this is not [ toml\n")
     with pytest.raises(ValueError, match="cannot read config file"):
         config.load()
@@ -94,13 +93,13 @@ def test_a_malformed_config_fails_loudly_and_doctor_reports_it(_isolated_config,
     assert "config error:" in capsys.readouterr().out
 
 
-def test_default_provider_comes_from_config(_isolated_config) -> None:  # noqa: ANN001
+def test_default_provider_comes_from_config(_isolated_config) -> None:
     _write(_isolated_config, "config.toml", 'default_provider = "nvidia"\n')
     assert _resolve_provider(None) == "nvidia"
     assert _resolve_provider("fake") == "fake"
 
 
-def test_nvidia_generation_params_flow_from_config(_isolated_config) -> None:  # noqa: ANN001
+def test_nvidia_generation_params_flow_from_config(_isolated_config) -> None:
     _write(
         _isolated_config,
         "config.toml",
@@ -115,7 +114,7 @@ def test_nvidia_generation_params_flow_from_config(_isolated_config) -> None:  #
     assert body["top_p"] == 0.95
 
 
-def test_provider_credential_reads_config_local(_isolated_config) -> None:  # noqa: ANN001
+def test_provider_credential_reads_config_local(_isolated_config) -> None:
     _write(_isolated_config, "config.local.toml", '[providers.nvidia]\napi_key = "nvapi-local"\n')
     from deadeye.providers.nvidia import NvidiaProvider
 
@@ -124,7 +123,7 @@ def test_provider_credential_reads_config_local(_isolated_config) -> None:  # no
     assert provider.credential() == "nvapi-local"
 
 
-def test_default_model_precedence(_isolated_config, tmp_path) -> None:  # noqa: ANN001
+def test_default_model_precedence(_isolated_config, tmp_path) -> None:
     """--model flag > top-level default_model > provider's own default."""
     from deadeye.providers.fake import FakeProvider
     from deadeye.providers.gemini import GeminiProvider

@@ -15,13 +15,13 @@ import os
 import pytest
 
 from deadeye.errors import DeadeyeError
-from deadeye.providers.base import MediaPayload, ProviderLimits, ReviewRequest
+from deadeye.providers.base import MediaPayload, ReviewRequest
 from deadeye.providers.nvidia import (
     DEFAULT_MODEL,
     MIME_BY_SUFFIX,
     NvidiaProvider,
-    build_body,
     _label_for,
+    build_body,
 )
 
 
@@ -38,7 +38,7 @@ def test_mime_mapping_covers_the_image_suffixes() -> None:
     assert MIME_BY_SUFFIX[".webp"] == "image/webp"
 
 
-def test_credential_presence_never_contacts_the_provider(monkeypatch) -> None:  # noqa: ANN001
+def test_credential_presence_never_contacts_the_provider(monkeypatch) -> None:
     monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
     provider = NvidiaProvider()
     assert not provider.is_configured()
@@ -47,7 +47,7 @@ def test_credential_presence_never_contacts_the_provider(monkeypatch) -> None:  
     assert provider.is_configured()
 
 
-def test_review_without_credential_refuses_locally(monkeypatch) -> None:  # noqa: ANN001
+def test_review_without_credential_refuses_locally(monkeypatch) -> None:
     monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
     request = ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0)
     with pytest.raises(DeadeyeError, match="no credential"):
@@ -132,7 +132,7 @@ def test_a_non_media_payload_is_refused_at_body_build_time() -> None:
     reason="opt-in live run: set DEADEYE_NETWORK_TESTS=nvidia and configure an "
     "NVIDIA key (env or config.local.toml)",
 )
-def test_live_nvidia_reviews_a_frame_sequence(tmp_path) -> None:  # noqa: ANN001
+def test_live_nvidia_reviews_a_frame_sequence(tmp_path) -> None:
     import struct
     import zlib
 

@@ -61,11 +61,29 @@ deadeye review CLIP --intent FILE --provider PROVIDER [--model MODEL] \
 
 `deadeye doctor [--json]` reports provider capability state without contacting
 any provider. `deadeye schema` prints the intent and result schemas.
+`deadeye prompt --intent FILE` renders the exact reviewer prompt the gateway
+would inject for that intent, without running a review — the harness for
+verifying what a model will be asked before anything is submitted.
+`deadeye mcp` serves the same surface as a Model Context Protocol server on
+stdio, so an MCP client (an agent, a dashboard) reaches the gateway over
+standard JSON-RPC; see [docs/mcp-server.md](docs/mcp-server.md).
 
 The machine contract is the exit code and the JSON on stdout: `review --json`
 prints the evidence envelope, and every refusal exits non-zero with one
 `ERROR: ...` line on stderr. Disclosure lines go to stderr so a programmatic
 caller's stdout stays parseable.
+
+## You never write a prompt
+
+The gateway builds the full reviewer instruction from the intent file
+automatically: the rubric dimensions, the exact JSON result shape, the
+author's stated purpose and concerns, and what media actually reached the
+model (a muxed video, or the sampled frame sequence with the drop recorded).
+The caller supplies the intent and the clip; nothing else is prompt-shaped by
+the caller, and the prompt is versioned in the evidence (`rubric_version`,
+`prompt_version`) so a review is traceable to the instruction it answered.
+`deadeye prompt --intent FILE [--clip DIR]` renders that instruction for
+inspection before submission.
 
 ## The intent file
 
@@ -178,7 +196,9 @@ complete intent) without any network, and no test reads a credential.
 ## Security
 
 Credential handling, the network-consent boundary, and what an evidence
-envelope may contain are documented in [SECURITY.md](SECURITY.md).
+envelope may contain are documented in [SECURITY.md](SECURITY.md); the full
+attack surface with ranked threats is modeled in
+[docs/THREAT_MODEL.md](docs/THREAT_MODEL.md).
 
 ## License
 

@@ -79,7 +79,6 @@ def test_review_human_summary_without_json(clip_dir, tmp_path, capsys) -> None:
 
 
 def test_review_refuses_unknown_provider(clip_dir, tmp_path, capsys) -> None:
-    import sys
 
     intent = tmp_path / "i.json"
     intent.write_text(MINIMAL_INTENT)
@@ -146,9 +145,39 @@ def test_schema_prints_the_contract(capsys) -> None:
 
 
 def test_version(capsys) -> None:
-    import sys
 
     with pytest.raises(SystemExit) as exc_info:
         main(["--version"])
     assert exc_info.value.code == 0
     assert capsys.readouterr().out.startswith("deadeye ")
+
+
+def test_prompt_renders_the_injected_prompt_from_an_intent(tmp_path, capsys) -> None:  # noqa: ANN001
+    import json as _json
+
+    intent = tmp_path / "i.json"
+    intent.write_text(
+        _json.dumps({"purpose": "show the garment survives a turn"}), encoding="utf-8"
+    )
+    code, out, _ = _run(["prompt", "--intent", str(intent)], capsys)
+    assert code == 0
+    assert "You are reviewing a game-asset candidate on screen." in out
+    assert "purpose: show the garment survives a turn" in out
+    assert "popping_risk" in out
+    assert '"summary": string' in out
+
+
+def test_prompt_derives_the_media_summary_from_a_clip(clip_dir, tmp_path, capsys) -> None:  # noqa: ANN001
+    import json as _json
+
+    intent = tmp_path / "i.json"
+    intent.write_text(_json.dumps({"purpose": "p"}), encoding="utf-8")
+    code, out, _ = _run(["prompt", "--intent", str(intent), "--clip", str(clip_dir)], capsys)
+    assert code == 0
+    assert "10 frame image(s) of the clip's 10 frames" in out
+
+
+def test_prompt_requires_an_intent(capsys) -> None:  # noqa: ANN001
+    code, _, err = _run(["prompt"], capsys)
+    assert code == 1
+    assert "exactly one of --intent" in err
