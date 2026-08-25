@@ -61,11 +61,26 @@ deadeye review CLIP --intent FILE --provider PROVIDER [--model MODEL] \
 
 `deadeye doctor [--json]` reports provider capability state without contacting
 any provider. `deadeye schema` prints the intent and result schemas.
+`deadeye prompt --intent FILE` renders the exact reviewer prompt the gateway
+would inject for that intent, without running a review — the harness for
+verifying what a model will be asked before anything is submitted.
 
 The machine contract is the exit code and the JSON on stdout: `review --json`
 prints the evidence envelope, and every refusal exits non-zero with one
 `ERROR: ...` line on stderr. Disclosure lines go to stderr so a programmatic
 caller's stdout stays parseable.
+
+## You never write a prompt
+
+The gateway builds the full reviewer instruction from the intent file
+automatically: the rubric dimensions, the exact JSON result shape, the
+author's stated purpose and concerns, and what media actually reached the
+model (a muxed video, or the sampled frame sequence with the drop recorded).
+The caller supplies the intent and the clip; nothing else is prompt-shaped by
+the caller, and the prompt is versioned in the evidence (`rubric_version`,
+`prompt_version`) so a review is traceable to the instruction it answered.
+`deadeye prompt --intent FILE [--clip DIR]` renders that instruction for
+inspection before submission.
 
 ## The intent file
 

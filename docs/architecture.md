@@ -22,6 +22,15 @@ review.
 
 ## Boundaries that must not blur
 
+**The prompt is built for you, not by you.** The gateway assembles the
+reviewer instruction from the intent (`purpose`, `subject`, `camera_path`,
+`desired_qualities`, `avoid`, `questions`) plus the versioned rubric and the
+exact JSON result shape, and announces what media actually reached the model.
+A caller never writes or passes a prompt; `deadeye prompt` renders the
+assembled instruction for inspection before submission. The prompt and rubric
+versions ride in the evidence so a review is traceable to the instruction it
+answered.
+
 **Consent comes before everything.** Submitting media is networked, billable,
 and sends authored assets to a third party. Nothing contacts a provider
 without `--allow-network`, and no refusal reads credentials before the consent

@@ -104,6 +104,25 @@ def _build_parser() -> argparse.ArgumentParser:
         help="print the intent and result schemas as JSON",
     )
     schema.set_defaults(handler=_handle_schema)
+
+    prompt = subparsers.add_parser(
+        "prompt",
+        help="render the exact reviewer prompt the gateway injects for an "
+        "intent, without running a review",
+    )
+    prompt.add_argument(
+        "--intent",
+        type=Path,
+        help="the intent JSON file (the reproducible route)",
+    )
+    prompt.add_argument("--intent-text", help="inline intent JSON instead of --intent")
+    prompt.add_argument(
+        "--clip",
+        type=Path,
+        help="derive the media summary from a real clip (optional; otherwise a "
+        "generic summary is used)",
+    )
+    prompt.set_defaults(handler=_handle_prompt)
     return parser
 
 
@@ -174,6 +193,52 @@ def _credential_detail(provider: VideoReviewProvider) -> str:
     if isinstance(top_level, str) and top_level:
         return "key from config.local.toml (top-level api_key)"
     return provider.configuration_hint()
+
+
+def _handle_prompt(args: argparse.Namespace) -> int:
+    """Render the exact prompt the gateway would inject, without a review.
+
+    This is the harness an agent (or a person) uses to see and verify what a
+    review would ask the model, before anything is submitted.
+    """
+    from . import sampling
+    from .intent import load_intent_file, parse_intent_text
+    from .prompt import build_prompt
+    from .result import BASE_RUBRIC
+
+    if args.intent is not None and args.intent_text is not None:
+        raise DeadeyeError(
+            "deadeye prompt takes exactly one of --intent PATH or --intent-text JSON, never both"
+        )
+    if args.intent is not None:
+        intent, _ = load_intent_file(Path(args.intent))
+    elif args.intent_text is not None:
+        intent, _ = parse_intent_text(args.intent_text)
+    else:
+        raise DeadeyeError(
+            "deadeye prompt needs exactly one of --intent PATH or --intent-text JSON"
+        )
+
+    if args.clip is not None:
+        media = sampling.discover(Path(args.clip))
+        if media.video is not None:
+            media_summary = f"a single muxed video file ({media.video.name})"
+            frame_note = ""
+        else:
+            media_summary = (
+                f"{len(media.frames)} frame image(s) of the clip's {len(media.frames)} frames"
+            )
+            frame_note = (
+                "Frames arrive in the order listed; an issue's at_frame index refers to "
+                "that order, while at_seconds refers to seconds from the clip's start."
+            )
+    else:
+        media_summary = "the submitted media (a muxed video or a sampled frame sequence)"
+        frame_note = ""
+    print(
+        build_prompt(intent, BASE_RUBRIC, media_summary=media_summary, frame_timing_note=frame_note)
+    )
+    return 0
 
 
 def _handle_doctor(args: argparse.Namespace) -> int:
