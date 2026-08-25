@@ -15,7 +15,8 @@ blind byte mutation) and pin the invariants the pipeline depends on:
 
 Run with the rest of the suite (`make test`). A failure prints the
 falsifying example: pin it as a regression test next to the parser's unit
-tests before changing anything.
+tests before changing anything. On a bare host without the dev group
+(no uv), this module skips itself rather than aborting collection.
 """
 
 from __future__ import annotations
@@ -23,8 +24,16 @@ from __future__ import annotations
 import json
 import math
 
-from hypothesis import given, settings
-from hypothesis import strategies as st
+import pytest
+
+try:
+    from hypothesis import given, settings
+    from hypothesis import strategies as st
+except ImportError:
+    pytest.skip(
+        "hypothesis is not installed; run scripts/bootstrap for the full suite",
+        allow_module_level=True,
+    )
 
 from deadeye.errors import DeadeyeError
 from deadeye.intent import SENSITIVE_KEY_PARTS, parse_intent, parse_intent_text, redact

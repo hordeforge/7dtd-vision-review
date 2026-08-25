@@ -193,8 +193,15 @@ scripts/bootstrap
 make check test
 ```
 
-`make` alone prints the target list; `make coverage` runs the suite under
-coverage and prints the report CI turns into the badge above.
+`make` alone prints the target list; `make all` is everything CI's offline
+job runs; `make coverage` runs the suite under coverage and prints the
+report CI turns into the badge above. While iterating, run one module or
+one test instead of the whole suite:
+
+```bash
+uv run pytest tests/test_config.py -q   # one module
+uv run pytest -k redact -q              # tests whose name matches
+```
 
 Contribution rules, the two boundaries that must not blur, and what a new
 provider owes are in [CONTRIBUTING.md](CONTRIBUTING.md); consumer-visible

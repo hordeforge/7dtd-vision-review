@@ -2,4 +2,12 @@
 # Sync the dev environment from the committed lockfile with the dev group.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+if ! command -v uv >/dev/null 2>&1; then
+    echo "error: uv is required but was not found on PATH." >&2
+    echo "       install it first, then re-run this script:" >&2
+    echo "       curl -LsSf https://astral.sh/uv/install.sh | sh" >&2
+    exit 127
+fi
+
 uv sync --frozen

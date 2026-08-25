@@ -7,6 +7,9 @@ scripts/bootstrap
 make check test
 ```
 
+While iterating, run one module or one test instead of the whole suite:
+`uv run pytest tests/test_review.py -q`, filtering further with `-k NAME`.
+
 Agent-facing rules live in [AGENTS.md](AGENTS.md) and apply to human
 contributors too. The organization-wide rules are in
 [hordeforge/.github](https://github.com/hordeforge/.github/blob/main/REPOSITORY_STANDARDS.md).
