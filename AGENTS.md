@@ -61,11 +61,12 @@ the problem.
 
 Every behaviour change updates the documentation in the same commit that makes
 it. A new provider goes in `PROVIDERS` (in `surface.py`), the provider index
-[docs/providers.md](docs/providers.md), and the README provider table; a new
-command goes in the README command table and the page that owns its subject; a
-new adapter goes under `src/deadeye/providers/` with the protocol already
-defined in `base.py`. An undocumented capability is one the next session will
-rebuild from scratch.
+[docs/providers.md](docs/providers.md), and the provider table in
+[docs/reference.md](docs/reference.md); a new command goes in the command
+reference [docs/reference.md](docs/reference.md) and the page that owns its
+subject; a new adapter goes under `src/deadeye/providers/` with the protocol
+already defined in `base.py`. An undocumented capability is one the next
+session will rebuild from scratch.
 
 - `scripts/bootstrap` — `uv sync` from the committed lockfile with the dev group
 - `make check test` — lint, typecheck, compileall, and the unit suite
@@ -97,8 +98,8 @@ Adding a provider means:
 1. a module under `src/deadeye/providers/` implementing the protocol in
    `base.py` (limits, credential presence, review) with the standard library;
 2. one line in `PROVIDERS` in `surface.py`;
-3. a row in the README provider table and a section in
-   [docs/providers.md](docs/providers.md);
+3. a row in the provider table in [docs/reference.md](docs/reference.md) and
+   a section in [docs/providers.md](docs/providers.md);
 4. a fake-boundary test that proves actual media bytes reach the adapter
    (`providers/fake.py` shows the pattern), plus an opt-in live test that
    never runs in the offline suite.
