@@ -21,6 +21,14 @@ open a new one.
 
 ### Fixed
 
+- Per-request byte budgets now count the size media reaches the wire as:
+  every adapter submits inline base64, where 3 raw bytes become 4, so a
+  budget check on raw file bytes waved through submissions (for example an
+  18 MiB video against Gemini's published ~20 MB request cap, which base64
+  inflates past the limit) that the provider then refused after the full
+  upload. The video budget and the per-request total both compare the
+  encoded size and name it in their refusals; the disclosure's
+  `total_bytes` still reports the files' raw sizes.
 - A completed review whose evidence file cannot be written (disk full,
   permissions) no longer discards the billed verdict: the refusal keeps its
   `ERROR:` line and non-zero exit while the full envelope still reaches the

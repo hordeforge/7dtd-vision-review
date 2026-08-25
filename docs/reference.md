@@ -53,7 +53,9 @@ the caller. The gateway:
 1. validates the intent (see below) and hashes its exact bytes;
 2. samples the media to the provider's budget — a muxed video goes as one
    upload when the provider accepts video; otherwise the frame sequence is
-   sampled down with the drop recorded, never silently;
+   sampled down with the drop recorded, never silently. Byte budgets count
+   what the wire carries: media goes inline base64, so 3 raw bytes are
+   charged as 4; the disclosure's `total_bytes` stays the files' raw sizes;
 3. builds the full reviewer instruction from the intent: the rubric
    dimensions, the exact JSON result shape, the author's stated purpose and
    concerns, and what media actually reached the model (a muxed video, or the

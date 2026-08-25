@@ -7,6 +7,7 @@ import json
 import pytest
 
 from deadeye.errors import DeadeyeError
+from deadeye.providers.base import ProviderLimits
 from deadeye.providers.fake import FakeProvider
 from deadeye.review import run_review
 
@@ -392,3 +393,30 @@ def test_disclosure_counts_every_submitted_copy_of_a_file(clip_dir, tmp_path) ->
     actual_bytes = sum(len(payload.data) for payload in request.media)
     assert envelope["disclosure"]["total_bytes"] == actual_bytes
     assert len(envelope["media"]) == len(request.media)
+
+
+class _WireBudgetFake(FakeProvider):
+    """The fake provider wearing a request budget that fits the raw byte
+    total but not the base64-encoded one."""
+
+    @property
+    def limits(self) -> ProviderLimits:
+        declared = self._limits
+        return ProviderLimits(
+            suffixes=declared.suffixes,
+            max_bytes=40,
+            max_frames=declared.max_frames,
+            accepts_video=declared.accepts_video,
+            max_video_bytes=declared.max_video_bytes,
+        )
+
+
+def test_the_request_budget_counts_base64_wire_size_not_raw_bytes(clip_dir, intent_path) -> None:
+    """Eight submitted frames hold 32 raw bytes but 64 once inline base64
+    encodes them; a 40-byte per-request budget must refuse locally, where a
+    raw-byte comparison would wave the submission through to a provider-side
+    refusal after the upload."""
+    provider = _WireBudgetFake()
+    with pytest.raises(DeadeyeError, match=r"32 bytes \(64 as submitted base64\)"):
+        run_review(clip_dir, provider=provider, intent_path=intent_path, allow_network=True)
+    assert provider.requests == []

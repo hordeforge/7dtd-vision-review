@@ -143,6 +143,18 @@ def _single_match(
     return matches[0] if matches else None
 
 
+def base64_wire_bytes(size: int) -> int:
+    """The size `size` raw media bytes reach the wire as, once base64-encoded.
+
+    Every hosted adapter submits media inline as base64 inside one JSON
+    request (3 raw bytes become 4 encoded characters), so a per-request byte
+    budget applies to the encoded form. Checking raw file bytes against such
+    a budget would wave through a clip the provider then refuses after the
+    full upload has already crossed the network.
+    """
+    return 4 * ((size + 2) // 3)
+
+
 def sample(
     media: ClipMedia,
     *,
@@ -161,19 +173,24 @@ def sample(
     """
     if media.video is not None and video_capable:
         size = media.video.stat().st_size
-        if max_video_bytes is not None and size > max_video_bytes:
+        # The budget names what the request carries, and the request carries
+        # the video base64-encoded: compare the encoded size, never the raw.
+        wire = base64_wire_bytes(size)
+        if max_video_bytes is not None and wire > max_video_bytes:
             if not media.frames:
                 # The provider ingests video fine; the file is simply over its
                 # byte budget and there is nothing to fall back to. Naming the
                 # capability instead would send the operator hunting for a
                 # different provider when the clip is what must change.
                 raise DeadeyeError(
-                    f"{media.video} is {size} bytes, over the provider's "
+                    f"{media.video} is {size} bytes ({wire} as submitted base64), "
+                    f"over the provider's "
                     f"{max_video_bytes}-byte video budget, and there are no "
                     "frames to sample instead; shorten or recompress the clip"
                 )
             note = (
-                f"muxed video {flat_label_text(media.video.name)} is {size} bytes, over "
+                f"muxed video {flat_label_text(media.video.name)} is {size} bytes "
+                f"({wire} as submitted base64), over "
                 f"the provider's {max_video_bytes}-byte video budget; sampled frames instead"
             )
         else:

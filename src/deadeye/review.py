@@ -33,7 +33,7 @@ from .intent import ReviewIntent, load_intent, redact_json_text
 from .prompt import build_prompt
 from .providers import MediaPayload, ProviderLimits, ReviewRequest
 from .result import parse_model_json, validate_result
-from .sampling import mime_for_suffix
+from .sampling import base64_wire_bytes, mime_for_suffix
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -286,9 +286,15 @@ def _prepare_submission(
     # disclosure must count every byte that leaves the machine.
     hashed = [sha256_file(Path(path)) for path, _ in files]
     total_bytes = sum(size for _, size in hashed)
-    if limits.max_bytes is not None and total_bytes > limits.max_bytes:
+    # Adapters submit inline base64 (3 raw bytes become 4 on the wire), so
+    # the per-request budget is compared against the encoded total: a raw
+    # byte count would pass a submission the provider refuses after the
+    # upload. The disclosure still reports raw bytes, the files' true sizes.
+    wire_bytes = sum(base64_wire_bytes(size) for _, size in hashed)
+    if limits.max_bytes is not None and wire_bytes > limits.max_bytes:
         raise DeadeyeError(
-            f"submission is {total_bytes} bytes; provider {provider_name!r} accepts at "
+            f"submission is {total_bytes} bytes ({wire_bytes} as submitted base64); "
+            f"provider {provider_name!r} accepts at "
             f"most {limits.max_bytes} per request. Sample fewer frames, shorten the "
             "clip, or drop reference media"
         )

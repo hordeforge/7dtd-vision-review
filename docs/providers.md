@@ -41,7 +41,9 @@ intent and evidence plumbing before paying for a real submission.
 multi-image input inline (base64, no upload round trip) and can be asked for
 JSON output. A muxed video goes inline when it fits the ~20 MB per-request
 budget; otherwise the sampled frame sequence goes as multi-image input — the
-broadly supported fallback every vision-chat API shares.
+broadly supported fallback every vision-chat API shares. Byte budgets count
+what the wire carries: every adapter submits inline base64, so 3 raw bytes
+are charged as 4, and the local budget checks compare the encoded size.
 
 The key arrives from `GEMINI_API_KEY` or `GOOGLE_API_KEY`, travels in a header
 (never a query string), and is never printed, logged, or written into

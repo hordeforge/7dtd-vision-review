@@ -180,3 +180,54 @@ def test_a_video_note_names_the_file_with_controls_flattened(tmp_path) -> None:
     )
     assert "\n" not in record.note
     assert "lie" in record.note
+
+
+@pytest.mark.parametrize(
+    ("raw", "encoded"),
+    [(0, 0), (1, 4), (2, 4), (3, 4), (4, 8), (57, 76), (1000, 1336)],
+)
+def test_base64_wire_bytes_matches_the_padded_encoding_table(raw: int, encoded: int) -> None:
+    from deadeye.sampling import base64_wire_bytes
+
+    assert base64_wire_bytes(raw) == encoded
+
+
+def test_the_video_budget_counts_base64_wire_size_not_raw_bytes(tmp_path) -> None:
+    """Adapters submit media inline base64, which expands 3 raw bytes to 4:
+    a budget written against the wire must not wave through a video whose
+    encoded form exceeds it, or the refusal arrives from the provider only
+    after the upload has crossed the network."""
+    clip = tmp_path / "clip"
+    clip.mkdir()
+    (clip / "frame-0000.png").write_bytes(b"f")
+    (clip / "clip.mp4").write_bytes(b"123456789abc")  # 12 raw bytes -> 16 encoded
+    record = sample(discover(clip), max_frames=4, video_capable=True, max_video_bytes=15)
+    assert record.submitted_files == ((str(clip / "frame-0000.png"), "frame"),)
+    assert "(16 as submitted base64)" in record.note
+    assert "over the provider's 15-byte video budget" in record.note
+
+
+def test_a_video_exactly_at_the_encoded_budget_is_submitted(tmp_path) -> None:
+    clip = tmp_path / "clip"
+    clip.mkdir()
+    (clip / "clip.mp4").write_bytes(b"123456789abc")  # 12 raw bytes -> 16 encoded
+    media = discover(clip)
+    record = sample(media, max_frames=4, video_capable=True, max_video_bytes=16)
+    assert record.submitted_files == ((str(media.video), "video"),)
+
+
+def test_an_over_encoded_budget_video_without_frames_refuses_before_submission(
+    tmp_path,
+) -> None:
+    """12 raw bytes sit under a 15-byte budget but encode to 16: the refusal
+    must fire here, naming both sizes, instead of server-side after the
+    upload of a request the provider will throw away."""
+    clip = tmp_path / "clip"
+    clip.mkdir()
+    (clip / "clip.mp4").write_bytes(b"123456789abc")  # 12 raw bytes -> 16 encoded
+    with pytest.raises(
+        DeadeyeError,
+        match=r"is 12 bytes \(16 as submitted base64\), over the provider's "
+        r"15-byte video budget",
+    ):
+        sample(discover(clip), max_frames=8, video_capable=True, max_video_bytes=15)
