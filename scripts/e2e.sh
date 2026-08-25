@@ -244,7 +244,10 @@ if [[ -z "$CLIP" ]]; then
     fi
     [[ -f "$HARNESS_DLL" ]] || die "no harness at $HARNESS_DLL even after build"
 
-    if [[ -f "$MOD_DIR/.shamway.toml" && "$FRESH" -eq 0 ]]; then
+    # The completion marker is .suite (written after the provider generated):
+    # a modlet that only got partway (init/generate/build but no provider)
+    # falls through to a fresh scaffold instead of dying on a missing suite.
+    if [[ -f "$MOD_DIR/.suite" && "$FRESH" -eq 0 ]]; then
         say "reusing fixture modlet at $MOD_DIR (--fresh to rebuild it)"
     else
         say "scaffolding fixture modlet at $MOD_DIR"
