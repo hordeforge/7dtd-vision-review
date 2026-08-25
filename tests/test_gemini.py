@@ -142,6 +142,28 @@ def test_a_null_content_block_does_not_crash_the_adapter(monkeypatch) -> None:
     assert response.raw_text == ""
 
 
+def test_a_non_ascii_model_name_is_percent_encoded_into_the_url(monkeypatch) -> None:
+    """The model is one URL path segment: a space or non-ASCII character must
+    ride as percent-encoded UTF-8, never as raw request-line bytes."""
+    import json as json_module
+
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    envelope = {"candidates": [{"finishReason": "STOP", "content": {"parts": [{"text": "ok"}]}}]}
+    seen: dict = {}
+
+    def capture_urlopen(request, timeout):
+        seen["url"] = request.full_url
+        return _FakeResponse(json_module.dumps(envelope).encode())
+
+    monkeypatch.setattr("urllib.request.urlopen", capture_urlopen)
+    from deadeye.providers.base import ReviewRequest
+
+    request = ReviewRequest(prompt="p", media=(), model="gemín 2.5 flash", timeout_seconds=1.0)
+    response = GeminiProvider().review(request)
+    assert response.raw_text == "ok"
+    assert seen["url"].endswith("/gem%C3%ADn%202.5%20flash:generateContent")
+
+
 @pytest.mark.skipif(
     os.environ.get("DEADEYE_NETWORK_TESTS") != "gemini" or not os.environ.get("GEMINI_API_KEY"),
     reason="opt-in live run: set DEADEYE_NETWORK_TESTS=gemini and GEMINI_API_KEY",

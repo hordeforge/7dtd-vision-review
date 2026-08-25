@@ -81,6 +81,23 @@ def test_malformed_json_is_refused(tmp_path) -> None:
         load_intent_file(path)
 
 
+def test_a_utf8_bom_is_tolerated_and_the_raw_bytes_keep_it(tmp_path) -> None:
+    # Editors on some platforms still save with a leading BOM; the document
+    # must parse, while evidence keeps hashing the file's exact bytes.
+    document = '{"purpose": "tourner la pièce", "subject": "café"}'
+    path = tmp_path / "bom.json"
+    path.write_bytes(b"\xef\xbb\xbf" + document.encode("utf-8"))
+    intent, raw = load_intent_file(path)
+    assert raw == path.read_bytes()
+    assert intent.purpose == "tourner la pièce"
+    assert intent.subject == "café"
+
+
+def test_inline_intent_text_with_a_leading_bom_parses() -> None:
+    intent, _ = parse_intent_text("\ufeff" + json.dumps({"purpose": "x"}))
+    assert intent.purpose == "x"
+
+
 def test_deeply_nested_json_is_refused_not_crashed() -> None:
     # Nesting beyond the interpreter limit must read as a malformed document,
     # not escape as RecursionError.

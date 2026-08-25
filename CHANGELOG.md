@@ -85,6 +85,15 @@ open a new one.
 
 ### Fixed
 
+- An intent file saved with a leading UTF-8 BOM (as some editors still write)
+  now parses instead of dying as "not valid JSON"; evidence still hashes the
+  file's exact bytes, BOM included.
+- A Gemini model identifier containing a space or non-ASCII characters is
+  percent-encoded into the request URL: it previously went onto the wire as
+  raw latin-1 bytes (mojibake) or failed with an opaque encoding error.
+- The MCP stdio transport survives a frame carrying an invalid UTF-8 byte: it
+  answers the spec's `-32700` parse error and keeps serving, instead of the
+  reader raising `UnicodeDecodeError` out of the loop and ending the session.
 - A configured but unknown `default_provider` is refused with an error naming
   the value and the valid choices, instead of silently sending billable
   reviews to `gemini`.

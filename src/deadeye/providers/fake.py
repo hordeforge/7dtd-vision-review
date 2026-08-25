@@ -77,7 +77,8 @@ class FakeProvider:
             "confidence": 0.42,
             "limitations": [
                 "the fake adapter received media and prompt but cannot see",
-                f"prompt digest prefix {hashlib.sha256(request.prompt.encode()).hexdigest()[:16]}",
+                "prompt digest prefix "
+                + hashlib.sha256(request.prompt.encode("utf-8")).hexdigest()[:16],
             ],
         }
         # usage stays None on purpose: unavailable must be reported as

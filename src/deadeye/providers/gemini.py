@@ -27,6 +27,7 @@ import contextlib
 import http.client
 import json
 import urllib.error
+import urllib.parse
 import urllib.request
 
 from .. import config
@@ -106,8 +107,11 @@ class GeminiProvider:
         # Both audited statements carry the same justification: the URL is
         # this module's fixed https constant (or the config override) plus
         # the requested model name; scheme and host are never caller-controlled.
+        # The model is one path segment and must be percent-encoded: a name
+        # with a space or non-ASCII character would otherwise be sent as raw
+        # latin-1 request-line bytes (mojibake) or fail the ASCII encode.
         http_request = urllib.request.Request(  # noqa: S310
-            f"{api_root}/{request.model}:generateContent",
+            f"{api_root}/{urllib.parse.quote(request.model, safe='')}:generateContent",
             data=json.dumps(body).encode("utf-8"),
             headers={
                 "Content-Type": "application/json",

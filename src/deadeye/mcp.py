@@ -267,8 +267,20 @@ def serve(stdin: Any = None, stdout: Any = None) -> int:
     """The stdio loop: one JSON-RPC frame per line, responses on stdout."""
     stdin = stdin if stdin is not None else sys.stdin
     stdout = stdout if stdout is not None else sys.stdout
-    for raw_line in stdin:
-        line = raw_line.strip()
+    # The transport is UTF-8 JSON, so read bytes when the stream exposes them:
+    # a frame with an invalid byte must get the spec's parse error like any
+    # other malformed frame, not kill the loop inside the text iterator.
+    source = getattr(stdin, "buffer", stdin)
+    for raw_line in source:
+        if isinstance(raw_line, bytes):
+            try:
+                line = raw_line.decode("utf-8").strip()
+            except UnicodeDecodeError:
+                print(json.dumps(_error(None, -32700, "Parse error")), file=stdout)
+                stdout.flush()
+                continue
+        else:
+            line = raw_line.strip()
         if not line:
             continue
         try:

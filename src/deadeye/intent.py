@@ -190,8 +190,11 @@ def parse_intent_text(text: str) -> tuple[ReviewIntent, bytes]:
 
 
 def _decode_json(raw: bytes, origin: str) -> Any:
+    # utf-8-sig: identical to utf-8 except a leading BOM is stripped. Editors
+    # on some platforms still write one; without this the document dies as
+    # "not valid JSON" on a character the author never typed.
     try:
-        return json.loads(raw.decode("utf-8"))
+        return json.loads(raw.decode("utf-8-sig"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise DeadeyeError(f"{origin} is not valid JSON: {exc}") from exc
     except RecursionError as exc:
