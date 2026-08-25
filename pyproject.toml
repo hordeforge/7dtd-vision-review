@@ -30,7 +30,10 @@ classifiers = [
 dev = [
     "ruff==0.16.4",
     "mypy==2.3.1",
-    "setuptools",
+    # Same floor as [build-system]: the artifact-contract suite builds real
+    # sdists and wheels through this venv's backend, so it must never exercise
+    # one older than what releases declare.
+    "setuptools>=77",
     "pytest>=8",
     "coverage>=7",
     "hypothesis>=6",
