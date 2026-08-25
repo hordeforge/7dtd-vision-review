@@ -31,7 +31,8 @@ import urllib.request
 
 from .. import config
 from ..errors import DeadeyeError
-from .base import MediaPayload, ProviderLimits, ReviewRequest, ReviewResponse
+from ..sampling import IMAGE_SUFFIXES, VIDEO_SUFFIXES
+from .base import ProviderLimits, ReviewRequest, ReviewResponse, attachment_label
 
 API_ROOT = "https://generativelanguage.googleapis.com/v1beta/models"
 CREDENTIAL_ENV_VARS = ("GEMINI_API_KEY", "GOOGLE_API_KEY")
@@ -40,18 +41,6 @@ CREDENTIAL_ENV_VARS = ("GEMINI_API_KEY", "GOOGLE_API_KEY")
 # and the sampling layer caps the count before submission.
 MAX_REQUEST_BYTES = 20 * 1024 * 1024
 MAX_FRAMES_PER_REQUEST = 40
-VIDEO_SUFFIXES = (".mp4", ".webm", ".mov")
-IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp")
-
-MIME_BY_SUFFIX = {
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".webp": "image/webp",
-    ".mp4": "video/mp4",
-    ".webm": "video/webm",
-    ".mov": "video/quicktime",
-}
 
 
 class GeminiProvider:
@@ -97,7 +86,7 @@ class GeminiProvider:
             raise DeadeyeError(f"provider 'gemini' has no credential; {self.configuration_hint()}")
         parts: list[dict[str, object]] = [{"text": request.prompt}]
         for payload in request.media:
-            label = _label_for(payload)
+            label = attachment_label(payload)
             parts.append({"text": label})
             parts.append(
                 {
@@ -212,11 +201,3 @@ class GeminiProvider:
             usage=usage if isinstance(usage, dict) else None,
             model_reported=envelope.get("modelVersion"),
         )
-
-
-def _label_for(payload: MediaPayload) -> str:
-    if payload.kind == "video":
-        return f"video attachment: {payload.name}"
-    if payload.kind == "reference":
-        return f"reference image: {payload.name}"
-    return f"frame attachment: {payload.name}"

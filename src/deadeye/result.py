@@ -225,11 +225,6 @@ def validate_result(
                 continue
             if frame is not None:
                 issue["at_frame"] = frame
-            if "at_seconds" not in issue and "at_frame" not in issue:
-                # Not a hard failure: the model may be describing a quality of
-                # the whole clip rather than one moment. The convention is to
-                # place what you can, but the shape stays permissive.
-                pass
             issues.append(issue)
 
     known = {item.key for item in dimensions}

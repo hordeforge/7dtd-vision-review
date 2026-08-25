@@ -20,8 +20,23 @@ from pathlib import Path
 
 from .errors import DeadeyeError
 
-IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp")
-VIDEO_SUFFIXES = (".mp4", ".webm", ".mov")
+# The one suffix -> MIME table; the accepted-suffix sets below are derived
+# from it so the two can never drift apart.
+MIME_BY_SUFFIX = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".mp4": "video/mp4",
+    ".webm": "video/webm",
+    ".mov": "video/quicktime",
+}
+IMAGE_SUFFIXES = tuple(
+    suffix for suffix, mime in MIME_BY_SUFFIX.items() if mime.startswith("image/")
+)
+VIDEO_SUFFIXES = tuple(
+    suffix for suffix, mime in MIME_BY_SUFFIX.items() if mime.startswith("video/")
+)
 LOG_SUFFIXES = (".log",)
 
 _FRAME_RE = re.compile(r"^frame-(\d+)\.(?:png|jpe?g|webp)$", re.IGNORECASE)
@@ -72,8 +87,8 @@ def discover(source: Path) -> ClipMedia:
 
     try:
         frames = _frames_in(source)
-        video = _single_video_in(source)
-        log = _single_log_in(source)
+        video = _single_match(source, VIDEO_SUFFIXES, "muxed video", "review one clip at a time")
+        log = _single_match(source, LOG_SUFFIXES, "log file", "keep the clip self-contained")
     except OSError as exc:
         # A directory that lists but cannot be read (permissions, I/O fault)
         # is a refusal with the operation named, not an OS traceback.
@@ -102,32 +117,21 @@ def _frames_in(directory: Path) -> list[Path]:
     )
 
 
-def _single_video_in(directory: Path) -> Path | None:
-    videos = [
+def _single_match(
+    directory: Path, suffixes: tuple[str, ...], what: str, remedy: str
+) -> Path | None:
+    """The one file in `directory` matching `suffixes`, or None; two is a refusal."""
+    matches = [
         candidate
         for candidate in directory.iterdir()
-        if candidate.is_file() and candidate.suffix.lower() in VIDEO_SUFFIXES
+        if candidate.is_file() and candidate.suffix.lower() in suffixes
     ]
-    if len(videos) > 1:
+    if len(matches) > 1:
         raise DeadeyeError(
-            f"{directory} holds more than one muxed video ({', '.join(p.name for p in videos)}); "
-            "review one clip at a time"
+            f"{directory} holds more than one {what} "
+            f"({', '.join(p.name for p in matches)}); {remedy}"
         )
-    return videos[0] if videos else None
-
-
-def _single_log_in(directory: Path) -> Path | None:
-    logs = [
-        candidate
-        for candidate in directory.iterdir()
-        if candidate.is_file() and candidate.suffix.lower() in LOG_SUFFIXES
-    ]
-    if len(logs) > 1:
-        raise DeadeyeError(
-            f"{directory} holds more than one log file ({', '.join(p.name for p in logs)}); "
-            "keep the clip self-contained"
-        )
-    return logs[0] if logs else None
+    return matches[0] if matches else None
 
 
 def sample(
@@ -209,20 +213,10 @@ def _evenly_spaced(frames: list[Path], count: int) -> list[Path]:
 def mime_for_suffix(suffix: str) -> str:
     """The MIME name for a submitted file's suffix, or a refusal."""
     suffix = suffix.lower()
-    if suffix in IMAGE_SUFFIXES:
-        return {
-            ".png": "image/png",
-            ".jpg": "image/jpeg",
-            ".jpeg": "image/jpeg",
-            ".webp": "image/webp",
-        }[suffix]
-    if suffix in VIDEO_SUFFIXES:
-        return {
-            ".mp4": "video/mp4",
-            ".webm": "video/webm",
-            ".mov": "video/quicktime",
-        }[suffix]
-    raise DeadeyeError(
-        f"no MIME type is known for {suffix!r}; accepted suffixes are "
-        + ", ".join(sorted(IMAGE_SUFFIXES + VIDEO_SUFFIXES))
-    )
+    try:
+        return MIME_BY_SUFFIX[suffix]
+    except KeyError:
+        raise DeadeyeError(
+            f"no MIME type is known for {suffix!r}; accepted suffixes are "
+            + ", ".join(sorted(MIME_BY_SUFFIX))
+        ) from None

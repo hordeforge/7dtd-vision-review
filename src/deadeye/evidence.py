@@ -25,8 +25,8 @@ from typing import Any
 
 from ._version import __version__
 from .errors import DeadeyeError
-from .intent import ReviewIntent, redact
-from .result import ADVISORY_NOTE
+from .intent import INTENT_SCHEMA_VERSION, ReviewIntent, redact
+from .result import ADVISORY_NOTE, PROMPT_VERSION, RUBRIC_VERSION
 from .sampling import SamplingRecord
 
 EVIDENCE_SCHEMA_VERSION = 1
@@ -85,7 +85,7 @@ def build_envelope(
         "note": ADVISORY_NOTE,
         "intent": {
             "sha256": sha256_bytes(intent_raw),
-            "schema_version": 1,
+            "schema_version": INTENT_SCHEMA_VERSION,
             "content": intent.as_dict(),
         },
         "media": media_entries,
@@ -101,8 +101,8 @@ def build_envelope(
             "model_requested": model_requested,
             "model_reported": model_reported,
         },
-        "rubric_version": "1",
-        "prompt_version": "1",
+        "rubric_version": RUBRIC_VERSION,
+        "prompt_version": PROMPT_VERSION,
         "prompt": prompt,
         "result": result,
         "error": error,

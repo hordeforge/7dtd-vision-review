@@ -16,12 +16,10 @@ import os
 import pytest
 
 from deadeye.errors import DeadeyeError
-from deadeye.providers.base import MediaPayload, ReviewRequest
+from deadeye.providers.base import MediaPayload, ReviewRequest, attachment_label
 from deadeye.providers.nvidia import (
     DEFAULT_MODEL,
-    MIME_BY_SUFFIX,
     NvidiaProvider,
-    _label_for,
     build_body,
 )
 
@@ -32,11 +30,6 @@ def test_limits_declare_video_and_frames() -> None:
     assert limits.max_frames is not None and limits.max_frames > 0
     assert ".png" in limits.suffixes
     assert ".mp4" in limits.suffixes
-
-
-def test_mime_mapping_covers_the_image_suffixes() -> None:
-    assert MIME_BY_SUFFIX[".png"] == "image/png"
-    assert MIME_BY_SUFFIX[".webp"] == "image/webp"
 
 
 def test_credential_presence_never_contacts_the_provider(monkeypatch) -> None:
@@ -103,9 +96,9 @@ def test_attachment_labels_address_the_prompt_order() -> None:
     frame = MediaPayload(name="f.png", mime_type="image/png", kind="frame", data=b"")
     video = MediaPayload(name="c.mp4", mime_type="video/mp4", kind="video", data=b"")
     reference = MediaPayload(name="r.png", mime_type="image/png", kind="reference", data=b"")
-    assert _label_for(frame) == "frame attachment: f.png"
-    assert _label_for(video) == "video attachment: c.mp4"
-    assert _label_for(reference) == "reference image: r.png"
+    assert attachment_label(frame) == "frame attachment: f.png"
+    assert attachment_label(video) == "video attachment: c.mp4"
+    assert attachment_label(reference) == "reference image: r.png"
 
 
 def test_a_muxed_video_travels_as_a_single_video_url_part() -> None:

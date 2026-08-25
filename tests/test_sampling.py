@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from deadeye.errors import DeadeyeError
-from deadeye.sampling import discover, sample
+from deadeye.sampling import discover, mime_for_suffix, sample
 
 
 def test_discover_reads_a_playtest_clip_directory(clip_dir_with_video) -> None:
@@ -107,3 +107,15 @@ def test_video_only_without_frames_refused_when_provider_takes_images_only(
     (clip / "clip.mp4").write_bytes(b"v")
     with pytest.raises(DeadeyeError, match="cannot ingest video and no frames"):
         sample(discover(clip), max_frames=8, video_capable=False, max_video_bytes=None)
+
+
+def test_mime_for_suffix_covers_images_and_video() -> None:
+    assert mime_for_suffix(".png") == "image/png"
+    assert mime_for_suffix(".jpg") == "image/jpeg"
+    assert mime_for_suffix(".webp") == "image/webp"
+    assert mime_for_suffix(".mp4") == "video/mp4"
+
+
+def test_mime_for_suffix_refuses_an_unknown_suffix() -> None:
+    with pytest.raises(DeadeyeError, match=r"no MIME type is known for '\.gif'"):
+        mime_for_suffix(".GIF")

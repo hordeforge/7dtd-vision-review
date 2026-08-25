@@ -122,10 +122,11 @@ def run_review(
         max_video_bytes=limits.max_video_bytes,
     )
 
-    submitted: list[tuple[str, str, Path]] = [
-        (path, kind, Path(path)) for path, kind in candidate_record.submitted_files
-    ] + [(str(reference.path), "reference", reference.path) for reference in intent.references]
-    digests = {path: sha256_file(Path(path)) for path, _, _ in submitted}
+    submitted: list[tuple[str, str]] = [
+        *candidate_record.submitted_files,
+        *((str(reference.path), "reference") for reference in intent.references),
+    ]
+    digests = {path: sha256_file(Path(path)) for path, _ in submitted}
     total_bytes = sum(size for _, size in digests.values())
     if limits.max_bytes is not None and total_bytes > limits.max_bytes:
         raise DeadeyeError(
@@ -139,7 +140,7 @@ def run_review(
         notify(f"model: {resolved_model}")
         notify(
             f"submitting {len(submitted)} file(s), {total_bytes} bytes: "
-            + ", ".join(path for path, _, _ in submitted)
+            + ", ".join(path for path, _ in submitted)
         )
         notify(
             f"warning: the media leaves this machine for {provider.name}; retention is "
@@ -159,7 +160,7 @@ def run_review(
             kind=kind,
             data=Path(path).read_bytes(),
         )
-        for path, kind, _ in submitted
+        for path, kind in submitted
     )
     request = ReviewRequest(
         prompt=prompt,
@@ -181,7 +182,7 @@ def run_review(
         ) from exc
 
     media_entries: list[dict[str, Any]] = []
-    for path, kind, _ in submitted:
+    for path, kind in submitted:
         digest, size = digests[path]
         media_entries.append(
             {

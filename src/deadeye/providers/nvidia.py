@@ -38,12 +38,11 @@ import urllib.request
 
 from .. import config
 from ..errors import DeadeyeError
-from .base import MediaPayload, ProviderLimits, ReviewRequest, ReviewResponse
+from ..sampling import IMAGE_SUFFIXES, VIDEO_SUFFIXES
+from .base import ProviderLimits, ReviewRequest, ReviewResponse, attachment_label
 
 API_ROOT = "https://integrate.api.nvidia.com/v1/chat/completions"
 CREDENTIAL_ENV_VARS = ("NVIDIA_API_KEY",)
-IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp")
-VIDEO_SUFFIXES = (".mp4", ".webm", ".mov")
 # Conservative per-request budget: media is far smaller, and the sampling
 # layer caps the count before submission.
 MAX_REQUEST_BYTES = 20 * 1024 * 1024
@@ -59,16 +58,6 @@ DEFAULT_MAX_TOKENS = 65536
 DEFAULT_REASONING_BUDGET = 16384
 DEFAULT_TEMPERATURE = 0.6
 DEFAULT_TOP_P = 0.95
-
-MIME_BY_SUFFIX = {
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".webp": "image/webp",
-    ".mp4": "video/mp4",
-    ".webm": "video/webm",
-    ".mov": "video/quicktime",
-}
 
 
 class NvidiaProvider:
@@ -223,7 +212,7 @@ def build_body(request: ReviewRequest) -> dict[str, object]:
     """
     parts: list[dict[str, object]] = [{"type": "text", "text": request.prompt}]
     for payload in request.media:
-        parts.append({"type": "text", "text": _label_for(payload)})
+        parts.append({"type": "text", "text": attachment_label(payload)})
         data_url = f"data:{payload.mime_type};base64," + base64.b64encode(payload.data).decode(
             "ascii"
         )
@@ -255,11 +244,3 @@ def _int_config(key: str, fallback: int) -> int:
 def _float_config(key: str, fallback: float) -> float:
     value = config.value(("providers", "nvidia", key))
     return value if isinstance(value, (int, float)) and not isinstance(value, bool) else fallback
-
-
-def _label_for(payload: MediaPayload) -> str:
-    if payload.kind == "video":
-        return f"video attachment: {payload.name}"
-    if payload.kind == "reference":
-        return f"reference image: {payload.name}"
-    return f"frame attachment: {payload.name}"

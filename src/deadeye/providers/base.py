@@ -94,3 +94,12 @@ class VideoReviewProvider(Protocol):
     def review(self, request: ReviewRequest) -> ReviewResponse:
         """Submit media plus prompt; raise DeadeyeError on refusal or fault."""
         ...
+
+
+def attachment_label(payload: MediaPayload) -> str:
+    """How every adapter's prompt text addresses one attachment, by role."""
+    if payload.kind == "video":
+        return f"video attachment: {payload.name}"
+    if payload.kind == "reference":
+        return f"reference image: {payload.name}"
+    return f"frame attachment: {payload.name}"
