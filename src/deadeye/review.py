@@ -31,14 +31,14 @@ from .errors import DeadeyeError, EvidenceWriteError
 from .evidence import build_envelope, ensure_writable, sha256_file, write_evidence
 from .intent import ReviewIntent, load_intent, redact_json_text
 from .prompt import build_prompt
-from .providers.base import MediaPayload, ProviderLimits, ReviewRequest
+from .providers import MediaPayload, ProviderLimits, ReviewRequest
 from .result import BASE_RUBRIC, parse_model_json, validate_result
 from .sampling import mime_for_suffix
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from .providers.base import VideoReviewProvider
+    from .providers import VideoReviewProvider
 
 DEFAULT_TIMEOUT_SECONDS = 120.0
 
