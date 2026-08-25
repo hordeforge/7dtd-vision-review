@@ -180,6 +180,14 @@ def validate_result(
             if not isinstance(entry, dict) or "description" not in entry:
                 problems.append(f"issue #{index + 1} must be an object with 'description'")
                 continue
+            # The live NVIDIA model names a moment with the singular aliases
+            # `frame` / `seconds` as often as the canonical `at_frame` /
+            # `at_seconds`; normalize them before the shape check so a real
+            # verdict is not thrown away for a naming variant.
+            if "frame" in entry and "at_frame" not in entry:
+                entry["at_frame"] = entry.pop("frame")
+            if "seconds" in entry and "at_seconds" not in entry:
+                entry["at_seconds"] = entry.pop("seconds")
             unexpected = sorted(set(entry) - {"description", "at_seconds", "at_frame"})
             if unexpected:
                 problems.append(
