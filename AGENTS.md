@@ -31,10 +31,11 @@ is pushed straight to the default branch.
   billable, and sends authored assets to a third party. Nothing here contacts
   a provider without `--allow-network`, and no refusal reads credentials
   before the consent gate.
-- **Credentials never travel or land.** They come only from provider
-  configuration or environment variables, never as a command argument, and
-  never in stdout, JSON output, logs, or evidence. The redaction backstop in
-  `intent.py` is load-bearing; tests pin it.
+- **Credentials never travel or land.** They come from the environment or
+  from `config.local.toml` (the gitignored local config; `config.py` owns the
+  precedence), never as a command argument, and never in stdout, JSON output,
+  logs, or evidence. The redaction backstop in `intent.py` is load-bearing;
+  tests pin it.
 - **The result schema is ours, not the vendor's.** Provider payloads stay at
   the adapter boundary; callers consume `validate_result`'s output. A raw
   response is preserved only when explicitly requested, redacted either way.

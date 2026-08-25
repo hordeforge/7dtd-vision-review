@@ -34,10 +34,12 @@ the same family the audio-review pipeline uses (`summary`, `strengths`,
 `issues`, `recommended_changes`, `rubric_scores`, `confidence`,
 `limitations`), so a caller handling both review kinds reads one shape.
 
-**Credentials never travel or land.** They come only from provider
-configuration or environment variables, never as a command argument, and never
-in stdout, JSON output, logs, or evidence. The redaction backstop in
-`intent.py` drops credential-named keys wherever they would otherwise land.
+**Credentials never travel or land.** They come from the environment or from
+`config.local.toml` (the gitignored local config; see `config.py` for the
+precedence: CLI flags > env > `config.local.toml` > `config.toml` > built-in
+defaults), never as a command argument, and never in stdout, JSON output,
+logs, or evidence. The redaction backstop in `intent.py` drops
+credential-named keys wherever they would otherwise land.
 
 **Advisory only.** `ADVISORY_NOTE` rides every result and every evidence
 envelope: a model critique cannot mark an asset accepted. Human sign-off in

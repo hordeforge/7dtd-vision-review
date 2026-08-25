@@ -13,9 +13,11 @@ verified payload for `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning`; they
 are module constants because they are the model's own tuning surface, not
 per-review knobs.
 
-The key arrives from `NVIDIA_API_KEY`, travels in an `Authorization` header
-(never a query string, so it cannot land in an access log), and is never
-printed, logged, or written into evidence.
+The key arrives from `NVIDIA_API_KEY` (environment) or
+`providers.nvidia.api_key` in `config.local.toml` (see `config.py` for the
+precedence), travels in an `Authorization` header (never a query string, so
+it cannot land in an access log), and is never printed, logged, or written
+into evidence.
 
 Media policy: this adapter takes images only (multi-image `image_url`
 parts), never a muxed video — the sampling layer therefore always submits the
@@ -28,10 +30,10 @@ from __future__ import annotations
 import base64
 import contextlib
 import json
-import os
 import urllib.error
 import urllib.request
 
+from .. import config
 from ..errors import DeadeyeError
 from .base import MediaPayload, ProviderLimits, ReviewRequest, ReviewResponse
 
@@ -63,10 +65,12 @@ class NvidiaProvider:
     name = "nvidia"
     endpoint_mode = "hosted-api:openai-compatible-chat"
     requires_credential = True
+    credential_env_names = CREDENTIAL_ENV_VARS
 
     @property
     def default_model(self) -> str:
-        return DEFAULT_MODEL
+        configured = config.value(("providers", "nvidia", "model"))
+        return configured if isinstance(configured, str) and configured else DEFAULT_MODEL
 
     @property
     def limits(self) -> ProviderLimits:
@@ -79,29 +83,33 @@ class NvidiaProvider:
         )
 
     def credential(self) -> str | None:
-        """The configured key, or None. Never logged; callers send it only."""
-        for name in CREDENTIAL_ENV_VARS:
-            value = os.environ.get(name)
-            if value:
-                return value
-        return None
+        """The configured key (env first, then config.local.toml), or None.
+
+        Never logged; callers send it only.
+        """
+        return config.credential_for("nvidia", CREDENTIAL_ENV_VARS)
 
     def is_configured(self) -> bool:
         return self.credential() is not None
 
     def configuration_hint(self) -> str:
-        return f"export {CREDENTIAL_ENV_VARS[0]}=<key> with a key from https://build.nvidia.com"
+        return (
+            f"set {CREDENTIAL_ENV_VARS[0]} or put api_key under [providers.nvidia] "
+            "in config.local.toml; create a key at https://build.nvidia.com"
+        )
 
     def review(self, request: ReviewRequest) -> ReviewResponse:
         credential = self.credential()
         if credential is None:
             raise DeadeyeError(f"provider 'nvidia' has no credential; {self.configuration_hint()}")
         body = build_body(request)
+        endpoint = config.value(("providers", "nvidia", "endpoint"))
+        api_root = endpoint if isinstance(endpoint, str) and endpoint else API_ROOT
         # Both audited statements carry the same justification: the URL is
-        # this module's fixed https constant; scheme and host are never
-        # caller-controlled.
+        # this module's fixed https constant (or the config override); scheme
+        # and host are never caller-controlled.
         http_request = urllib.request.Request(  # noqa: S310
-            API_ROOT,
+            api_root,
             data=json.dumps(body).encode("utf-8"),
             headers={
                 "Content-Type": "application/json",
@@ -125,7 +133,7 @@ class NvidiaProvider:
             if exc.code in (401, 403):
                 raise DeadeyeError(
                     f"provider 'nvidia' rejected the credential (HTTP {exc.code}); "
-                    "check the key in NVIDIA_API_KEY"
+                    "check the key in NVIDIA_API_KEY or config.local.toml"
                 ) from exc
             if exc.code == 429:
                 raise DeadeyeError(
@@ -193,12 +201,22 @@ def build_body(request: ReviewRequest) -> dict[str, object]:
     return {
         "messages": [{"role": "user", "content": parts}],
         "model": request.model,
-        "max_tokens": DEFAULT_MAX_TOKENS,
-        "reasoning_budget": DEFAULT_REASONING_BUDGET,
-        "temperature": DEFAULT_TEMPERATURE,
-        "top_p": DEFAULT_TOP_P,
+        "max_tokens": _int_config("max_tokens", DEFAULT_MAX_TOKENS),
+        "reasoning_budget": _int_config("reasoning_budget", DEFAULT_REASONING_BUDGET),
+        "temperature": _float_config("temperature", DEFAULT_TEMPERATURE),
+        "top_p": _float_config("top_p", DEFAULT_TOP_P),
         "stream": False,
     }
+
+
+def _int_config(key: str, fallback: int) -> int:
+    value = config.value(("providers", "nvidia", key))
+    return value if isinstance(value, int) and not isinstance(value, bool) else fallback
+
+
+def _float_config(key: str, fallback: float) -> float:
+    value = config.value(("providers", "nvidia", key))
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else fallback
 
 
 def _label_for(payload: MediaPayload) -> str:
