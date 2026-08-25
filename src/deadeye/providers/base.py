@@ -14,6 +14,7 @@ a supply-chain surface a consuming mod author never has to audit.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -121,6 +122,13 @@ def int_setting(provider: str, key: str, fallback: int) -> int:
 
 
 def float_setting(provider: str, key: str, fallback: float) -> float:
-    """A provider's float tuning knob (`providers.<name>.<key>`), or fallback."""
+    """A provider's float tuning knob (`providers.<name>.<key>`), or fallback.
+
+    A non-finite value reads as unset: TOML spells them `nan`, `inf`, and
+    `-inf`, and passed through they would reach the request body as a bare
+    `NaN`/`Infinity` token that no JSON reader on the provider side accepts.
+    """
     value = config.value(("providers", provider, key))
+    if isinstance(value, float) and not math.isfinite(value):
+        return fallback
     return value if isinstance(value, (int, float)) and not isinstance(value, bool) else fallback

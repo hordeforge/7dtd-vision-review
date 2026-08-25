@@ -10,6 +10,7 @@ provider-controlled error text cannot forge extra stderr lines.
 from __future__ import annotations
 
 import io
+import json
 import urllib.error
 import urllib.request
 
@@ -87,3 +88,33 @@ def test_provider_error_text_cannot_forge_stderr_lines(http_opener) -> None:
     message = str(excinfo.value)
     assert message.count("\n") == 0
     assert "submitting 9 files" in message
+
+
+def test_non_finite_provider_numbers_cannot_reach_the_envelope(http_opener) -> None:
+    """Python's JSON parser accepts bare `NaN`/`Infinity` tokens (and `1e999`
+    overflows to infinity) although RFC 8259 does not; left in place they
+    would ride the usage block into evidence, stdout, and MCP payloads that no
+    strict reader can parse."""
+    body = (
+        b'{"usage": {"totalTokenCount": 41, "ratio": NaN, "burst": 1e999, '
+        b'"notes": [{"cost": Infinity}]}, "modelVersion": "gemini-2.5-flash"}'
+    )
+
+    def answering_open(request, timeout):
+        return io.BytesIO(body)
+
+    http_opener(answering_open)
+    envelope = post_json(
+        "gemini",
+        "https://generativelanguage.googleapis.com/v1beta/models/m:generateContent",
+        body={},
+        headers={"x-goog-api-key": "k"},
+        timeout_seconds=1.0,
+        credential_env="GEMINI_API_KEY",
+    )
+    assert envelope["usage"]["totalTokenCount"] == 41  # finite values pass untouched
+    assert envelope["usage"]["ratio"] is None
+    assert envelope["usage"]["burst"] is None
+    assert envelope["usage"]["notes"][0]["cost"] is None
+    assert envelope["modelVersion"] == "gemini-2.5-flash"
+    json.dumps(envelope)  # strict round trip: no bare NaN/Infinity tokens

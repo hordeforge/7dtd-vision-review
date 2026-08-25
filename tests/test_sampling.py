@@ -91,6 +91,31 @@ def test_frames_are_sampled_evenly_keeping_first_and_last(clip_dir) -> None:
     assert "even spacing, first and last kept" in record.note
 
 
+def test_even_spacing_preserves_count_and_order_for_every_shape(tmp_path) -> None:
+    """The spacing arithmetic (`round(i * (n - 1) / (c - 1))` over a set) must
+    yield exactly `count` strictly increasing indices including 0 and n - 1,
+    for every available/count pair: rounding collisions would silently submit
+    fewer frames than the provider's budget allows."""
+    from deadeye.sampling import _evenly_spaced
+
+    for available in range(2, 60):
+        frames = []
+        directory = tmp_path / f"clip-{available}"
+        directory.mkdir()
+        for index in range(available):
+            frame = directory / f"frame-{index:04d}.png"
+            frame.write_bytes(bytes([index]))
+            frames.append(frame)
+        for count in range(1, available + 1):
+            selected = _evenly_spaced(frames, count)
+            names = [frame.name for frame in selected]
+            assert len(selected) == count
+            assert names == sorted(names)  # clip order preserved
+            assert selected[0] == frames[0]
+            if count >= 2:
+                assert selected[-1] == frames[-1]
+
+
 def test_frames_under_the_limit_are_untouched(clip_dir) -> None:
     media = discover(clip_dir)
     record = sample(media, max_frames=20, video_capable=False, max_video_bytes=None)

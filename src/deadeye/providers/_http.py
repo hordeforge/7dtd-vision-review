@@ -12,6 +12,7 @@ from __future__ import annotations
 import contextlib
 import http.client
 import json
+import math
 import urllib.error
 import urllib.request
 from typing import Any
@@ -50,6 +51,29 @@ class _NoRedirects(urllib.request.HTTPRedirectHandler):
 _OPENER = urllib.request.build_opener(_NoRedirects)
 
 
+def _strict_json_numbers(value: Any) -> Any:
+    """Neutralize `NaN`/`Infinity` leaves a provider emitted.
+
+    Python's JSON parser accepts those bare tokens although RFC 8259 does
+    not, and an extreme exponent (`1e999`) silently parses to infinity. Left
+    in place they would survive into evidence, stdout, and MCP payloads that
+    no strict reader can parse. They become null instead of refusing the
+    whole envelope: the verdict text is billable, usage metadata is not worth
+    discarding it over. Finite numbers pass through untouched.
+    """
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return _strict_json_object(value)
+    if isinstance(value, list):
+        return [_strict_json_numbers(item) for item in value]
+    return value
+
+
+def _strict_json_object(envelope: dict[str, Any]) -> dict[str, Any]:
+    return {key: _strict_json_numbers(item) for key, item in envelope.items()}
+
+
 def post_json(
     provider: str,
     url: str,
@@ -74,8 +98,12 @@ def post_json(
     )
     try:
         with _OPENER.open(request, timeout=timeout_seconds) as response:
-            envelope: dict[str, Any] = json.load(response)
-        return envelope
+            envelope: Any = json.load(response)
+        if not isinstance(envelope, dict):
+            # Valid JSON that is not an object (a bare array, a string) would
+            # otherwise crash an adapter's key lookup with a raw traceback.
+            raise DeadeyeError(f"provider {provider!r} returned a non-object JSON envelope")
+        return _strict_json_object(envelope)
     except urllib.error.HTTPError as exc:
         # A body that cannot be read must degrade to the status line, not
         # to an unbound name when the message below formats it. The error

@@ -216,6 +216,25 @@ def test_nvidia_generation_params_flow_from_config(_isolated_config) -> None:
     assert body["top_p"] == 0.95
 
 
+def test_non_finite_float_knobs_read_as_unset(_isolated_config) -> None:
+    """TOML spells them `nan`, `inf`, and `-inf`; passed through they would
+    reach the request body as bare `NaN`/`Infinity` tokens no provider-side
+    JSON reader accepts."""
+    import json
+
+    _write(
+        _isolated_config,
+        "config.toml",
+        "[providers.nvidia]\ntemperature = nan\ntop_p = inf\n",
+    )
+    frame = MediaPayload(name="f.png", mime_type="image/png", kind="frame", data=b"x")
+    request = ReviewRequest(prompt="p", media=(frame,), model="m", timeout_seconds=1.0)
+    body = build_body(request)
+    assert body["temperature"] == 0.6
+    assert body["top_p"] == 0.95
+    json.dumps(body)  # the wire payload must stay strict JSON
+
+
 def test_provider_credential_reads_config_local(_isolated_config) -> None:
     _write(_isolated_config, "config.local.toml", '[providers.nvidia]\napi_key = "nvapi-local"\n')
     from deadeye.providers.nvidia import NvidiaProvider
