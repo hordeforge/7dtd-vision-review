@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__
-from .cli import PROVIDERS, _resolve_provider
+from .cli import PROVIDERS, _resolve_provider, _resolve_timeout
 from .errors import DeadeyeError
 from .intent import load_intent_file, parse_intent_text
 from .prompt import build_prompt
@@ -107,7 +107,9 @@ def _call_review(params: dict[str, Any]) -> dict[str, Any]:
             "review uploads the clip to a third party; pass allow_network=true to consent"
         )
     provider_name = _resolve_provider(params.get("provider"))
-    timeout = params.get("timeout_seconds") or 120.0
+    # Same resolution and validation as the CLI flag: the tool argument, else
+    # config's timeout_seconds, else the built-in default.
+    timeout = _resolve_timeout(params.get("timeout_seconds"))
     output = Path(params["output"]) if params.get("output") else None
     return run_review_core(
         Path(params["clip"]),

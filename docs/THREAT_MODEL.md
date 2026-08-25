@@ -154,6 +154,8 @@ permissions.
 | Vendor payload validated, refuse-not-coerce | hostile/malformed responses (T) | `result.py:97-244`; adapters extract text only |
 | Local limits before submission: suffix allowlist, byte budget, frame cap | oversized/unexpected uploads (D) | `base.py:21-34`; `sampling.py:128-201`; `review.py:103-129` |
 | Evidence no-overwrite by default, atomic write, SHA-256 addressing | history rewriting (T/R) | `evidence.py:128-144` |
+| Endpoint override validated: https only, plain http loopback-only, refused before submission | cleartext credential egress via config (part of T1) | `config.py` `endpoint()`; pinned by `tests/test_config.py` endpoint tests |
+| Config values validated at resolution: unknown `default_provider` and unusable timeout refused with named errors | silent wrong-provider / wrong-timeout operation (misconfiguration) | `cli.py` `_resolve_provider`/`_resolve_timeout`; pinned by `tests/test_config.py`, `tests/test_mcp.py` |
 | Doctor reports presence only, never contacts a provider | capability probing used as an oracle (I) | `base.py:82-88`; `cli.py:179-209` |
 | Zero runtime dependencies, bandit (S) lint rules armed | supply-chain surface | `pyproject.toml` |
 
@@ -170,12 +172,16 @@ authenticated POST — bearer key and all media — to an attacker-chosen HTTPS
 host. Discovery gives the checkout's own `config.toml` precedence over the
 home directory (`config.py:59-66`), so a cloned tree supplies the redirect;
 the override is read at submission time (`gemini.py:113-114`,
-`nvidia.py:115-116`) with no scheme/host restriction and no warning line.
-Consent is informed about the act ("media leaves this machine for
-`<provider>`") but never names the destination host
-(`review.py:138-141`). Enabling path: clone hostile repo → victim runs
-`deadeye review ... --allow-network` from its root → env key sent to the
-foreign endpoint. Candidate directions for sec-review: pin or warn on
+`nvidia.py:115-116`). Partially mitigated since this pass: `config.endpoint`
+refuses any override that is not https:// (plain http survives only for a
+loopback proxy such as `http://localhost:8080`, `config.py` `endpoint()`),
+so the credential can no longer be walked onto a cleartext wire. What remains
+open is host freedom: an attacker-named https:// domain passes, because a
+valid-TLS impostor host satisfies the check. Consent is informed about the
+act ("media leaves this machine for `<provider>`") but never names the
+destination host (`review.py:138-141`). Enabling path: clone hostile repo →
+victim runs `deadeye review ... --allow-network` from its root → env key sent
+to the foreign endpoint. Candidate directions for sec-review: pin or warn on
 endpoint overrides at submission time, name the resolved host in the
 disclosure lines, or drop the override.
 

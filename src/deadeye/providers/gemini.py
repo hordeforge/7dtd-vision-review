@@ -110,8 +110,9 @@ class GeminiProvider:
             "contents": [{"role": "user", "parts": parts}],
             "generationConfig": {"response_mime_type": "application/json"},
         }
-        endpoint = config.value(("providers", "gemini", "endpoint"))
-        api_root = endpoint if isinstance(endpoint, str) and endpoint else API_ROOT
+        # The override is validated in config.endpoint: https only, except a
+        # loopback proxy over plain http.
+        api_root = config.endpoint(("providers", "gemini", "endpoint"), API_ROOT)
         # Both audited statements carry the same justification: the URL is
         # this module's fixed https constant (or the config override) plus
         # the requested model name; scheme and host are never caller-controlled.

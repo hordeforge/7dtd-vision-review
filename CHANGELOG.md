@@ -21,6 +21,10 @@ open a new one.
 
 ### Added
 
+- `deadeye doctor` prints the effective top-level settings
+  (`default_provider`, `default_model`, `timeout_seconds`) and says so when a
+  `DEADEYE_CONFIG_DIR` names a directory holding no config file, so
+  misconfiguration is visible without opening the files.
 - `deadeye review CLIP --intent FILE --provider PROVIDER`: forwards a clip
   (a muxed video or a frame sequence) plus the author's recorded intent to a
   vision-capable model and returns one stable, structured result.
@@ -54,6 +58,21 @@ open a new one.
 
 ### Fixed
 
+- A configured but unknown `default_provider` is refused with an error naming
+  the value and the valid choices, instead of silently sending billable
+  reviews to `gemini`.
+- `--timeout` and config `timeout_seconds` are validated before any
+  submission: zero, negative, non-finite, and non-numeric values are refused
+  with one clear message. Previously `--timeout 0` silently read as the
+  120-second default, and a bad config value failed opaquely inside the HTTP
+  stack.
+- The MCP `review` tool now honors `timeout_seconds` from configuration,
+  resolving it exactly like the CLI (it previously ignored config and used a
+  hardcoded 120).
+- Per-provider `endpoint` overrides are validated before submission: https
+  only, with plain http accepted solely for a loopback proxy
+  (`http://localhost:8080`), so a mistyped override cannot send the provider
+  credential in cleartext or fail deep inside urllib.
 - Result validation refuses non-finite issue moments: `json.loads` accepts
   `NaN`/`Infinity` literals, and they would survive into evidence JSON no
   strict reader can parse.

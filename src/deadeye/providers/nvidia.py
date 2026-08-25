@@ -112,8 +112,9 @@ class NvidiaProvider:
         if credential is None:
             raise DeadeyeError(f"provider 'nvidia' has no credential; {self.configuration_hint()}")
         body = build_body(request)
-        endpoint = config.value(("providers", "nvidia", "endpoint"))
-        api_root = endpoint if isinstance(endpoint, str) and endpoint else API_ROOT
+        # The override is validated in config.endpoint: https only, except a
+        # loopback proxy over plain http.
+        api_root = config.endpoint(("providers", "nvidia", "endpoint"), API_ROOT)
         # Both audited statements carry the same justification: the URL is
         # this module's fixed https constant (or the config override); scheme
         # and host are never caller-controlled.

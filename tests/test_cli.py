@@ -135,6 +135,32 @@ def test_doctor_reports_offline_state(capsys) -> None:
     assert by_name["nvidia"]["state"] in ("configured", "unavailable")
 
 
+def test_doctor_prints_the_effective_settings_without_crashing(capsys) -> None:
+    """The effective knobs are inspectable even when configured badly."""
+    code, out, _ = _run(["doctor"], capsys)
+    assert code == 0
+    assert "default_provider:" in out
+    assert "timeout_seconds:" in out
+
+
+def test_doctor_reports_an_unusable_default_provider(tmp_path, monkeypatch, capsys) -> None:
+    """A bad default_provider is surfaced by doctor, never crashes it."""
+    from deadeye import config
+
+    cfg = tmp_path / "cfg"
+    cfg.mkdir()
+    (cfg / "config.toml").write_text('default_provider = "nvda"\n', encoding="utf-8")
+    monkeypatch.setenv("DEADEYE_CONFIG_DIR", str(cfg))
+    config.reset()
+    try:
+        code, out, _ = _run(["doctor"], capsys)
+        assert code == 0
+        assert "default_provider: not usable" in out
+        assert "nvda" in out
+    finally:
+        config.reset()
+
+
 def test_schema_prints_the_contract(capsys) -> None:
     code, out, _ = _run(["schema"], capsys)
     assert code == 0

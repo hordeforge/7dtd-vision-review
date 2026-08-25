@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
 from collections.abc import Callable
@@ -21,7 +22,7 @@ from .errors import DeadeyeError
 from .providers.fake import FakeProvider
 from .providers.gemini import GeminiProvider
 from .providers.nvidia import NvidiaProvider
-from .review import run_review
+from .review import DEFAULT_TIMEOUT_SECONDS, run_review
 
 if TYPE_CHECKING:
     from .providers.base import VideoReviewProvider
@@ -149,13 +150,43 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _resolve_provider(name: str | None) -> str:
-    """The provider to use: the flag, else config's default_provider, else gemini."""
+    """The provider to use: the flag, else config's default_provider, else gemini.
+
+    A configured but unknown name is refused, never silently swapped for the
+    built-in default: a typo'd `default_provider` would otherwise send billable
+    submissions to a different provider than the one configured.
+    """
     if name:
         return name
     configured = config.value(("default_provider",))
+    if configured is None or configured == "":
+        return "gemini"
     if isinstance(configured, str) and configured in PROVIDERS:
         return configured
-    return "gemini"
+    raise DeadeyeError(
+        f"config default_provider {configured!r} is not one of "
+        f"{', '.join(sorted(PROVIDERS))}; fix it in config.toml or config.local.toml"
+    )
+
+
+def _resolve_timeout(raw: Any) -> float:
+    """The seconds to wait for a provider: the flag, else config's
+    timeout_seconds, else the built-in default.
+
+    Validated here, before any submission, so an unusable value fails with one
+    clear message instead of surfacing as an opaque error inside the HTTP
+    stack. Zero and negative values are refused rather than silently read as
+    "unset".
+    """
+    value = raw if raw is not None else config.value(("timeout_seconds",))
+    if value is None:
+        return DEFAULT_TIMEOUT_SECONDS
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise DeadeyeError(f"timeout must be a positive number of seconds, not {value!r}")
+    seconds = float(value)
+    if not math.isfinite(seconds) or seconds <= 0:
+        raise DeadeyeError(f"timeout must be a positive number of seconds, not {value!r}")
+    return seconds
 
 
 def _handle_review(args: argparse.Namespace) -> int:
@@ -163,7 +194,7 @@ def _handle_review(args: argparse.Namespace) -> int:
         print(line, file=sys.stderr)
 
     provider_name = _resolve_provider(args.provider)
-    timeout = args.timeout or config.value(("timeout_seconds",)) or 120.0
+    timeout = _resolve_timeout(args.timeout)
     envelope = run_review(
         args.clip,
         provider=PROVIDERS[provider_name](),
@@ -283,6 +314,22 @@ def _handle_doctor(args: argparse.Namespace) -> int:
             print("config: none (see config.toml and config.local.toml.example)")
         if load_failure:
             print(f"config error: {load_failure}")
+        note = config.discovery_note()
+        if note:
+            print(f"config note: {note}")
+        # The effective top-level knobs, so a misconfiguration is visible
+        # without reading the files; never any credential material here.
+        try:
+            print(f"default_provider: {_resolve_provider(None)}")
+        except DeadeyeError as exc:
+            print(f"default_provider: not usable ({exc})")
+        default_model = config.value(("default_model",))
+        if isinstance(default_model, str) and default_model:
+            print(f"default_model: {default_model}")
+        try:
+            print(f"timeout_seconds: {_resolve_timeout(None):g}")
+        except DeadeyeError as exc:
+            print(f"timeout_seconds: not usable ({exc})")
     return 0
 
 

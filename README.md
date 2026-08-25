@@ -166,6 +166,16 @@ llm-proxy) or per provider (`[providers.nvidia] api_key = "..."`), with the
 per-provider one winning. `deadeye doctor` prints which files were loaded and
 where each key came from — never the value.
 
+Values are validated before use, not deep inside a submission:
+`default_provider` must name a known provider (an unknown name is refused,
+never silently swapped for another), `timeout_seconds` and `--timeout` must
+be positive numbers, and a per-provider `endpoint` override must be an
+`https://` URL — plain `http` is accepted only for a loopback proxy such as
+`http://localhost:8080`, so no credential ever rides a public wire in
+cleartext. `deadeye doctor` also prints the effective top-level settings
+(`default_provider`, `default_model`, `timeout_seconds`) so a
+misconfiguration is visible without opening the files.
+
 ## Consuming repositories
 
 `7dtd-asset-pipeline`'s `shamway review-video` and `7dtd-playtest`'s

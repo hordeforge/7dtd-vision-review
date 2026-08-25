@@ -19,7 +19,9 @@ that carries one shadows the home one):
 
 Only the files that exist are loaded; a local file without a base file (or
 vice versa) is fine. Values are read through `value(keys)` so a caller never
-handles the merge itself.
+handles the merge itself. Values with safety constraints get validated
+readers: `endpoint()` refuses an API-root override that would send the
+provider credential anywhere but https or a loopback proxy.
 """
 
 from __future__ import annotations
@@ -28,10 +30,17 @@ import os
 import tomllib
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
+
+from .errors import DeadeyeError
 
 CONFIG_ENV = "DEADEYE_CONFIG_DIR"
 BASE_NAME = "config.toml"
 LOCAL_NAME = "config.local.toml"
+
+# Hosts for which a plain-http endpoint override is tolerated: a local
+# self-hosted proxy. Anywhere else, the credential must ride https.
+LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
 
 def _merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -107,13 +116,23 @@ class _Cache:
 
     loaded: Config | None = None
     failed: str | None = None
+    note: str | None = None
 
 
 def load() -> Config:
     """The process-wide merged config; a parse failure surfaces once, loudly."""
     if _Cache.loaded is None and _Cache.failed is None:
         try:
-            _Cache.loaded = Config(_discover())
+            directory = _discover()
+            if directory is None:
+                explicit = os.environ.get(CONFIG_ENV, "").strip()
+                if explicit:
+                    _Cache.note = (
+                        f"{CONFIG_ENV}={explicit} names a directory holding "
+                        f"neither {BASE_NAME} nor {LOCAL_NAME}; built-in "
+                        "defaults apply"
+                    )
+            _Cache.loaded = Config(directory)
         except ValueError as exc:
             _Cache.failed = str(exc)
             raise
@@ -127,10 +146,16 @@ def load_failure() -> str | None:
     return _Cache.failed
 
 
+def discovery_note() -> str | None:
+    """Why no config file was found, when an explicit directory was named; for doctor."""
+    return _Cache.note
+
+
 def reset() -> None:
     """Forget the cached config (tests)."""
     _Cache.loaded = None
     _Cache.failed = None
+    _Cache.note = None
 
 
 def value(keys: str | tuple[str, ...]) -> Any:
@@ -167,3 +192,28 @@ def credential_for(provider: str, env_names: tuple[str, ...]) -> str | None:
     if isinstance(top_level, str) and top_level:
         return top_level
     return None
+
+
+def endpoint(keys: tuple[str, ...], fallback: str) -> str:
+    """A provider API root override, validated before anything is submitted.
+
+    The override exists for a self-hosted proxy, so plain http is accepted
+    only for a loopback host; anywhere else the bearer key or API key would
+    travel in cleartext or reach an unintended host. Anything else is refused
+    here — at review start with a named key — instead of failing inside the
+    HTTP stack after media was read.
+    """
+    raw = value(keys)
+    if not isinstance(raw, str) or not raw.strip():
+        return fallback
+    root = raw.strip()
+    parts = urlsplit(root)
+    host = (parts.hostname or "").strip("[]").lower()
+    if (parts.scheme == "https" and parts.netloc) or (
+        parts.scheme == "http" and host in LOOPBACK_HOSTS
+    ):
+        return root
+    raise DeadeyeError(
+        f"config '{'.'.join(keys)}' must be an https:// URL (plain http only "
+        f"for a loopback proxy such as http://localhost): got {raw!r}"
+    )

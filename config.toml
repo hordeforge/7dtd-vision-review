@@ -12,7 +12,8 @@ default_provider = "gemini"
 # unset to keep each provider's default.
 # default_model = ""
 
-# Seconds to wait for a provider when --timeout is omitted.
+# Seconds to wait for a provider when --timeout is omitted. A positive
+# number; zero, negative, or non-numeric values are refused at start.
 timeout_seconds = 120
 
 # Per-provider settings. `model` overrides the built-in default model for

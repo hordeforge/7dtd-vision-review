@@ -10,7 +10,8 @@ from __future__ import annotations
 import pytest
 
 from deadeye import config
-from deadeye.cli import _resolve_provider
+from deadeye.cli import _resolve_provider, _resolve_timeout
+from deadeye.errors import DeadeyeError
 from deadeye.providers.base import MediaPayload, ReviewRequest
 from deadeye.providers.nvidia import build_body
 
@@ -97,6 +98,88 @@ def test_default_provider_comes_from_config(_isolated_config) -> None:
     _write(_isolated_config, "config.toml", 'default_provider = "nvidia"\n')
     assert _resolve_provider(None) == "nvidia"
     assert _resolve_provider("fake") == "fake"
+
+
+def test_unknown_default_provider_is_refused_not_silently_swapped(_isolated_config) -> None:
+    """A typo'd provider must not quietly send billable reviews to the default."""
+    _write(_isolated_config, "config.toml", 'default_provider = "nvda"\n')
+    with pytest.raises(DeadeyeError, match="nvda"):
+        _resolve_provider(None)
+
+
+def test_non_string_default_provider_is_refused(_isolated_config) -> None:
+    _write(_isolated_config, "config.toml", "default_provider = 3\n")
+    with pytest.raises(DeadeyeError, match="default_provider"):
+        _resolve_provider(None)
+
+
+def test_timeout_resolution_flag_over_config_over_default(_isolated_config) -> None:
+    _write(_isolated_config, "config.toml", "timeout_seconds = 30\n")
+    assert _resolve_timeout(None) == 30.0
+    assert _resolve_timeout(5) == 5.0
+    # An explicitly empty config falls back to the built-in default.
+    config.reset()
+    _write(_isolated_config, "config.toml", "")
+    config.reset()
+    assert _resolve_timeout(None) == 120.0
+
+
+def test_timeout_refuses_unusable_values_instead_of_failing_late(_isolated_config) -> None:
+    for bad in (0, -1, float("nan"), float("inf"), True):
+        with pytest.raises(DeadeyeError, match="positive number of seconds"):
+            _resolve_timeout(bad)
+    _write(_isolated_config, "config.toml", 'timeout_seconds = "120"\n')
+    with pytest.raises(DeadeyeError, match="positive number of seconds"):
+        _resolve_timeout(None)
+
+
+def test_endpoint_override_unset_or_non_string_reads_as_fallback(_isolated_config) -> None:
+    fallback = "https://fallback.example/v1"
+    assert config.endpoint(("providers", "nvidia", "endpoint"), fallback) == fallback
+    _write(_isolated_config, "config.toml", "[providers.nvidia]\nendpoint = 7\n")
+    assert config.endpoint(("providers", "nvidia", "endpoint"), fallback) == fallback
+
+
+def test_endpoint_override_accepts_https_and_loopback_http(_isolated_config) -> None:
+    _write(
+        _isolated_config,
+        "config.toml",
+        '[providers.nvidia]\nendpoint = "https://proxy.internal/v1"\n',
+    )
+    assert (
+        config.endpoint(("providers", "nvidia", "endpoint"), "https://fallback")
+        == "https://proxy.internal/v1"
+    )
+    config.reset()
+    _write(
+        _isolated_config, "config.toml", '[providers.nvidia]\nendpoint = "http://localhost:8080"\n'
+    )
+    assert (
+        config.endpoint(("providers", "nvidia", "endpoint"), "https://fallback")
+        == "http://localhost:8080"
+    )
+
+
+def test_endpoint_override_refuses_remote_plaintext_before_any_submission(_isolated_config) -> None:
+    _write(
+        _isolated_config,
+        "config.toml",
+        '[providers.nvidia]\nendpoint = "http://proxy.example.com/v1"\n',
+    )
+    with pytest.raises(DeadeyeError, match="https"):
+        config.endpoint(("providers", "nvidia", "endpoint"), "https://fallback")
+
+
+def test_explicit_config_dir_without_files_is_reported_not_silent(
+    _isolated_config, monkeypatch
+) -> None:
+    empty = _isolated_config / "empty"
+    empty.mkdir()
+    monkeypatch.setenv("DEADEYE_CONFIG_DIR", str(empty))
+    config.reset()
+    assert config.load().directory is None
+    note = config.discovery_note()
+    assert note is not None and "DEADEYE_CONFIG_DIR" in note
 
 
 def test_nvidia_generation_params_flow_from_config(_isolated_config) -> None:
