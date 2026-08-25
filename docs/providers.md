@@ -4,8 +4,9 @@ An adapter is a narrow protocol in `src/deadeye/providers/base.py`:
 
 - `limits` — accepted suffixes, per-request byte budget, maximum frames, and
   whether a muxed video can be submitted as-is;
-- `is_configured()` / `configuration_hint()` — environment presence only, so
-  `deadeye doctor`, `--help`, and offline runs never contact a provider;
+- `is_configured()` / `configuration_hint()` — local credential presence
+  (environment or `config.local.toml`) only, so `deadeye doctor`, `--help`,
+  and offline runs never contact a provider;
 - `review(request)` — submit media plus prompt, return raw text plus usage
   metadata, raising `DeadeyeError` on refusal or fault.
 

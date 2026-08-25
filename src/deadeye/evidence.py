@@ -32,9 +32,9 @@ from .sampling import SamplingRecord
 EVIDENCE_SCHEMA_VERSION = 1
 
 # A provider's usage block reports its cost through names like
-# `totalTokenCount`, so it cannot share the broad rule above: there "token"
-# is billing, not authentication. It keeps every count and still drops the
-# names a secret actually travels in.
+# `totalTokenCount`, so it cannot reuse intent.SENSITIVE_KEY_PARTS wholesale:
+# there "token" is billing, not authentication. It keeps every count and
+# still drops the names a secret actually travels in.
 USAGE_SENSITIVE_KEY_PARTS = tuple(
     part
     for part in ("api_key", "apikey", "authorization", "credential", "password", "secret", "token")

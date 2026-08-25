@@ -194,9 +194,9 @@ misconfiguration is visible without opening the files.
 `scripts/review_video.py` shell out to this CLI: each keeps its own operation,
 intent, and evidence documents (adding the fields only it knows — generation
 parameters, suite and case) and calls `deadeye` for the model I/O. See
-[docs/integration.md](docs/integration.md) for the call contract. An MCP
-server surface is planned — [docs/mcp-server.md](docs/mcp-server.md) records
-the design.
+[docs/integration.md](docs/integration.md) for the call contract. The same
+surface is also reachable over Model Context Protocol through `deadeye mcp`
+(see [docs/mcp-server.md](docs/mcp-server.md)).
 
 ## Development
 

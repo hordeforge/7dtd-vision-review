@@ -23,8 +23,9 @@ def build_prompt(
 
     `media_summary` states what is being attached (a muxed video, or N sampled
     frames at even spacing) so the model judges what actually reached it.
-    `frame_timing_note` names the clip's cadence when known (for example
-    "frames are 4 per second"), which lets the model tie a moment to seconds.
+    `frame_timing_note`, when given, tells the model how to read the frame
+    attachments' timing: the order they arrive in and what an issue's
+    `at_frame` index refers to there.
     """
     lines = [
         "You are reviewing a game-asset candidate on screen. Judge ONLY the",

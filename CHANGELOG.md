@@ -34,6 +34,11 @@ open a new one.
   (`default_provider`, `default_model`, `timeout_seconds`) and says so when a
   `DEADEYE_CONFIG_DIR` names a directory holding no config file, so
   misconfiguration is visible without opening the files.
+- `deadeye prompt --intent FILE [--clip DIR]` renders the exact reviewer
+  instruction the gateway would inject, without running a review.
+- `deadeye mcp` serves the same surface as a Model Context Protocol server on
+  stdio (newline-delimited JSON-RPC 2.0), with the same consent gate: the
+  `review` tool refuses without an explicit `allow_network`.
 - `deadeye review CLIP --intent FILE --provider PROVIDER`: forwards a clip
   (a muxed video or a frame sequence) plus the author's recorded intent to a
   vision-capable model and returns one stable, structured result.
@@ -43,13 +48,15 @@ open a new one.
   bytes, complete intent) so the whole suite runs with no network and no
   credential.
 - `gemini` provider: muxed video inline or a frame sequence.
-- `nvidia` provider: NVIDIA NIM vision-chat over a frame sequence.
+- `nvidia` provider: NVIDIA NIM vision-chat, a muxed video inline or a frame
+  sequence.
 - Hash-addressed evidence envelopes (`--output`, `--json`): SHA-256 of every
   submitted file and of the intent, the sampling record including what was
   dropped to fit a provider limit, provider and model, rubric and prompt
   versions, the validated result, and tool information with credentials
   removed. A later review never overwrites an earlier envelope without
-  `--force`.
+  `--force`. `--keep-raw-response` preserves a redacted copy of the
+  provider's raw response inside the envelope.
 - `deadeye doctor` and `deadeye schema`.
 - `config.toml` plus a gitignored `config.local.toml` for provider settings
   and credentials, mirroring the sibling llm-proxy convention. Precedence:

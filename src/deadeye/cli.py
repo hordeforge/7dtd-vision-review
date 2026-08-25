@@ -1,4 +1,4 @@
-"""The deadeye command line: `review`, `doctor`, `schema`.
+"""The deadeye command line: `review`, `doctor`, `schema`, `prompt`, `mcp`.
 
 The machine contract is the exit code and the JSON on stdout: `review --json`
 prints the full evidence envelope, and every refusal exits non-zero with one

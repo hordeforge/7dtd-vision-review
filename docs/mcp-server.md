@@ -12,12 +12,13 @@ calls, spec error codes, and the review consent boundary.
 - **Same contract, different transport.** The MCP tools map onto the CLI's
   surface: a `review` tool (clip directory or video, intent, provider, model)
   returning the same evidence envelope, a `doctor` tool reporting capability
-  state, and a `schema` tool describing the intent/result shapes. No new
-  authority model, no second result format.
+  state, a `schema` tool describing the intent/result shapes, and a `prompt`
+  tool rendering the injected reviewer instruction. No new authority model,
+  no second result format.
 - **Consent and credentials do not weaken.** `--allow-network` becomes an
   explicit per-call parameter that refuses the upload when unset; credentials
-  still come only from the environment; disclosure lines still precede
-  submission.
+  still come only from the environment or `config.local.toml`; disclosure
+  lines still precede submission.
 - **Duplicate calls are duplicate submissions.** The server keeps no state
   between frames, so a client that resends a `review` call (lost response,
   timeout, replay) triggers a second billable submission rather than
