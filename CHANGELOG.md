@@ -174,3 +174,14 @@ open a new one.
   Those three checks ran after the refusal gate, so the problems they found
   were never raised and a malformed answer silently became empty lists in
   the stored evidence.
+- `python -m deadeye` now exits with `main()`'s code instead of always 0: the
+  module form previously swallowed every refusal's exit status, so a script
+  driving it could read a failed review as success. The console script was
+  unaffected.
+- An interrupt (Ctrl+C) during a review exits 130 with one stderr line
+  (`ERROR: interrupted`) instead of an unhandled traceback, and a downstream
+  reader closing the pipe on stdout (`... | head`) exits 141 quietly instead
+  of failing in the interpreter's shutdown flush with exit 120.
+- `deadeye review --help` gained an examples epilog walking the recommended
+  flow: `doctor` first, then `prompt` to see what would be asked, then the
+  offline fake review, then a real billable one.

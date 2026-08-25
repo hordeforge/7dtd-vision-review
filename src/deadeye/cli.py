@@ -3,12 +3,14 @@
 The machine contract is the exit code and the JSON on stdout: `review --json`
 prints the full evidence envelope, and every refusal exits non-zero with one
 `ERROR: ...` line on stderr. Human-facing disclosure lines go to stderr so a
-programmatic caller's stdout stays parseable.
+programmatic caller's stdout stays parseable. Usage misuse exits 2 (argparse),
+an interrupt 130, a closed stdout pipe 141.
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import math
 import os
@@ -54,6 +56,27 @@ def _build_parser() -> argparse.ArgumentParser:
         "review",
         help="submit a clip (frame directory or muxed video) plus intent to a "
         "vision model and print the review envelope",
+        description=(
+            "submit a clip (frame directory or muxed video) plus intent to a "
+            "vision model and print the review envelope. Every submission is "
+            "one new billable upload to a third party and is never retried."
+        ),
+        epilog=(
+            "examples:\n"
+            "  deadeye doctor\n"
+            "      which providers are usable right now; contacts nothing\n"
+            "  deadeye prompt --intent intent.json --clip CLIP\n"
+            "      render the exact reviewer prompt; submits nothing\n"
+            "  deadeye review CLIP --intent intent.json \\\n"
+            "      --provider fake --allow-network --json\n"
+            "      the full envelope offline, for plumbing checks\n"
+            "  deadeye review CLIP --intent intent.json \\\n"
+            "      --provider gemini --allow-network --output evidence.json\n"
+            "      a real, billable review, evidence kept beside the clip\n"
+            "\n"
+            "Exactly one of --intent PATH / --intent-text JSON is required."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     review.add_argument("clip", type=Path, help="a clip directory or muxed video file")
     review.add_argument(
@@ -144,6 +167,22 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         return int(args.handler(args))
+    except KeyboardInterrupt:
+        # Ctrl+C during a submission is not a fault to explain at length:
+        # exit the way a SIGINT-killed process would (128 + SIGINT), with one
+        # stderr line so a non-zero exit is never unexplained.
+        print("ERROR: interrupted", file=sys.stderr)
+        return 130
+    except BrokenPipeError:
+        # A downstream reader (`head`, a pager) closed the pipe on stdout.
+        # Exit with the conventional SIGPIPE status (128 + SIGPIPE) instead
+        # of failing a second time inside the interpreter's shutdown flush of
+        # the buffered stream. Pointing stdout at devnull first is what keeps
+        # that final flush quiet; it is deliberately best-effort, because an
+        # embedded caller's stdout need not expose a file descriptor.
+        with contextlib.suppress(OSError):
+            os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        return 141
     except (DeadeyeError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1

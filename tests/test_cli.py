@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 
 import pytest
 
@@ -267,3 +269,86 @@ def test_prompt_requires_an_intent(capsys) -> None:
     code, _, err = _run(["prompt"], capsys)
     assert code == 1
     assert "exactly one of --intent" in err
+
+
+def test_python_dash_m_honors_the_exit_contract() -> None:
+    """`python -m deadeye` must propagate main()'s exit code, not swallow it:
+    a script driving the module form reads the same contract as the console
+    script (0 success, 1 refusal with one ERROR line on stderr)."""
+    ok = subprocess.run(
+        [sys.executable, "-m", "deadeye", "schema"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert ok.returncode == 0
+
+    failed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "deadeye",
+            "review",
+            "/nonexistent-clip",
+            "--provider",
+            "fake",
+            "--allow-network",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert failed.returncode == 1
+    assert failed.stderr.startswith("ERROR:")
+    assert failed.stdout == ""
+
+
+def test_an_interrupt_exits_130_without_a_traceback(clip_dir, tmp_path, capsys, monkeypatch):
+    """Ctrl+C mid-review exits the way a SIGINT-killed process would (130)
+    with one stderr line, never an unhandled traceback."""
+    from deadeye import cli
+
+    intent = tmp_path / "i.json"
+    intent.write_text(MINIMAL_INTENT)
+
+    def interrupted(*args, **kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli, "run_review", interrupted)
+    code, out, err = _run(
+        ["review", str(clip_dir), "--intent", str(intent), "--provider", "fake"],
+        capsys,
+    )
+    assert code == 130
+    assert out == ""
+    assert err == "ERROR: interrupted\n"
+
+
+def test_a_closed_stdout_pipe_exits_141(clip_dir, tmp_path, capsys, monkeypatch):
+    """A downstream reader closing the pipe on stdout (`... | head`) exits
+    with the conventional SIGPIPE status instead of a shutdown-flush
+    traceback and an unrelated exit code."""
+    from deadeye import cli
+
+    intent = tmp_path / "i.json"
+    intent.write_text(MINIMAL_INTENT)
+
+    def pipe_closed(*args, **kwargs):
+        raise BrokenPipeError
+
+    monkeypatch.setattr(cli, "run_review", pipe_closed)
+    code = cli.main(
+        [
+            "review",
+            str(clip_dir),
+            "--intent",
+            str(intent),
+            "--provider",
+            "fake",
+            "--allow-network",
+            "--json",
+        ]
+    )
+    captured = capsys.readouterr()
+    assert code == 141
+    assert captured.err == ""
