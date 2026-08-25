@@ -257,6 +257,20 @@ if [[ -z "$CLIP" ]]; then
             cd "$MOD_DIR"
             "$SHAMWAY" init . --mod-name VisionE2E --bundle-name vision_e2e.unity3d \
                 --bundle-source synthesized --game-dir "$GAME"
+            # shamway init scaffolds the pipeline, not the mod's identity:
+            # ModInfo.xml is the modlet's own file, and acceptance-provider
+            # and client deploy both refuse without it. Name must agree with
+            # the --mod-name above, which the suite id derives from.
+            cat > ModInfo.xml <<'EOF'
+<?xml version="1.0" encoding="UTF-8" ?>
+<xml>
+	<Name value="VisionE2E" />
+	<DisplayName value="Vision E2E" />
+	<Description value="deadeye end-to-end fixture: in-game turntable capture and model review" />
+	<Author value="hordeforge" />
+	<Version value="1.0.0" />
+</xml>
+EOF
             "$SHAMWAY" generate mesh "assets-src/bundle/${CLIP_STEM}.glb" \
                 --shape box --size 0.2 0.2 0.5
             cat >> .shamway.toml <<'EOF'
