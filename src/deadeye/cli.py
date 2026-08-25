@@ -252,7 +252,7 @@ def _handle_prompt(args: argparse.Namespace) -> int:
     """
     from . import sampling
     from .intent import load_intent_file, parse_intent_text
-    from .prompt import build_prompt
+    from .prompt import build_prompt, preview_media
     from .result import BASE_RUBRIC
 
     if args.intent is not None and args.intent_text is not None:
@@ -268,22 +268,8 @@ def _handle_prompt(args: argparse.Namespace) -> int:
             "deadeye prompt needs exactly one of --intent PATH or --intent-text JSON"
         )
 
-    if args.clip is not None:
-        media = sampling.discover(Path(args.clip))
-        if media.video is not None:
-            media_summary = f"a single muxed video file ({media.video.name})"
-            frame_note = ""
-        else:
-            media_summary = (
-                f"{len(media.frames)} frame image(s) of the clip's {len(media.frames)} frames"
-            )
-            frame_note = (
-                "Frames arrive in the order listed; an issue's at_frame index refers to "
-                "that order, while at_seconds refers to seconds from the clip's start."
-            )
-    else:
-        media_summary = "the submitted media (a muxed video or a sampled frame sequence)"
-        frame_note = ""
+    media = sampling.discover(Path(args.clip)) if args.clip is not None else None
+    media_summary, frame_note = preview_media(media)
     print(
         build_prompt(intent, BASE_RUBRIC, media_summary=media_summary, frame_timing_note=frame_note)
     )

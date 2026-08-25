@@ -10,6 +10,25 @@ from __future__ import annotations
 
 from .intent import ReviewIntent
 from .result import RubricDimension
+from .sampling import ClipMedia
+
+
+def preview_media(media: ClipMedia | None) -> tuple[str, str]:
+    """(media_summary, frame_timing_note) for a prompt rendered without a submission.
+
+    The preview names what discovery found, before any provider limit samples
+    it down; the post-submission summary a review records is review.py's, and
+    names what actually went.
+    """
+    if media is None:
+        return "the submitted media (a muxed video or a sampled frame sequence)", ""
+    if media.video is not None:
+        return f"a single muxed video file ({media.video.name})", ""
+    return (
+        f"{len(media.frames)} frame image(s) of the clip's {len(media.frames)} frames",
+        "Frames arrive in the order listed; an issue's at_frame index refers to "
+        "that order, while at_seconds refers to seconds from the clip's start.",
+    )
 
 
 def build_prompt(

@@ -23,16 +23,12 @@ supported fallback every vision-chat API shares.
 from __future__ import annotations
 
 import base64
-import contextlib
-import http.client
-import json
-import urllib.error
 import urllib.parse
-import urllib.request
 
 from .. import config
 from ..errors import DeadeyeError
 from ..sampling import IMAGE_SUFFIXES, VIDEO_SUFFIXES
+from ._http import post_json
 from .base import ProviderLimits, ReviewRequest, ReviewResponse, attachment_label
 
 API_ROOT = "https://generativelanguage.googleapis.com/v1beta/models"
@@ -104,81 +100,21 @@ class GeminiProvider:
         # The override is validated in config.endpoint: https only, except a
         # loopback proxy over plain http.
         api_root = config.endpoint(("providers", "gemini", "endpoint"), API_ROOT)
-        # Both audited statements carry the same justification: the URL is
-        # this module's fixed https constant (or the config override) plus
-        # the requested model name; scheme and host are never caller-controlled.
-        # The model is one path segment and must be percent-encoded: a name
-        # with a space or non-ASCII character would otherwise be sent as raw
-        # latin-1 request-line bytes (mojibake) or fail the ASCII encode.
-        http_request = urllib.request.Request(  # noqa: S310
+        envelope = post_json(
+            self.name,
+            # The model is one path segment and must be percent-encoded: a
+            # name with a space or non-ASCII character would otherwise be
+            # sent as raw latin-1 request-line bytes (mojibake) or fail the
+            # ASCII encode.
             f"{api_root}/{urllib.parse.quote(request.model, safe='')}:generateContent",
-            data=json.dumps(body).encode("utf-8"),
+            body=body,
             headers={
-                "Content-Type": "application/json",
                 # Header, not query parameter: the key must never appear in a URL.
                 "x-goog-api-key": credential,
             },
-            method="POST",
+            timeout_seconds=request.timeout_seconds,
+            credential_env=CREDENTIAL_ENV_VARS[0],
         )
-        try:
-            with urllib.request.urlopen(  # noqa: S310
-                http_request, timeout=request.timeout_seconds
-            ) as response:
-                envelope = json.load(response)
-        except urllib.error.HTTPError as exc:
-            # A body that cannot be read must degrade to the status line, not
-            # to an unbound name when the message below formats it. The error
-            # body owns the request's socket until closed, so close it here
-            # rather than leaving it to the cyclic collector: the MCP server
-            # is long-lived, and each refused review would otherwise hold one
-            # dead connection until a GC pass reclaims the exception chain.
-            detail = ""
-            with contextlib.suppress(OSError):
-                detail = exc.read().decode("utf-8", errors="replace")[:300]
-            with contextlib.suppress(OSError):
-                exc.close()
-            if exc.code in (401, 403):
-                raise DeadeyeError(
-                    f"provider 'gemini' rejected the credential (HTTP {exc.code}); "
-                    "check the key in GEMINI_API_KEY or config.local.toml"
-                ) from exc
-            if exc.code == 429:
-                raise DeadeyeError(
-                    f"provider 'gemini' rate-limited or quota-exhausted the request "
-                    f"(HTTP 429): {detail}"
-                ) from exc
-            raise DeadeyeError(
-                f"provider 'gemini' refused the review (HTTP {exc.code}): {detail}"
-            ) from exc
-        except TimeoutError as exc:
-            # The request may have reached the provider and completed there:
-            # a caller that resubmits starts a second billable review, it does
-            # not retry this one. Every ambiguous-outcome refusal says so.
-            raise DeadeyeError(
-                f"provider 'gemini' did not answer within {request.timeout_seconds:g}s; "
-                "no verdict arrived, and the submission may still have completed "
-                "and billed server-side: submitting again is a new billable "
-                "review, not a retry of this one"
-            ) from exc
-        except urllib.error.URLError as exc:
-            raise DeadeyeError(
-                f"provider 'gemini' could not be reached: {exc.reason}; no verdict was produced"
-            ) from exc
-        except json.JSONDecodeError as exc:
-            raise DeadeyeError(f"provider 'gemini' returned a non-JSON envelope: {exc}") from exc
-        except (http.client.HTTPException, OSError) as exc:
-            # A connection that dies mid-body (reset, truncated chunked
-            # response) surfaces here, not as a traceback: the request was
-            # billed and no verdict came back, which is a refusal to report.
-            # The server side may still finish and bill the attempt, so the
-            # refusal also warns against treating a resubmission as a retry.
-            raise DeadeyeError(
-                f"provider 'gemini' connection failed before a complete "
-                f"response arrived: {exc!r}; no verdict arrived, and the "
-                "submission may still have completed and billed server-side: "
-                "submitting again is a new billable review, not a retry of "
-                "this one"
-            ) from exc
 
         candidates = envelope.get("candidates") or []
         if not candidates:

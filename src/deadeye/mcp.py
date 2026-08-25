@@ -175,6 +175,7 @@ def _call_schema(params: dict[str, Any]) -> dict[str, Any]:
 
 def _call_prompt(params: dict[str, Any]) -> dict[str, Any]:
     from . import sampling
+    from .prompt import preview_media
 
     if params.get("intent") and params.get("intent_text"):
         raise DeadeyeError("takes exactly one of intent or intent_text, never both")
@@ -184,17 +185,8 @@ def _call_prompt(params: dict[str, Any]) -> dict[str, Any]:
         intent, _ = parse_intent_text(params["intent_text"])
     else:
         raise DeadeyeError("needs exactly one of intent or intent_text")
-    if params.get("clip"):
-        media = sampling.discover(Path(params["clip"]))
-        if media.video is not None:
-            summary = f"a single muxed video file ({media.video.name})"
-            note = ""
-        else:
-            summary = f"{len(media.frames)} frame image(s) of the clip's {len(media.frames)} frames"
-            note = "Frames arrive in the order listed; at_frame refers to that order."
-    else:
-        summary = "the submitted media (a muxed video or a sampled frame sequence)"
-        note = ""
+    media = sampling.discover(Path(params["clip"])) if params.get("clip") else None
+    summary, note = preview_media(media)
     return {
         "prompt": build_prompt(intent, BASE_RUBRIC, media_summary=summary, frame_timing_note=note)
     }

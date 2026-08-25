@@ -200,6 +200,21 @@ _intent_docs = st.dictionaries(
 )
 
 
+def _same(left: object, right: object) -> bool:
+    """Structural equality that treats a NaN float as equal to itself."""
+    if isinstance(left, float) and isinstance(right, float):
+        return left == right or (math.isnan(left) and math.isnan(right))
+    if isinstance(left, list) and isinstance(right, list):
+        return len(left) == len(right) and all(
+            _same(a, b) for a, b in zip(left, right, strict=True)
+        )
+    if isinstance(left, dict) and isinstance(right, dict):
+        return left.keys() == right.keys() and all(
+            _same(item, right[key]) for key, item in left.items()
+        )
+    return type(left) is type(right) and left == right
+
+
 @FUZZ
 @given(_json_values(max_leaves=14))
 def test_fuzz_redact_drops_every_sensitive_key(value: object) -> None:
@@ -207,8 +222,10 @@ def test_fuzz_redact_drops_every_sensitive_key(value: object) -> None:
     for key in _walk_keys(cleaned):
         assert isinstance(key, str), "redact drops non-string keys"
         assert not _looks_sensitive(key), f"credential-bearing key {key!r} survived redact"
-    # Redaction is idempotent: nothing new to remove on a second pass.
-    assert redact(cleaned) == cleaned
+    # Redaction is idempotent: nothing new to remove on a second pass. A NaN
+    # leaf compares unequal to itself, so == cannot express this; compare
+    # structurally instead.
+    assert _same(redact(cleaned), cleaned)
 
 
 @FUZZ

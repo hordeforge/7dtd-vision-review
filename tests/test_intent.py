@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 
 import pytest
 
@@ -108,6 +109,15 @@ def test_deeply_nested_json_is_refused_not_crashed() -> None:
 def test_redact_drops_credential_keys_nested() -> None:
     value = {"ok": 1, "api_key": "secret", "headers": {"Authorization": "Bearer x", "meta": "y"}}
     assert redact(value) == {"ok": 1, "headers": {"meta": "y"}}
+
+
+def test_redact_passes_nan_leaves_through_untouched() -> None:
+    # Falsifying example from the fuzz suite: a NaN leaf compares unequal to
+    # itself, so redaction must pass it through by identity for idempotence
+    # to hold structurally at all.
+    cleaned = redact({"ok": [float("nan")], "api_key": "secret"})
+    assert list(cleaned) == ["ok"]
+    assert len(cleaned["ok"]) == 1 and math.isnan(cleaned["ok"][0])
 
 
 def test_redact_keeps_token_counters_for_usage() -> None:
