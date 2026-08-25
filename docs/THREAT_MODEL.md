@@ -155,7 +155,7 @@ permissions.
 | Local limits before submission: suffix allowlist, byte budget, frame cap | oversized/unexpected uploads (D) | `base.py:21-34`; `sampling.py:128-201`; `review.py:103-129` |
 | Evidence no-overwrite by default, atomic write, SHA-256 addressing | history rewriting (T/R) | `evidence.py:128-144` |
 | Endpoint override validated: https only, plain http loopback-only, refused before submission | cleartext credential egress via config (part of T1) | `config.py` `endpoint()`; pinned by `tests/test_config.py` endpoint tests |
-| Config values validated at resolution: unknown `default_provider` and unusable timeout refused with named errors | silent wrong-provider / wrong-timeout operation (misconfiguration) | `cli.py` `_resolve_provider`/`_resolve_timeout`; pinned by `tests/test_config.py`, `tests/test_mcp.py` |
+| Config values validated at resolution: unknown `default_provider` and unusable timeout refused with named errors | silent wrong-provider / wrong-timeout operation (misconfiguration) | `surface.py` `_resolve_provider`/`_resolve_timeout`; pinned by `tests/test_config.py`, `tests/test_mcp.py` |
 | Doctor reports presence only, never contacts a provider | capability probing used as an oracle (I) | `base.py:82-88`; `cli.py:179-209` |
 | Zero runtime dependencies, bandit (S) lint rules armed | supply-chain surface | `pyproject.toml` |
 

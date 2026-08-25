@@ -60,7 +60,7 @@ the problem.
 ### Documentation is written while the work happens, never afterwards
 
 Every behaviour change updates the documentation in the same commit that makes
-it. A new provider goes in `PROVIDERS` (in `cli.py`), the provider index
+it. A new provider goes in `PROVIDERS` (in `surface.py`), the provider index
 [docs/providers.md](docs/providers.md), and the README provider table; a new
 command goes in the README command table and the page that owns its subject; a
 new adapter goes under `src/deadeye/providers/` with the protocol already
@@ -96,7 +96,7 @@ Adding a provider means:
 
 1. a module under `src/deadeye/providers/` implementing the protocol in
    `base.py` (limits, credential presence, review) with the standard library;
-2. one line in `PROVIDERS` in `cli.py`;
+2. one line in `PROVIDERS` in `surface.py`;
 3. a row in the README provider table and a section in
    [docs/providers.md](docs/providers.md);
 4. a fake-boundary test that proves actual media bytes reach the adapter

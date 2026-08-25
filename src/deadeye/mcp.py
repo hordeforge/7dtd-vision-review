@@ -33,7 +33,9 @@ from pathlib import Path
 from typing import Any, TextIO
 
 from . import __version__
-from .cli import (
+from .errors import DeadeyeError
+from .review import run_review as run_review_core
+from .surface import (
     PROVIDERS,
     _resolve_provider,
     _resolve_timeout,
@@ -41,8 +43,6 @@ from .cli import (
     provider_states,
     schema_document,
 )
-from .errors import DeadeyeError
-from .review import run_review as run_review_core
 
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_NAME = "deadeye"
@@ -144,7 +144,7 @@ def _call_review(params: dict[str, Any]) -> dict[str, Any]:
 
 def _call_doctor(params: dict[str, Any]) -> dict[str, Any]:
     # The same shape `deadeye doctor --json` prints, from the same single
-    # home in cli.py: where the credential came from, never its value.
+    # home in surface.py: where the credential came from, never its value.
     return {"providers": provider_states()}
 
 

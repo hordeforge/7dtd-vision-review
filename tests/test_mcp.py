@@ -130,7 +130,7 @@ def test_doctor_tool_returns_the_same_shape_as_the_cli() -> None:
 
 
 def test_schema_tool_returns_exactly_what_deadeye_schema_prints() -> None:
-    from deadeye.cli import schema_document
+    from deadeye.surface import schema_document
 
     payload = json.loads(
         _call("tools/call", {"name": "schema", "arguments": {}})["result"]["content"][0]["text"]

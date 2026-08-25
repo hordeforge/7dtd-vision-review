@@ -10,10 +10,10 @@ from __future__ import annotations
 import pytest
 
 from deadeye import config
-from deadeye.cli import _resolve_provider, _resolve_timeout
 from deadeye.errors import DeadeyeError
 from deadeye.providers.base import MediaPayload, ReviewRequest
 from deadeye.providers.nvidia import build_body
+from deadeye.surface import _resolve_provider, _resolve_timeout
 
 
 @pytest.fixture(autouse=True)
