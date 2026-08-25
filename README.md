@@ -125,8 +125,10 @@ Two TOML files in one directory, loaded in order (`config.local.toml` wins),
 mirroring the sibling llm-proxy convention:
 
 - `config.toml` — committed, shared settings: `default_provider`,
-  `timeout_seconds`, and per-provider `model` / `endpoint` / generation
-  parameters.
+  `default_model` (used when `--model` is omitted, overrides the provider's
+  own default), `timeout_seconds`, and per-provider `model` / `endpoint` /
+  generation parameters. Model precedence: `--model` flag > `default_model`
+  > `[providers.<name>] model` > built-in default.
 - `config.local.toml` — **gitignored**, for your API key and machine-local
   overrides. Copy `config.local.toml.example` to `config.local.toml` and set
   the key; no `export` needed per shell.

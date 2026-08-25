@@ -24,7 +24,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from . import sampling
+from . import config, sampling
 from .errors import DeadeyeError
 from .evidence import build_envelope, sha256_file, write_evidence
 from .intent import load_intent_file, parse_intent_text, redact
@@ -84,7 +84,16 @@ def run_review(
         )
 
     media = sampling.discover(clip)
-    resolved_model = model or provider.default_model
+    configured_default = config.value(("default_model",))
+    resolved_model = (
+        model
+        or (
+            configured_default
+            if isinstance(configured_default, str) and configured_default
+            else None
+        )
+        or provider.default_model
+    )
     if not provider.is_configured():
         raise DeadeyeError(
             f"provider {provider.name!r} is not configured: {provider.configuration_hint()}"

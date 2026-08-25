@@ -122,3 +122,48 @@ def test_provider_credential_reads_config_local(_isolated_config) -> None:  # no
     provider = NvidiaProvider()
     assert provider.is_configured()
     assert provider.credential() == "nvapi-local"
+
+
+def test_default_model_precedence(_isolated_config, tmp_path) -> None:  # noqa: ANN001
+    """--model flag > top-level default_model > provider's own default."""
+    from deadeye.providers.fake import FakeProvider
+    from deadeye.providers.gemini import GeminiProvider
+    from deadeye.review import run_review
+
+    _write(
+        _isolated_config,
+        "config.toml",
+        'default_model = "top-level-model"\n[providers.gemini]\nmodel = "per-provider-model"\n',
+    )
+    clip = tmp_path / "clip"
+    clip.mkdir()
+    (clip / "frame-0000.png").write_bytes(b"x")
+    intent = tmp_path / "i.json"
+    intent.write_text('{"purpose": "p"}', encoding="utf-8")
+
+    # Top-level default_model beats the provider's own default.
+    provider = FakeProvider()
+    run_review(clip, provider=provider, intent_path=intent, allow_network=True)
+    assert provider.requests[-1].model == "top-level-model"
+
+    # The --model flag beats the config default.
+    provider = FakeProvider()
+    run_review(clip, provider=provider, intent_path=intent, allow_network=True, model="flag-model")
+    assert provider.requests[-1].model == "flag-model"
+
+    # Per-provider model is what a config-aware provider defaults to when no
+    # top-level default_model is set.
+    config.reset()
+    _write(
+        _isolated_config,
+        "config.toml",
+        '[providers.gemini]\nmodel = "per-provider-model"\n',
+    )
+    assert GeminiProvider().default_model == "per-provider-model"
+
+    # No config default at all: the provider's built-in default applies.
+    config.reset()
+    _write(_isolated_config, "config.toml", "")
+    provider = FakeProvider()
+    run_review(clip, provider=provider, intent_path=intent, allow_network=True)
+    assert provider.requests[-1].model == "deadeye-fake-vision-v1"
