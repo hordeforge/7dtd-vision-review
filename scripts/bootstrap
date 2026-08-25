@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Sync the dev environment from the committed lockfile with the dev group.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+uv sync --frozen

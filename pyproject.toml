@@ -1,0 +1,95 @@
+[build-system]
+requires = ["setuptools>=65"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "7dtd-vision-review"
+version = "0.1.0"
+description = "deadeye: shared vision-model review gateway for hordeforge — forward frames or a muxed clip plus recorded intent to a vision model and get structured, advisory feedback"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "ywy50" }]
+keywords = ["7-days-to-die", "7dtd", "vision", "gemini", "asset-review", "modding"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Games/Entertainment",
+]
+
+# The core has no runtime dependencies: adapters speak HTTP with the standard
+# library, the same supply-chain posture the sibling asset pipeline keeps. A
+# consuming tool that already carries no SDK has no reason to grow one.
+[dependency-groups]
+# Lint and type-check versions are load-bearing: verdicts change between
+# releases, so every checkout and every CI job must agree on exactly one.
+# Declared here (PEP 735) so the pins have a single home and land in uv.lock,
+# which `uv sync --locked` verifies on every install.
+dev = ["ruff==0.16.4", "mypy==2.3.1", "setuptools", "pytest>=8"]
+
+[project.scripts]
+deadeye = "deadeye.cli:main"
+
+[project.urls]
+Repository = "https://github.com/hordeforge/7dtd-vision-review"
+Issues = "https://github.com/hordeforge/7dtd-vision-review/issues"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+  "E",    # pycodestyle errors: runtime syntax, imports, and the hard 100-col cap
+  "W",    # pycodestyle warnings (trailing whitespace, missing newline)
+  "F",    # pyflakes: unused imports, undefined names, f-string bugs
+  "B",    # flake8-bugbear: mutable defaults, zip strictness, binding bugs
+  "UP",   # pyupgrade: modernize to the supported Python floor
+  "SIM",  # flake8-simplify: collapsible branches and exception handling
+  "N",    # pep8-naming
+  "PL",   # pylint conventions and errors
+  "BLE",  # blind except: bare `except Exception` must be justified inline
+  "S",    # bandit: subprocess, temp files, XML parsing, URL schemes
+  "RUF",  # ruff-specific: unused-noqa hygiene, sorted __all__
+  "C4",   # comprehensions over manual accumulation
+  "I",    # import sorting
+]
+ignore = [
+  # Function-scope imports are deliberate architecture: optional adapters
+  # import lazily so `--help`, `doctor`, and offline runs stay fast and never
+  # touch the network.
+  "PLC0415",
+  # Structural-complexity ceilings flag the argparse dispatcher; splitting it
+  # is a code-review decision, not a gate this repo has earned yet.
+  "PLR0911", "PLR0912", "PLR0913", "PLR0915", "PLR0917",
+  # Magic-value comparisons fire on the domain constants (limits, versions).
+  "PLR2004",
+  # S603 fires on every subprocess.run regardless of arguments. Nothing here
+  # ever passes shell=True (S602 stays armed), so the useful signal is in
+  # S602/S607, not S603.
+  "S603",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# The suite asserts with `assert`; bandit's S101 is for production paths.
+"tests/**" = ["S101"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+# The test files are runtime-asserted by pytest, not statically checked; the
+# strict contract applies to the shipped package.
+files = ["src"]
+mypy_path = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
