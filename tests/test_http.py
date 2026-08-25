@@ -9,6 +9,7 @@ provider-controlled error text cannot forge extra stderr lines.
 
 from __future__ import annotations
 
+import email.message
 import io
 import json
 import urllib.error
@@ -133,3 +134,67 @@ def test_a_deeply_nested_envelope_is_refused_not_crashed(http_opener) -> None:
     http_opener(nested_open)
     with pytest.raises(DeadeyeError, match="nested too deeply"):
         _post()
+
+
+class _CharsetResponse(io.BytesIO):
+    """A BytesIO carrying a Content-Type header, like a real HTTPResponse."""
+
+    def __init__(self, data: bytes, content_type: str) -> None:
+        super().__init__(data)
+        self.headers = email.message.Message()
+        self.headers["Content-Type"] = content_type
+
+
+def test_a_non_utf8_success_body_is_refused_not_crashed(http_opener) -> None:
+    """An invalid byte in a 200 body is an undecodable envelope. It must end
+    as one refusal naming the provider (the fault family every other malformed
+    answer maps to), not escape as a bare UnicodeDecodeError past this
+    module's mapping after the submission was already billed."""
+    body = b'{"choices": [{"\xff": 1}]}'
+
+    def answering_open(request, timeout):
+        return io.BytesIO(body)
+
+    http_opener(answering_open)
+    with pytest.raises(DeadeyeError, match="not valid UTF-8"):
+        _post()
+
+
+def test_the_declared_charset_decodes_the_body(http_opener) -> None:
+    """A charset the provider declares in Content-Type wins over the UTF-8
+    default; latin-1 text decodes into the real characters instead of being
+    refused or silently replaced."""
+    body = '{"modelVersion": "caf\xe9-model"}'.encode("iso-8859-1")
+
+    def answering_open(request, timeout):
+        return _CharsetResponse(body, "application/json; charset=latin-1")
+
+    http_opener(answering_open)
+    envelope = post_json(
+        "gemini",
+        "https://generativelanguage.googleapis.com/v1beta/models/m:generateContent",
+        body={},
+        headers={"x-goog-api-key": "k"},
+        timeout_seconds=1.0,
+        credential_env="GEMINI_API_KEY",
+    )
+    assert envelope["modelVersion"] == "café-model"
+
+
+def test_an_unknown_declared_charset_falls_back_to_utf8(http_opener) -> None:
+    """A Content-Type naming a codec this interpreter does not know falls back
+    to JSON's default encoding instead of crashing on the lookup."""
+
+    def answering_open(request, timeout):
+        return _CharsetResponse(b'{"modelVersion": "m"}', "application/json; charset=bogus")
+
+    http_opener(answering_open)
+    envelope = post_json(
+        "gemini",
+        "https://generativelanguage.googleapis.com/v1beta/models/m:generateContent",
+        body={},
+        headers={"x-goog-api-key": "k"},
+        timeout_seconds=1.0,
+        credential_env="GEMINI_API_KEY",
+    )
+    assert envelope["modelVersion"] == "m"

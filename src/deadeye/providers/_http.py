@@ -75,6 +75,36 @@ def _strict_json_object(envelope: dict[str, Any]) -> dict[str, Any]:
     return {key: _strict_json_numbers(item) for key, item in envelope.items()}
 
 
+def _decode_envelope(provider: str, raw: bytes, headers: Any) -> str:
+    """The response body as text: the declared charset first, UTF-8 otherwise.
+
+    JSON over HTTP defaults to UTF-8 (RFC 8259); a charset the provider
+    actually declares in Content-Type wins when it decodes. Either way the
+    decode is explicit and strict, so an invalid byte refuses the envelope
+    naming the provider instead of raising a bare UnicodeDecodeError past
+    this module's fault mapping (which would land after a billed submission)
+    or silently substituting replacement characters into stored evidence.
+    """
+    declared = headers.get_content_charset() if headers is not None else None
+    if declared:
+        try:
+            return raw.decode(declared)
+        except (UnicodeDecodeError, LookupError):
+            pass  # undecodable or unknown name: UTF-8 gets the next attempt
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        if declared:
+            raise DeadeyeError(
+                f"provider {provider!r} returned a body that decodes neither "
+                f"as its declared charset {declared!r} nor as UTF-8: {exc}"
+            ) from exc
+        raise DeadeyeError(
+            f"provider {provider!r} returned a body that is not valid UTF-8 "
+            f"(JSON's default encoding): {exc}"
+        ) from exc
+
+
 def post_json(
     provider: str,
     url: str,
@@ -99,7 +129,10 @@ def post_json(
     )
     try:
         with _OPENER.open(request, timeout=timeout_seconds) as response:
-            envelope: Any = json.load(response)
+            raw = response.read()
+            envelope: Any = json.loads(
+                _decode_envelope(provider, raw, getattr(response, "headers", None))
+            )
         if not isinstance(envelope, dict):
             # Valid JSON that is not an object (a bare array, a string) would
             # otherwise crash an adapter's key lookup with a raw traceback.

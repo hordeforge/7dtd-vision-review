@@ -199,9 +199,11 @@ disclosure lines naming every submitted path. See abuse case A1.
 
 Redaction matches credential-ish *key names* (`intent.py:36-44`); a secret
 under any other name passes into evidence, stdout JSON, or the preserved raw
-response. The usage block deliberately keeps `token`-named billing counters
-(`evidence.py:37-41`), narrowing the rule there on purpose. One control,
-three high-impact output channels.
+response. Matching is case-fold based rather than `lower()`, so a spelling
+that differs from a sensitive name only under case folding (long s U+017F
+folds to ASCII 's') is still dropped. The usage block deliberately keeps
+`token`-named billing counters (`evidence.py:37-41`), narrowing the rule
+there on purpose. One control, three high-impact output channels.
 
 ### T4: cost amplification via intent (Low)
 

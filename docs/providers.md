@@ -20,6 +20,13 @@ non-finite float) is refused with the key named before any submission — a
 silently substituted parameter would make the evidence untraceable to its
 configuration.
 
+The shared HTTP layer decodes the response envelope explicitly: the charset
+declared in `Content-Type` when it decodes, UTF-8 (JSON's default) otherwise,
+and a body that decodes as neither is refused with one error naming the
+provider — the same fault family as any other malformed answer — rather than
+escaping as a raw decode crash after a billed submission or manufacturing
+replacement characters into evidence.
+
 ## fake
 
 `fake` is the offline stand-in. It answers from the request envelope alone and

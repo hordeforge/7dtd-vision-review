@@ -194,6 +194,14 @@ def test_redact_drops_credential_keys_nested() -> None:
     assert redact(value) == {"ok": 1, "headers": {"meta": "y"}}
 
 
+def test_redact_matches_case_fold_only_spellings() -> None:
+    # The backstop folds case rather than lowering it: a key that differs from
+    # a sensitive name only under case folding (the long s, U+017F, which
+    # folds to ASCII 's') must not slip through as an ASCII-only blind spot.
+    value = {"paſsword": "hunter2", "SECRET": "x", "keep": 1}  # noqa: RUF001
+    assert redact(value) == {"keep": 1}
+
+
 def test_redact_passes_nan_leaves_through_untouched() -> None:
     # Falsifying example from the fuzz suite: a NaN leaf compares unequal to
     # itself, so redaction must pass it through by identity for idempotence

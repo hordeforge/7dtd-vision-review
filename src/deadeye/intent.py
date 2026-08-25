@@ -307,8 +307,11 @@ def redact(value: Any, parts: tuple[str, ...] = SENSITIVE_KEY_PARTS) -> Any:
 
 
 def _is_sensitive_key(key: str, parts: tuple[str, ...]) -> bool:
-    lowered = key.lower()
-    return lowered == "key" or any(part in lowered for part in parts)
+    # Case folding, not lower(): a key that differs from a sensitive name only
+    # under case folding (long s U+017F folds to ASCII s) must not slip past
+    # the backstop, and folding is locale-independent where this match must be.
+    folded = key.casefold()
+    return folded == "key" or any(part in folded for part in parts)
 
 
 def redact_json_text(text: str, parts: tuple[str, ...] = SENSITIVE_KEY_PARTS) -> str:

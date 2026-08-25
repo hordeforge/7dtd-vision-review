@@ -166,8 +166,10 @@ def test_fuzz_validate_result_accepts_only_pipeline_shapes(data: object) -> None
 
 
 def _looks_sensitive(key: str) -> bool:
-    lowered = key.lower()
-    return lowered == "key" or any(part in lowered for part in SENSITIVE_KEY_PARTS)
+    # Mirrors intent._is_sensitive_key: case folding, not lower(), so the
+    # oracle and the backstop agree on fold-only spellings (U+017F vs 's').
+    folded = key.casefold()
+    return folded == "key" or any(part in folded for part in SENSITIVE_KEY_PARTS)
 
 
 def _walk_keys(value: object):
