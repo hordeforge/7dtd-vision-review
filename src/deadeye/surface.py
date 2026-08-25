@@ -20,14 +20,12 @@ from . import config, sampling
 from .errors import DeadeyeError
 from .intent import CAMERA_PATHS, INTENT_SCHEMA_VERSION, load_intent_file, parse_intent_text
 from .prompt import build_prompt, preview_media
-from .providers.fake import FakeProvider
-from .providers.gemini import GeminiProvider
-from .providers.nvidia import NvidiaProvider
+from .providers import FakeProvider, GeminiProvider, NvidiaProvider
 from .result import BASE_RUBRIC, RESULT_KEYS, RUBRIC_VERSION
 from .review import DEFAULT_TIMEOUT_SECONDS
 
 if TYPE_CHECKING:
-    from .providers.base import VideoReviewProvider
+    from .providers import VideoReviewProvider
 
 # Provider registry: name -> constructor. `doctor` and `review --provider`
 # both read this, so a new adapter is one line here plus its module.
