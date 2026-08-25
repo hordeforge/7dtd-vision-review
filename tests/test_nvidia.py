@@ -25,12 +25,12 @@ from deadeye.providers.nvidia import (
 )
 
 
-def test_limits_declare_images_only() -> None:
+def test_limits_declare_video_and_frames() -> None:
     limits = NvidiaProvider().limits
-    assert not limits.accepts_video
+    assert limits.accepts_video
     assert limits.max_frames is not None and limits.max_frames > 0
     assert ".png" in limits.suffixes
-    assert ".mp4" not in limits.suffixes
+    assert ".mp4" in limits.suffixes
 
 
 def test_mime_mapping_covers_the_image_suffixes() -> None:
@@ -94,21 +94,37 @@ def test_the_request_body_carries_frames_as_data_urls_never_paths() -> None:
     assert body["temperature"] == 0.6
 
 
-def test_a_non_image_payload_is_refused_at_body_build_time() -> None:
-    video = MediaPayload(name="clip.mp4", mime_type="video/mp4", kind="video", data=b"v")
-    with pytest.raises(DeadeyeError, match="images only"):
-        build_body(ReviewRequest(prompt="p", media=(video,), model="m", timeout_seconds=1.0))
-
-
 def test_the_default_model_is_the_verified_omni_model() -> None:
     assert DEFAULT_MODEL == "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
 
 
 def test_attachment_labels_address_the_prompt_order() -> None:
     frame = MediaPayload(name="f.png", mime_type="image/png", kind="frame", data=b"")
+    video = MediaPayload(name="c.mp4", mime_type="video/mp4", kind="video", data=b"")
     reference = MediaPayload(name="r.png", mime_type="image/png", kind="reference", data=b"")
     assert _label_for(frame) == "frame attachment: f.png"
+    assert _label_for(video) == "video attachment: c.mp4"
     assert _label_for(reference) == "reference image: r.png"
+
+
+def test_a_muxed_video_travels_as_a_single_video_url_part() -> None:
+    video = MediaPayload(name="clip.mp4", mime_type="video/mp4", kind="video", data=b"mp4-bytes")
+    body = build_body(ReviewRequest(prompt="p", media=(video,), model="m", timeout_seconds=1.0))
+    content = body["messages"][0]["content"]
+    assert isinstance(content, list)
+    video_parts = [part for part in content if part.get("type") == "video_url"]
+    assert len(video_parts) == 1
+    url = video_parts[0]["video_url"]["url"]
+    assert isinstance(url, str)
+    assert url.startswith("data:video/mp4;base64,")
+    assert url.endswith(base64.b64encode(video.data).decode("ascii"))
+    assert "clip.mp4" not in url, "the video travels as bytes, never a path"
+
+
+def test_a_non_media_payload_is_refused_at_body_build_time() -> None:
+    audio = MediaPayload(name="beep.wav", mime_type="audio/wav", kind="reference", data=b"w")
+    with pytest.raises(DeadeyeError, match="images and video only"):
+        build_body(ReviewRequest(prompt="p", media=(audio,), model="m", timeout_seconds=1.0))
 
 
 @pytest.mark.skipif(

@@ -112,7 +112,7 @@ earlier envelope by default.
 |---|---|---|
 | `fake` | frames or video | nothing — offline plumbing checks and dry runs |
 | `gemini` | muxed video inline or a frame sequence | `GEMINI_API_KEY` or `GOOGLE_API_KEY` |
-| `nvidia` | a frame sequence (multi-image, NVIDIA NIM vision-chat) | `NVIDIA_API_KEY` |
+| `nvidia` | muxed video (`video_url`) or a frame sequence (NVIDIA NIM) | `NVIDIA_API_KEY` |
 
 Credentials come from the environment or from `config.local.toml` (see
 Configuration), never as a command argument, printed output, or stored
