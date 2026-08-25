@@ -112,8 +112,7 @@ def test_attachment_labels_address_the_prompt_order() -> None:
 
 
 @pytest.mark.skipif(
-    os.environ.get("DEADEYE_NETWORK_TESTS") != "nvidia"
-    or not NvidiaProvider().is_configured(),
+    os.environ.get("DEADEYE_NETWORK_TESTS") != "nvidia" or not NvidiaProvider().is_configured(),
     reason="opt-in live run: set DEADEYE_NETWORK_TESTS=nvidia and configure an "
     "NVIDIA key (env or config.local.toml)",
 )
