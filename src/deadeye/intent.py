@@ -43,6 +43,20 @@ SENSITIVE_KEY_PARTS = (
     "token",
 )
 
+# Cost bounds. Every field below lands in the reviewer prompt verbatim
+# (`prompt.py`), so without a local bound a multi-megabyte `--intent-text`
+# inflates billable prompt tokens until the provider's quota answers. The
+# limits are generous for any honest statement of intended use; they exist to
+# refuse runaway input before anything is submitted, not to shape prose.
+MAX_FIELD_CHARS = 2_000
+"""Per-field character budget for the free-text fields."""
+MAX_LIST_ITEMS = 32
+"""Maximum entries in `avoid` / `questions`."""
+MAX_ITEM_CHARS = 500
+"""Per-entry character budget inside those lists."""
+MAX_REFERENCES = 8
+"""Maximum comparison assets; each one is read, hashed, and uploaded."""
+
 
 @dataclass(frozen=True)
 class ReferenceMedia:
@@ -88,7 +102,14 @@ def _string_field(data: dict[str, Any], key: str, origin: str) -> str:
         return ""
     if not isinstance(value, str):
         raise DeadeyeError(f"{origin}: field {key!r} must be a string, got {type(value).__name__}")
-    return value.strip()
+    stripped = value.strip()
+    if len(stripped) > MAX_FIELD_CHARS:
+        raise DeadeyeError(
+            f"{origin}: field {key!r} is {len(stripped)} characters; the limit is "
+            f"{MAX_FIELD_CHARS}. State the intent concisely: every character is "
+            "billed as prompt tokens on every review"
+        )
+    return stripped
 
 
 def _string_list(data: dict[str, Any], key: str, origin: str) -> tuple[str, ...]:
@@ -97,7 +118,18 @@ def _string_list(data: dict[str, Any], key: str, origin: str) -> tuple[str, ...]
         return ()
     if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
         raise DeadeyeError(f"{origin}: field {key!r} must be a list of strings")
-    return tuple(item.strip() for item in value if item.strip())
+    items = tuple(item.strip() for item in value if item.strip())
+    if len(items) > MAX_LIST_ITEMS:
+        raise DeadeyeError(
+            f"{origin}: field {key!r} lists {len(items)} entries; the limit is {MAX_LIST_ITEMS}"
+        )
+    for item in items:
+        if len(item) > MAX_ITEM_CHARS:
+            raise DeadeyeError(
+                f"{origin}: an entry in {key!r} is {len(item)} characters; the "
+                f"per-entry limit is {MAX_ITEM_CHARS}"
+            )
+    return items
 
 
 def parse_intent(data: Any, origin: str) -> ReviewIntent:
@@ -149,6 +181,12 @@ def parse_intent(data: Any, origin: str) -> ReviewIntent:
     if raw_references is not None:
         if not isinstance(raw_references, list):
             raise DeadeyeError(f"{origin}: 'references' must be a list")
+        if len(raw_references) > MAX_REFERENCES:
+            raise DeadeyeError(
+                f"{origin}: 'references' lists {len(raw_references)} entries; the "
+                f"limit is {MAX_REFERENCES}. Each reference is uploaded to the "
+                "provider and billed as input media"
+            )
         for index, entry in enumerate(raw_references):
             label = f"{origin}: reference #{index + 1}"
             if not isinstance(entry, dict) or set(entry) != {"path", "purpose"}:

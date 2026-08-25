@@ -21,6 +21,7 @@ than averaged.
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -171,6 +172,9 @@ def run_review(
         model=resolved_model,
         timeout_seconds=timeout_seconds,
     )
+    # Wall-clock latency of the provider call, recorded in the envelope beside
+    # usage: token counts alone say nothing about how long the model thought.
+    submitted_at = time.perf_counter()
     try:
         response = provider.review(request)
     except TimeoutError as exc:
@@ -183,6 +187,7 @@ def run_review(
             "and billed server-side: submitting again is a new billable "
             "review, not a retry of this one"
         ) from exc
+    elapsed_seconds = time.perf_counter() - submitted_at
 
     media_entries: list[dict[str, Any]] = []
     for (path, kind), (digest, size) in zip(submitted, hashed, strict=True):
@@ -216,6 +221,7 @@ def run_review(
                 raw_response=redact(response.raw_text),
                 usage=response.usage,
                 total_bytes=total_bytes,
+                elapsed_seconds=elapsed_seconds,
                 params={},
             )
             write_evidence(output, document, force=force)
@@ -250,6 +256,7 @@ def run_review(
         raw_response=redact(response.raw_text) if keep_raw_response else None,
         usage=response.usage,
         total_bytes=total_bytes,
+        elapsed_seconds=elapsed_seconds,
         params=params,
     )
 

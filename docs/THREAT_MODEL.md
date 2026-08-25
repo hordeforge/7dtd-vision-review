@@ -20,7 +20,7 @@ and handed to sec-review.
 | T1 | High | Config-supplied endpoint override forwards the provider API key and all media to an attacker-chosen host; cwd config shadows the home config | [T1](#t1-config-shadowed-credential-egress-high) |
 | T2 | Medium | Intent-declared reference paths read arbitrary local files into the upload set, beyond the clip scope the operator consented to publish | [T2](#t2-intent-references-expand-the-upload-scope-medium) |
 | T3 | Medium-Low | Credential hygiene rests on one name-based redaction control across every output path | [T3](#t3-single-redaction-backstop-medium-low) |
-| T4 | Low | Unbounded intent size and reference count inflate billable prompt tokens | [T4](#t4-cost-amplification-via-intent-low) |
+| T4 | Low | Intent size and reference count inflate billable prompt tokens; bounded by local caps since `intent.py` grew limits | [T4](#t4-cost-amplification-via-intent-low) |
 | T5 | Low | Evidence envelopes are unsigned; integrity relies on filesystem controls alone | [T5](#t5-unsigned-evidence-low) |
 
 Nothing here is internet-facing: deadeye is a local CLI with outbound-only
@@ -205,11 +205,13 @@ three high-impact output channels.
 
 ### T4: cost amplification via intent (Low)
 
-No length cap on intent strings or count cap on references/questions
-(`intent.py` has none); `build_prompt` interpolates all of it
-(`prompt.py:54-74`), so a multi-megabyte `--intent-text` inflates billable
-tokens until the provider's own quota answers (HTTP 429 handling:
-`gemini.py:144-148`). Requires a local actor; impact is spend.
+`build_prompt` interpolates every intent field verbatim
+(`prompt.py:54-74`), so oversized input inflates billable tokens. Bounded in
+the same pass that wrote this note: `intent.py` caps each free-text field at
+2,000 characters, `avoid`/`questions` at 32 entries of 500 characters each,
+and `references` at 8 files (pinned by `tests/test_intent.py`), and the gemini
+adapter caps output with `maxOutputTokens`. A multi-megabyte `--intent-text`
+is now refused locally instead of being priced at the provider.
 
 ### T5: unsigned evidence (Low)
 
@@ -227,8 +229,10 @@ on external integrity controls.
   `intent.py:150-162` → `review.py:104-110` → upload at
   `review.py:149-157`.
 - **A2 — spend gaming.** Inline `--intent-text` of arbitrary size or hundreds
-  of questions inflates the billed prompt (`cli.py:64` → `intent.py:186-189`
-  → `prompt.py:54-74`); nothing local bounds it (T4).
+  of questions would inflate the billed prompt (`cli.py:64` →
+  `intent.py:186-189` → `prompt.py:54-74`); the local caps added with T4
+  (field, list, and reference limits in `intent.py`) refuse it before
+  submission.
 - **A3 — credential capture via cloned config.** The T1 scenario: malicious
   checkout ships `config.toml` overriding provider and endpoint; operator's
   environment key authenticates the attacker's endpoint. Consent was given,

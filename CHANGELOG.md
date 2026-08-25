@@ -21,6 +21,21 @@ open a new one.
 
 ### Added
 
+- The evidence envelope's `provider` block records `elapsed_seconds`, the
+  wall-clock time the provider call took, beside the reported token usage.
+- Intent documents are bounded locally before anything is submitted: each
+  free-text field is capped at 2,000 characters, `avoid`/`questions` at 32
+  entries of 500 characters each, and `references` at 8 files. Every field
+  lands verbatim in the billable prompt, so a runaway intent is refused with
+  a named limit instead of being priced at the provider.
+- The gemini adapter sends a `maxOutputTokens` cap on every generation
+  (default: the model's published ceiling; override via
+  `providers.gemini.max_output_tokens`), so a looping generation cannot bill
+  unbounded output.
+- The reviewer prompt fences the author's statement between BEGIN/END markers
+  declared as authored context data, never instructions (`PROMPT_VERSION`
+  moves from `1` to `2`; stored envelopes record which template produced
+  them).
 - `tests/test_release_contract.py` builds the release sdist and wheel and
   pins their contents, so a file that silently drops out of a release
   artifact fails `make check test` instead of surfacing after the tag.

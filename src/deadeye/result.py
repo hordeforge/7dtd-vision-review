@@ -25,7 +25,8 @@ from typing import Any
 from .errors import DeadeyeError
 
 RUBRIC_VERSION = "1"
-PROMPT_VERSION = "1"
+# 2: the author statement became a fenced, data-only block (prompt.py).
+PROMPT_VERSION = "2"
 
 RESULT_KEYS = (
     "summary",

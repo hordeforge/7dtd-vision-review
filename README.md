@@ -148,10 +148,10 @@ accepted.
 `--output` writes (and `--json` prints) one hash-addressed envelope: SHA-256
 of every submitted frame/clip file and the intent file, the sampling record
 (exactly which frames went, and what was dropped to fit a provider limit), the
-provider and model, rubric and prompt versions, the validated result, the
-disclosure confirmation, usage metadata when reported, and tool/parameter
-information with credentials removed. A later review never overwrites an
-earlier envelope by default.
+provider and model with the submission's wall-clock time, rubric and prompt
+versions, the validated result, the disclosure confirmation, usage metadata
+when reported, and tool/parameter information with credentials removed. A
+later review never overwrites an earlier envelope by default.
 
 ## Providers
 

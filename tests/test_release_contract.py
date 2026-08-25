@@ -95,6 +95,7 @@ def _envelope() -> dict[str, object]:
         usage=None,
         total_bytes=0,
         params={},
+        elapsed_seconds=0.0,
     )
 
 

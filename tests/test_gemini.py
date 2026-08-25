@@ -164,6 +164,52 @@ def test_a_non_ascii_model_name_is_percent_encoded_into_the_url(monkeypatch) -> 
     assert seen["url"].endswith("/gem%C3%ADn%202.5%20flash:generateContent")
 
 
+def _capture_body(monkeypatch, envelope: dict) -> dict:
+    """POST through a fake urlopen; return the JSON body the adapter built."""
+    import json as json_module
+
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    seen: dict = {}
+
+    def capture_urlopen(request, timeout):
+        seen["body"] = json_module.loads(request.data.decode("utf-8"))
+        return _FakeResponse(json_module.dumps(envelope).encode())
+
+    monkeypatch.setattr("urllib.request.urlopen", capture_urlopen)
+    return seen
+
+
+_ENVELOPE = {"candidates": [{"finishReason": "STOP", "content": {"parts": [{"text": "ok"}]}}]}
+
+
+def test_the_generation_is_capped_against_runaway_output(monkeypatch) -> None:
+    """No cap means an unbounded billable generation when the model loops;
+    the adapter must always send one."""
+    from deadeye.providers.gemini import DEFAULT_MAX_OUTPUT_TOKENS
+
+    seen = _capture_body(monkeypatch, _ENVELOPE)
+    GeminiProvider().review(_review_request())
+    generation = seen["body"]["generationConfig"]
+    assert generation["maxOutputTokens"] == DEFAULT_MAX_OUTPUT_TOKENS
+    assert generation["response_mime_type"] == "application/json"
+
+
+def test_max_output_tokens_can_be_overridden_by_config(monkeypatch, tmp_path) -> None:
+    from deadeye import config
+
+    (tmp_path / "config.local.toml").write_text(
+        "[providers.gemini]\nmax_output_tokens = 1024\n", encoding="utf-8"
+    )
+    monkeypatch.setenv("DEADEYE_CONFIG_DIR", str(tmp_path))
+    config.reset()
+    try:
+        seen = _capture_body(monkeypatch, _ENVELOPE)
+        GeminiProvider().review(_review_request())
+        assert seen["body"]["generationConfig"]["maxOutputTokens"] == 1024
+    finally:
+        config.reset()
+
+
 @pytest.mark.skipif(
     os.environ.get("DEADEYE_NETWORK_TESTS") != "gemini" or not os.environ.get("GEMINI_API_KEY"),
     reason="opt-in live run: set DEADEYE_NETWORK_TESTS=gemini and GEMINI_API_KEY",

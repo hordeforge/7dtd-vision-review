@@ -73,6 +73,7 @@ def build_envelope(
     usage: dict[str, Any] | None,
     total_bytes: int,
     params: dict[str, Any],
+    elapsed_seconds: float,
 ) -> dict[str, Any]:
     """The full machine-readable record of one review."""
     return {
@@ -100,6 +101,10 @@ def build_envelope(
             "endpoint_mode": endpoint_mode,
             "model_requested": model_requested,
             "model_reported": model_reported,
+            # Wall-clock seconds the submission took, measured around the
+            # provider call in review.py; latency is part of a call's record
+            # just like token counts, and neither is estimated when absent.
+            "elapsed_seconds": round(elapsed_seconds, 3),
         },
         "rubric_version": RUBRIC_VERSION,
         "prompt_version": PROMPT_VERSION,

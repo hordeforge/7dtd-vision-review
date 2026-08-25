@@ -64,6 +64,39 @@ def test_references_need_path_and_purpose() -> None:
         parse_intent({"purpose": "x", "references": [{"path": "", "purpose": "why"}]}, "intent")
 
 
+def test_oversized_fields_are_refused_before_any_submission() -> None:
+    """Every intent character is billed as prompt tokens; a runaway field or
+    list must be refused locally, not priced at the provider (threat-model T4)."""
+    from deadeye.intent import MAX_FIELD_CHARS
+
+    with pytest.raises(DeadeyeError, match="the limit is"):
+        parse_intent({"purpose": "x" * (MAX_FIELD_CHARS + 1)}, "intent")
+    # The budget applies to the stripped text.
+    assert parse_intent({"purpose": "x" * MAX_FIELD_CHARS}, "intent").purpose
+
+
+def test_reference_and_list_counts_are_capped() -> None:
+    from deadeye.intent import MAX_ITEM_CHARS, MAX_LIST_ITEMS, MAX_REFERENCES
+
+    with pytest.raises(DeadeyeError, match=f"the limit is {MAX_REFERENCES}"):
+        parse_intent(
+            {
+                "purpose": "x",
+                "references": [
+                    {"path": f"r{i}.png", "purpose": "why"} for i in range(MAX_REFERENCES + 1)
+                ],
+            },
+            "intent",
+        )
+    with pytest.raises(DeadeyeError, match=f"the limit is {MAX_LIST_ITEMS}"):
+        parse_intent({"purpose": "x", "questions": ["?"] * (MAX_LIST_ITEMS + 1)}, "intent")
+    with pytest.raises(DeadeyeError, match=f"per-entry limit is {MAX_ITEM_CHARS}"):
+        parse_intent(
+            {"purpose": "x", "avoid": ["y" * (MAX_ITEM_CHARS + 1)]},
+            "intent",
+        )
+
+
 def test_camera_paths_are_documented() -> None:
     assert "turntable" in CAMERA_PATHS
     assert "walk-cycle" in CAMERA_PATHS

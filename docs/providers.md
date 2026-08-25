@@ -35,6 +35,12 @@ The key arrives from `GEMINI_API_KEY` or `GOOGLE_API_KEY`, travels in a header
 evidence. The default model is a default, not a contract: pass `--model` to
 override.
 
+Generation always carries a `maxOutputTokens` cap (module constant
+`DEFAULT_MAX_OUTPUT_TOKENS`, the model's published ceiling) so a looping or
+runaway generation cannot bill without end; override it per setup with
+`providers.gemini.max_output_tokens`. The cap exists to stop runaway spend,
+not to shape answers, so it sits at the ceiling rather than a tight budget.
+
 The live path is covered by an opt-in test
 (`DEADEYE_NETWORK_TESTS=gemini` + `GEMINI_API_KEY`); the offline suite pins
 limits, MIME mapping, credential presence, and the request-body labels instead.

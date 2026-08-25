@@ -23,6 +23,10 @@ timeout_seconds = 120
 # environment can both override them.
 [providers.gemini]
 model = "gemini-2.5-flash"
+# Output-token ceiling per review; the built-in default is the model's
+# published maximum. It stops a runaway generation from billing without
+# end; it is not a tuning knob for answer quality.
+# max_output_tokens = 65536
 
 [providers.nvidia]
 model = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"

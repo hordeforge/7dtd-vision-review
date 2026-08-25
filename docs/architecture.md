@@ -26,10 +26,12 @@ review.
 reviewer instruction from the intent (`purpose`, `subject`, `camera_path`,
 `desired_qualities`, `avoid`, `questions`) plus the versioned rubric and the
 exact JSON result shape, and announces what media actually reached the model.
-A caller never writes or passes a prompt; `deadeye prompt` renders the
-assembled instruction for inspection before submission. The prompt and rubric
-versions ride in the evidence so a review is traceable to the instruction it
-answered.
+The intent block is authored free text, so it rides fenced between BEGIN/END
+markers declared as data, never instructions: an intent may steer what the
+model looks at, never how it answers. A caller never writes or passes a
+prompt; `deadeye prompt` renders the assembled instruction for inspection
+before submission. The prompt and rubric versions ride in the evidence so a
+review is traceable to the instruction it answered.
 
 **Consent comes before everything.** Submitting media is networked, billable,
 and sends authored assets to a third party. Nothing contacts a provider

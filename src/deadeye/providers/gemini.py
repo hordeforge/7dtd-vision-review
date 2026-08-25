@@ -38,6 +38,11 @@ CREDENTIAL_ENV_VARS = ("GEMINI_API_KEY", "GOOGLE_API_KEY")
 # and the sampling layer caps the count before submission.
 MAX_REQUEST_BYTES = 20 * 1024 * 1024
 MAX_FRAMES_PER_REQUEST = 40
+# The result shape is small, but the model also spends thinking tokens inside
+# this budget on the 2.5 series, so it stays at the published ceiling rather
+# than a tight cap: its job is to stop a runaway or looping generation from
+# billing without end, not to truncate an honest verdict mid-JSON.
+DEFAULT_MAX_OUTPUT_TOKENS = 65536
 
 
 class GeminiProvider:
@@ -95,7 +100,13 @@ class GeminiProvider:
             )
         body = {
             "contents": [{"role": "user", "parts": parts}],
-            "generationConfig": {"response_mime_type": "application/json"},
+            "generationConfig": {
+                "response_mime_type": "application/json",
+                # A cap, not a tuning knob: an uncapped generation is unbounded
+                # spend when the model loops. Override with
+                # providers.gemini.max_output_tokens.
+                "maxOutputTokens": _int_config("max_output_tokens", DEFAULT_MAX_OUTPUT_TOKENS),
+            },
         }
         # The override is validated in config.endpoint: https only, except a
         # loopback proxy over plain http.
@@ -141,3 +152,8 @@ class GeminiProvider:
             usage=usage if isinstance(usage, dict) else None,
             model_reported=envelope.get("modelVersion"),
         )
+
+
+def _int_config(key: str, fallback: int) -> int:
+    value = config.value(("providers", "gemini", key))
+    return value if isinstance(value, int) and not isinstance(value, bool) else fallback
