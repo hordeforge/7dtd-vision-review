@@ -32,7 +32,7 @@ from .evidence import build_envelope, ensure_writable, sha256_file, write_eviden
 from .intent import ReviewIntent, load_intent, redact_json_text
 from .prompt import build_prompt
 from .providers import MediaPayload, ProviderLimits, ReviewRequest
-from .result import BASE_RUBRIC, parse_model_json, validate_result
+from .result import parse_model_json, validate_result
 from .sampling import mime_for_suffix
 
 if TYPE_CHECKING:
@@ -113,9 +113,7 @@ def run_review(
 
     media_summary = _media_summary(submission.record, media, submission.total_bytes)
     frame_note = _frame_timing_note(submission.record)
-    prompt = build_prompt(
-        intent, BASE_RUBRIC, media_summary=media_summary, frame_timing_note=frame_note
-    )
+    prompt = build_prompt(intent, media_summary=media_summary, frame_timing_note=frame_note)
 
     payloads = tuple(
         MediaPayload(

@@ -82,14 +82,11 @@ def _credential_detail(provider: VideoReviewProvider) -> str:
         # A keyless provider (the fake) must not be described as holding a
         # key just because some other provider's credential is configured.
         return provider.configuration_hint()
-    from_env = any(os.environ.get(name) for name in provider.credential_env_names)
-    from_local = config.value(("providers", provider.name, "api_key"))
-    top_level = config.value(("api_key",))
-    if from_env:
+    if any(os.environ.get(name) for name in provider.credential_env_names):
         return "key from environment"
-    if isinstance(from_local, str) and from_local:
+    if config.text(("providers", provider.name, "api_key")):
         return "key from config.local.toml"
-    if isinstance(top_level, str) and top_level:
+    if config.text(("api_key",)):
         return "key from config.local.toml (top-level api_key)"
     return provider.configuration_hint()
 
@@ -107,9 +104,7 @@ def build_preview_prompt(
 
     media = sampling.discover(Path(clip)) if clip is not None else None
     media_summary, frame_note = preview_media(media)
-    return build_prompt(
-        intent, BASE_RUBRIC, media_summary=media_summary, frame_timing_note=frame_note
-    )
+    return build_prompt(intent, media_summary=media_summary, frame_timing_note=frame_note)
 
 
 def provider_states() -> list[dict[str, Any]]:

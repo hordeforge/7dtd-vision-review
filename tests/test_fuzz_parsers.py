@@ -36,7 +36,7 @@ except ImportError:
     )
 
 from deadeye.errors import DeadeyeError
-from deadeye.intent import SENSITIVE_KEY_PARTS, parse_intent, parse_intent_text, redact
+from deadeye.intent import SENSITIVE_KEY_PARTS, load_intent, parse_intent, redact
 from deadeye.result import BASE_RUBRIC, RESULT_KEYS, parse_model_json, validate_result
 
 FUZZ = settings(max_examples=300, deadline=None)
@@ -235,7 +235,7 @@ def test_fuzz_redact_drops_every_sensitive_key(value: object) -> None:
 def test_fuzz_intent_parse_never_crashes_and_round_trips(document: object) -> None:
     try:
         text = json.dumps(document) if not isinstance(document, str) else document
-        intent = parse_intent_text(text)[0]
+        intent = load_intent(None, text)[0]
     except DeadeyeError:
         return  # refusal: the only allowed failure mode
     assert isinstance(intent.purpose, str) and intent.purpose.strip()

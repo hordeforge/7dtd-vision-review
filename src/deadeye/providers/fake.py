@@ -48,17 +48,15 @@ class FakeProvider:
 
     def review(self, request: ReviewRequest) -> ReviewResponse:
         self.requests.append(request)
-        digests = {
-            payload.name: hashlib.sha256(payload.data).hexdigest() for payload in request.media
-        }
         candidate = request.media[0]
         payload = {
             "summary": (
                 f"Received {len(request.media)} file(s) named "
                 f"{', '.join(payload.name for payload in request.media)}; "
                 f"candidate {candidate.name!r} is {len(candidate.data)} bytes "
-                f"(sha256 {digests[candidate.name][:16]}). The fake provider sees "
-                "nothing and critiques from the request envelope only."
+                f"(sha256 {hashlib.sha256(candidate.data).hexdigest()[:16]}). "
+                "The fake provider sees nothing and critiques from the request "
+                "envelope only."
             ),
             "strengths": ["the submission crossed the provider boundary intact"],
             "issues": [

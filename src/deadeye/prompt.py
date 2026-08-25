@@ -9,7 +9,7 @@ plus references) stay addressable from the text side.
 from __future__ import annotations
 
 from .intent import ReviewIntent
-from .result import RubricDimension
+from .result import BASE_RUBRIC
 from .sampling import ClipMedia, flat_label_text
 
 
@@ -33,7 +33,6 @@ def preview_media(media: ClipMedia | None) -> tuple[str, str]:
 
 def build_prompt(
     intent: ReviewIntent,
-    dimensions: tuple[RubricDimension, ...],
     *,
     media_summary: str,
     frame_timing_note: str = "",
@@ -70,7 +69,7 @@ def build_prompt(
         "",
         "Score every dimension listed; score nothing that is not listed:",
     ]
-    lines.extend(f"  - {item.key}: {item.question}" for item in dimensions)
+    lines.extend(f"  - {item.key}: {item.question}" for item in BASE_RUBRIC)
 
     # The statement below is authored free text and reaches the model verbatim,
     # so it is fenced and declared data-only: an intent that carries

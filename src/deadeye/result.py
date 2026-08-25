@@ -134,11 +134,7 @@ def parse_model_json(raw_text: str) -> dict[str, Any]:
     return parsed
 
 
-def validate_result(
-    data: dict[str, Any],
-    dimensions: tuple[RubricDimension, ...] = BASE_RUBRIC,
-    origin: str = "model response",
-) -> dict[str, Any]:
+def validate_result(data: dict[str, Any]) -> dict[str, Any]:
     """Normalize a model answer into the pipeline-owned result shape.
 
     Every deviation is a hard failure naming what was wrong: a silently
@@ -147,6 +143,7 @@ def validate_result(
     explained under `limitations` by convention, but the shape alone does not
     enforce that.
     """
+    origin = "model response"
     if not isinstance(data, dict):
         # A sequence holding exactly the result key names would slip past the
         # key-set checks below and die on subscripting; refuse it here.
@@ -238,7 +235,7 @@ def validate_result(
                 issue["at_frame"] = frame
             issues.append(issue)
 
-    known = {item.key for item in dimensions}
+    known = {item.key for item in BASE_RUBRIC}
     scores: dict[str, float | None] = {}
     raw_scores = data["rubric_scores"]
     if not isinstance(raw_scores, dict):

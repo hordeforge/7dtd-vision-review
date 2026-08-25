@@ -91,11 +91,10 @@ class Config:
         if local.is_file():
             self.data = _merge(self.data, _load_file(local))
 
-    def value(self, keys: str | tuple[str, ...]) -> Any:
-        """A value by dotted key path (e.g. `providers.nvidia.api_key`), or None."""
-        path = keys.split(".") if isinstance(keys, str) else keys
+    def value(self, keys: tuple[str, ...]) -> Any:
+        """A value by key path (e.g. `("providers", "nvidia", "api_key")`), or None."""
         current: Any = self.data
-        for key in path:
+        for key in keys:
             if not isinstance(current, dict) or key not in current:
                 return None
             current = current[key]
@@ -159,23 +158,19 @@ def reset() -> None:
     _Cache.note = None
 
 
-def value(keys: str | tuple[str, ...]) -> Any:
-    """Convenience: `value("providers.nvidia.api_key")` on the merged config.
+def value(keys: tuple[str, ...]) -> Any:
+    """Convenience: `value(("providers", "nvidia", "api_key"))` on the merged config.
 
     Fail-soft: a config that failed to parse reads as no value everywhere
     (providers report unavailable), and `load_failure()` names the error.
     """
-    if _Cache.failed is not None:
+    try:
+        return load().value(keys)
+    except ValueError:
         return None
-    if _Cache.loaded is None:
-        try:
-            return load().value(keys)
-        except ValueError:
-            return None
-    return _Cache.loaded.value(keys)
 
 
-def text(keys: str | tuple[str, ...]) -> str | None:
+def text(keys: tuple[str, ...]) -> str | None:
     """The value iff a non-empty string, else None; the one home for the
     configured-string idiom (`default_model`, an api_key) every reader shares."""
     found = value(keys)

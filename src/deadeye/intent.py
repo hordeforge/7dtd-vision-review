@@ -247,36 +247,29 @@ def parse_intent(data: Any, origin: str) -> ReviewIntent:
     )
 
 
-def load_intent_file(path: Path) -> tuple[ReviewIntent, bytes]:
-    """Read and validate an intent file; return it with its exact bytes."""
-    try:
-        raw = path.read_bytes()
-    except OSError as exc:
-        raise DeadeyeError(f"cannot read intent file {path}: {exc}") from exc
-    return parse_intent(_decode_json(raw, f"intent file {path}"), f"intent file {path}"), raw
-
-
 def load_intent(path: Path | None, text: str | None) -> tuple[ReviewIntent, bytes]:
     """The intent from exactly one of a file path or inline text, with its bytes.
 
-    The one home for the exactly-one rule, so the CLI and the MCP server
-    refuse identically instead of drifting into two wordings.
+    The one home for the exactly-one rule and for both input routes, so the
+    CLI and the MCP server refuse identically instead of drifting into two
+    wordings.
     """
     if path is not None and text is not None:
         raise DeadeyeError("takes exactly one of --intent PATH or --intent-text JSON, never both")
     if path is not None:
-        return load_intent_file(path)
-    if text is not None:
-        return parse_intent_text(text)
-    raise DeadeyeError(
-        "needs exactly one of --intent PATH (the reproducible route) or --intent-text JSON"
-    )
-
-
-def parse_intent_text(text: str) -> tuple[ReviewIntent, bytes]:
-    """Validate an inline intent document; return it with its exact bytes."""
-    raw = text.encode("utf-8")
-    return parse_intent(_decode_json(raw, "--intent-text"), "--intent-text"), raw
+        origin = f"intent file {path}"
+        try:
+            raw = path.read_bytes()
+        except OSError as exc:
+            raise DeadeyeError(f"cannot read {origin}: {exc}") from exc
+    elif text is not None:
+        origin = "--intent-text"
+        raw = text.encode("utf-8")
+    else:
+        raise DeadeyeError(
+            "needs exactly one of --intent PATH (the reproducible route) or --intent-text JSON"
+        )
+    return parse_intent(_decode_json(raw, origin), origin), raw
 
 
 def _decode_json(raw: bytes, origin: str) -> Any:

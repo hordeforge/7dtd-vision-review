@@ -10,9 +10,8 @@ import pytest
 from deadeye.errors import DeadeyeError
 from deadeye.intent import (
     CAMERA_PATHS,
-    load_intent_file,
+    load_intent,
     parse_intent,
-    parse_intent_text,
     redact,
     redact_json_text,
 )
@@ -146,13 +145,13 @@ def test_marker_adjacent_text_that_is_not_a_marker_is_accepted() -> None:
 
 
 def test_intent_text_round_trip_carries_exact_bytes(intent_bytes: bytes) -> None:
-    intent, raw = parse_intent_text(intent_bytes.decode("utf-8"))
+    intent, raw = load_intent(None, intent_bytes.decode("utf-8"))
     assert raw == intent_bytes
     assert intent.purpose
 
 
 def test_intent_file_round_trip_carries_exact_bytes(tmp_path, intent_path) -> None:
-    intent, raw = load_intent_file(intent_path)
+    intent, raw = load_intent(intent_path, None)
     assert raw == intent_path.read_bytes()
     assert intent.suite == "demo"
     assert intent.case == "thing"
@@ -162,7 +161,7 @@ def test_malformed_json_is_refused(tmp_path) -> None:
     path = tmp_path / "bad.json"
     path.write_text("{not json")
     with pytest.raises(DeadeyeError, match="not valid JSON"):
-        load_intent_file(path)
+        load_intent(path, None)
 
 
 def test_a_utf8_bom_is_tolerated_and_the_raw_bytes_keep_it(tmp_path) -> None:
@@ -171,14 +170,14 @@ def test_a_utf8_bom_is_tolerated_and_the_raw_bytes_keep_it(tmp_path) -> None:
     document = '{"purpose": "tourner la pièce", "subject": "café"}'
     path = tmp_path / "bom.json"
     path.write_bytes(b"\xef\xbb\xbf" + document.encode("utf-8"))
-    intent, raw = load_intent_file(path)
+    intent, raw = load_intent(path, None)
     assert raw == path.read_bytes()
     assert intent.purpose == "tourner la pièce"
     assert intent.subject == "café"
 
 
 def test_inline_intent_text_with_a_leading_bom_parses() -> None:
-    intent, _ = parse_intent_text("\ufeff" + json.dumps({"purpose": "x"}))
+    intent, _ = load_intent(None, "\ufeff" + json.dumps({"purpose": "x"}))
     assert intent.purpose == "x"
 
 
@@ -186,7 +185,7 @@ def test_deeply_nested_json_is_refused_not_crashed() -> None:
     # Nesting beyond the interpreter limit must read as a malformed document,
     # not escape as RecursionError.
     with pytest.raises(DeadeyeError):
-        parse_intent_text('{"purpose": ' + "[" * 20000 + "]" * 20000 + "}")
+        load_intent(None, '{"purpose": ' + "[" * 20000 + "]" * 20000 + "}")
 
 
 def test_redact_drops_credential_keys_nested() -> None:

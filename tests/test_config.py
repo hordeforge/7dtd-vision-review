@@ -33,7 +33,7 @@ def _write(directory, name: str, body: str) -> None:
 
 def test_no_config_anywhere_is_empty() -> None:
     assert config.load().directory is None
-    assert config.value("default_provider") is None
+    assert config.value(("default_provider",)) is None
     assert config.credential_for("nvidia", ("NVIDIA_API_KEY",)) is None
 
 
@@ -62,7 +62,7 @@ def test_base_and_local_merge_with_local_winning(_isolated_config, monkeypatch) 
 
 def test_local_without_base_is_fine(_isolated_config) -> None:
     _write(_isolated_config, "config.local.toml", 'api_key = "nvapi-top"\n')
-    assert config.value("api_key") == "nvapi-top"
+    assert config.value(("api_key",)) == "nvapi-top"
 
 
 def test_environment_wins_over_local(_isolated_config, monkeypatch) -> None:
