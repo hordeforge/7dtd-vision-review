@@ -21,6 +21,18 @@ open a new one.
 
 ### Added
 
+- Vendored end-to-end test: `scripts/e2e.sh` runs the full chain against a
+  real 7 Days to Die client — scaffolds a turntable fixture modlet
+  (`shamway`), captures the clip **in game** through `7dtd-playtest`'s
+  `StagedClip` support (the client's own framebuffer, never a desktop
+  recording), muxes it, and reviews it with `deadeye review` against the
+  configured provider, writing evidence under `.local/e2e/`. No hardcoded
+  host paths: sibling checkouts, the game install, and the dedicated server
+  come from discovery and environment variables. Exit code `0` only on a
+  fully reviewed run, so it can gate. Documented in `docs/e2e.md`.
+- The README restructures to a quick-start-first shape and the full contract
+  moves to the new `docs/reference.md` (command reference, intent schema,
+  result shape, evidence envelope, configuration rules).
 - The evidence envelope's `provider` block records `elapsed_seconds`, the
   wall-clock time the provider call took, beside the reported token usage.
 - Intent documents are bounded locally before anything is submitted: each

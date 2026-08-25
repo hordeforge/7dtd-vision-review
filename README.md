@@ -28,14 +28,18 @@ cd 7dtd-vision-review
 scripts/bootstrap
 ```
 
-Every `vX.Y.Z` tag also publishes an sdist, a wheel, and a CycloneDX SBOM on
-[GitHub Releases](https://github.com/hordeforge/7dtd-vision-review/releases).
-To install the CLI without cloning, point `uv tool install` at the tagged
-release's wheel asset:
+Put your provider key in the gitignored local config — no `export` needed per
+shell:
 
 ```bash
-uv tool install \
-    "https://github.com/hordeforge/7dtd-vision-review/releases/download/vX.Y.Z/7dtd_vision_review-X.Y.Z-py3-none-any.whl"
+cp config.local.toml.example config.local.toml
+```
+
+then set `api_key = "nvapi-..."` (or the per-provider form shown in the
+example). Verify what deadeye sees:
+
+```bash
+deadeye doctor
 ```
 
 Review a clip directory against the offline fake provider (no network, no
@@ -47,7 +51,36 @@ deadeye review .local/acceptance/thing/clip \
     --provider fake --allow-network --json
 ```
 
-Everything below is detail.
+Review against a real provider (`--allow-network` is the explicit consent to
+upload; every real submission is billable):
+
+```bash
+deadeye review .local/acceptance/thing/clip \
+    --intent assets-src/bundle/thing.review.json \
+    --provider nvidia --allow-network --json
+```
+
+Run the vendored end-to-end test — one command that captures a clip **inside
+7 Days to Die** through the playtest harness and reviews it against the
+configured provider (needs sibling checkouts, a game install, and a dedicated
+server; see [docs/e2e.md](docs/e2e.md)):
+
+```bash
+scripts/e2e.sh
+```
+
+To install the CLI without cloning, every `vX.Y.Z` tag publishes an sdist, a
+wheel, and a CycloneDX SBOM on
+[GitHub Releases](https://github.com/hordeforge/7dtd-vision-review/releases);
+point `uv tool install` at the tagged release's wheel asset:
+
+```bash
+uv tool install \
+    "https://github.com/hordeforge/7dtd-vision-review/releases/download/vX.Y.Z/7dtd_vision_review-X.Y.Z-py3-none-any.whl"
+```
+
+Everything below is detail; the full contract lives in
+[docs/reference.md](docs/reference.md).
 
 ## The command
 
@@ -71,87 +104,46 @@ deadeye review CLIP --intent FILE --provider PROVIDER [--model MODEL] \
 
 `deadeye doctor [--json]` reports provider capability state without contacting
 any provider. `deadeye schema` prints the intent and result schemas.
-`deadeye prompt --intent FILE` renders the exact reviewer prompt the gateway
-would inject for that intent, without running a review — the harness for
-verifying what a model will be asked before anything is submitted.
-`deadeye mcp` serves the same surface as a Model Context Protocol server on
-stdio, so an MCP client (an agent, a dashboard) reaches the gateway over
-standard JSON-RPC; see [docs/mcp-server.md](docs/mcp-server.md).
+`deadeye prompt --intent FILE [--clip DIR]` renders the exact reviewer prompt
+the gateway would inject, without running a review. `deadeye mcp` serves the
+same surface as a Model Context Protocol server on stdio (see
+[docs/mcp-server.md](docs/mcp-server.md)).
 
 The machine contract is the exit code and the JSON on stdout: `review --json`
 prints the evidence envelope, and every refusal exits non-zero with one
 `ERROR: ...` line on stderr. Disclosure lines go to stderr so a programmatic
 caller's stdout stays parseable.
 
-## Running a review twice
+## What a review is
 
-Every review is a new billable submission to a third party; deadeye itself
-never retries one. Re-running the same command therefore sends the media a
-second time and produces an independent envelope with its own `review_id` —
-verdicts are not deterministic, and disagreement is preserved rather than
-averaged. An earlier envelope at `--output` is refused (use `--force` to
-replace it deliberately). When a submission times out or the connection dies
-before a complete response, the refusal says so explicitly: the provider may
-still have completed and billed that attempt server-side, so resubmitting is
-a second billable review, not a retry of the first.
+You supply the intent and the clip; the gateway builds the full reviewer
+instruction itself (rubric, result shape, your stated purpose and concerns,
+and what media actually reached the model — a muxed video, or the sampled
+frame sequence with the drop recorded). The prompt is versioned in the
+evidence (`rubric_version`, `prompt_version`), so a review is traceable to
+the instruction it answered. Verify what a model would be asked before
+anything is submitted with `deadeye prompt`.
 
-## You never write a prompt
+A review returns `summary`, `strengths`, `recommended_changes`, `limitations`,
+`issues` (each tied to a frame range or timestamp), diagnostic `rubric_scores`
+(0-5 or null — never pass/fail), and `confidence` (0-1). An `ADVISORY_NOTE`
+rides every result: a model critique cannot mark an asset accepted. The full
+intent schema and result shape are in [docs/reference.md](docs/reference.md).
 
-The gateway builds the full reviewer instruction from the intent file
-automatically: the rubric dimensions, the exact JSON result shape, the
-author's stated purpose and concerns, and what media actually reached the
-model (a muxed video, or the sampled frame sequence with the drop recorded).
-The caller supplies the intent and the clip; nothing else is prompt-shaped by
-the caller, and the prompt is versioned in the evidence (`rubric_version`,
-`prompt_version`) so a review is traceable to the instruction it answered.
-`deadeye prompt --intent FILE [--clip DIR]` renders that instruction for
-inspection before submission.
-
-## The intent file
-
-Committed beside the source the clip describes:
-
-```json
-{
-  "schema_version": 1,
-  "purpose": "show the garment survives a full turn without clipping",
-  "subject": "thing (worn garment)",
-  "camera_path": "turntable",
-  "desired_qualities": "proportions and silhouette read right from every side",
-  "avoid": ["clipping", "popping", "z-fighting"],
-  "references": [{"path": "refs/known-good.png", "purpose": "known-good silhouette"}],
-  "questions": ["does the grip read thin through the turn?"],
-  "suite": "demo",
-  "case": "thing"
-}
-```
-
-`purpose` is required and never inferred from a filename; everything else is
-optional context. The intent's exact bytes are hashed into the evidence
-document.
-
-## The result shape
-
-The same family the audio-review pipeline uses, so a caller handling both
-review kinds reads one shape:
-
-- `summary`, `strengths`, `recommended_changes`, `limitations`
-- `issues` — each `{description, at_seconds?: [start, end], at_frame?: [start, end]}`
-- `rubric_scores` — 0-5 or `null` per dimension, diagnostic never pass/fail
-- `confidence` — 0-1
-
-`ADVISORY_NOTE` rides every result: a model critique cannot mark an asset
-accepted.
+Every review is a new billable submission; deadeye never retries one.
+Re-running the same command produces an independent envelope with its own
+`review_id` — verdicts are not deterministic, and disagreement is preserved,
+never averaged.
 
 ## Evidence
 
 `--output` writes (and `--json` prints) one hash-addressed envelope: SHA-256
-of every submitted frame/clip file and the intent file, the sampling record
-(exactly which frames went, and what was dropped to fit a provider limit), the
-provider and model with the submission's wall-clock time, rubric and prompt
-versions, the validated result, the disclosure confirmation, usage metadata
-when reported, and tool/parameter information with credentials removed. A
-later review never overwrites an earlier envelope by default.
+of every submitted frame/clip file and the intent file, the sampling record,
+the provider and model with the submission's wall-clock time, rubric and
+prompt versions, the validated result, the disclosure confirmation, usage
+metadata when reported, and tool/parameter information with credentials
+removed. A later review never overwrites an earlier envelope by default. The
+envelope's full field set is in [docs/reference.md](docs/reference.md).
 
 ## Providers
 
@@ -161,10 +153,11 @@ later review never overwrites an earlier envelope by default.
 | `gemini` | muxed video inline or a frame sequence | `GEMINI_API_KEY` or `GOOGLE_API_KEY` |
 | `nvidia` | muxed video (`video_url`) or a frame sequence (NVIDIA NIM) | `NVIDIA_API_KEY` |
 
-Credentials come from the environment or from `config.local.toml` (see
-Configuration), never as a command argument, printed output, or stored
-evidence. `deadeye doctor` reports state without contacting a provider and
-names where each key came from.
+Credentials come from the environment or from `config.local.toml`, never as a
+command argument, printed output, or stored evidence. `deadeye doctor`
+reports state without contacting a provider and names where each key came
+from. The provider protocol and adapter details are in
+[docs/providers.md](docs/providers.md).
 
 ## Configuration
 
@@ -172,41 +165,33 @@ Two TOML files in one directory, loaded in order (`config.local.toml` wins),
 mirroring the sibling llm-proxy convention:
 
 - `config.toml` — committed, shared settings: `default_provider`,
-  `default_model` (used when `--model` is omitted, overrides the provider's
-  own default), `timeout_seconds`, and per-provider `model` / `endpoint` /
-  generation parameters. Model precedence: `--model` flag > `default_model`
-  > `[providers.<name>] model` > built-in default.
+  `default_model`, `timeout_seconds`, and per-provider `model` / `endpoint` /
+  generation parameters.
 - `config.local.toml` — **gitignored**, for your API key and machine-local
-  overrides. Copy `config.local.toml.example` to `config.local.toml` and set
-  the key; no `export` needed per shell.
+  overrides. Copy `config.local.toml.example` to `config.local.toml`.
 
 Precedence: CLI flags > environment variables > `config.local.toml` >
 `config.toml` > built-in defaults. Discovery (first directory holding any
 config file wins): `DEADEYE_CONFIG_DIR`, then the current directory, then
-`~/.config/deadeye/`. A key may be top-level (`api_key = "nvapi-..."`, like
-llm-proxy) or per provider (`[providers.nvidia] api_key = "..."`), with the
-per-provider one winning. `deadeye doctor` prints which files were loaded and
-where each key came from — never the value.
-
-Values are validated before use, not deep inside a submission:
-`default_provider` must name a known provider (an unknown name is refused,
-never silently swapped for another), `timeout_seconds` and `--timeout` must
-be positive numbers, and a per-provider `endpoint` override must be an
-`https://` URL — plain `http` is accepted only for a loopback proxy such as
-`http://localhost:8080`, so no credential ever rides a public wire in
-cleartext. `deadeye doctor` also prints the effective top-level settings
-(`default_provider`, `default_model`, `timeout_seconds`) so a
-misconfiguration is visible without opening the files.
+`~/.config/deadeye/`. A key may be top-level (`api_key = "nvapi-..."`) or
+per provider (`[providers.nvidia] api_key = "..."`), with the per-provider
+one winning. Values are validated before use — an unknown `default_provider`
+is refused, never silently swapped. The full rules are in
+[docs/reference.md](docs/reference.md).
 
 ## Consuming repositories
 
 `7dtd-asset-pipeline`'s `shamway review-video` and `7dtd-playtest`'s
-`scripts/review_video.py` shell out to this CLI: each keeps its own operation,
-intent, and evidence documents (adding the fields only it knows — generation
-parameters, suite and case) and calls `deadeye` for the model I/O. See
-[docs/integration.md](docs/integration.md) for the call contract. The same
-surface is also reachable over Model Context Protocol through `deadeye mcp`
-(see [docs/mcp-server.md](docs/mcp-server.md)).
+`scripts/review_video.py` shell out to this CLI: each keeps its own
+operation, intent, and evidence documents (adding the fields only it knows —
+generation parameters, suite and case) and calls `deadeye` for the model I/O.
+See [docs/integration.md](docs/integration.md) for the call contract.
+
+## End-to-end test
+
+`scripts/e2e.sh` captures a real in-game clip through the playtest harness
+(no desktop recording) and reviews it against the configured provider, then
+writes the evidence under `.local/e2e/`. See [docs/e2e.md](docs/e2e.md).
 
 ## Development
 
@@ -216,9 +201,8 @@ make check test
 ```
 
 `make` alone prints the target list; `make all` is everything CI's offline
-job runs; `make coverage` runs the suite under coverage and prints the
-report CI turns into the badge above. While iterating, run one module or
-one test instead of the whole suite:
+job runs. While iterating, run one module or one test instead of the whole
+suite:
 
 ```bash
 uv run pytest tests/test_config.py -q   # one module
