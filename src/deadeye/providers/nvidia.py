@@ -137,10 +137,16 @@ class NvidiaProvider:
                 envelope = json.load(response)
         except urllib.error.HTTPError as exc:
             # A body that cannot be read must degrade to the status line, not
-            # to an unbound name when the message below formats it.
+            # to an unbound name when the message below formats it. The error
+            # body owns the request's socket until closed, so close it here
+            # rather than leaving it to the cyclic collector: the MCP server
+            # is long-lived, and each refused review would otherwise hold one
+            # dead connection until a GC pass reclaims the exception chain.
             detail = ""
             with contextlib.suppress(OSError):
                 detail = exc.read().decode("utf-8", errors="replace")[:300]
+            with contextlib.suppress(OSError):
+                exc.close()
             if exc.code in (401, 403):
                 raise DeadeyeError(
                     f"provider 'nvidia' rejected the credential (HTTP {exc.code}); "

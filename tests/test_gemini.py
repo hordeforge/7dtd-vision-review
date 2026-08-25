@@ -100,6 +100,40 @@ def test_a_connection_fault_mid_response_is_a_refusal_not_a_crash(monkeypatch) -
             GeminiProvider().review(_review_request())
 
 
+def test_a_refused_review_closes_the_error_body(monkeypatch) -> None:
+    """The HTTP error body owns the request's socket until it is closed: a
+    refused review must release it explicitly, or the long-lived MCP server
+    accumulates one dead connection per failure until cyclic GC reclaims the
+    exception chain."""
+    import urllib.error
+
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+
+    class _TrackingBody(io.BytesIO):
+        closed = False
+
+        def close(self) -> None:
+            self.closed = True
+            super().close()
+
+    body = _TrackingBody(b'{"error": {"message": "quota exhausted"}}')
+    error = urllib.error.HTTPError(
+        "https://generativelanguage.googleapis.com/test",
+        429,
+        "Too Many Requests",
+        {},
+        body,
+    )
+
+    def refused_urlopen(request, timeout):
+        raise error
+
+    monkeypatch.setattr("urllib.request.urlopen", refused_urlopen)
+    with pytest.raises(DeadeyeError, match="HTTP 429"):
+        GeminiProvider().review(_review_request())
+    assert body.closed
+
+
 def test_a_null_content_block_does_not_crash_the_adapter(monkeypatch) -> None:
     """Gemini can answer `content: null` under a safety block; the adapter
     reads it as an empty candidate instead of dying on AttributeError."""

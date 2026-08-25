@@ -10,6 +10,7 @@ frames travel as base64 data URLs, never paths) — is pinned offline.
 from __future__ import annotations
 
 import base64
+import io
 import os
 
 import pytest
@@ -146,6 +147,40 @@ def test_a_connection_fault_mid_response_is_a_refusal_not_a_crash(monkeypatch) -
         monkeypatch.setattr("urllib.request.urlopen", broken_urlopen)
         with pytest.raises(DeadeyeError, match="no verdict was produced"):
             NvidiaProvider().review(request)
+
+
+def test_a_refused_review_closes_the_error_body(monkeypatch) -> None:
+    """The HTTP error body owns the request's socket until it is closed: a
+    refused review must release it explicitly, or the long-lived MCP server
+    accumulates one dead connection per failure until cyclic GC reclaims the
+    exception chain."""
+    import urllib.error
+
+    monkeypatch.setenv("NVIDIA_API_KEY", "k")
+
+    class _TrackingBody(io.BytesIO):
+        closed = False
+
+        def close(self) -> None:
+            self.closed = True
+            super().close()
+
+    body = _TrackingBody(b'{"error": {"message": "bad key"}}')
+    error = urllib.error.HTTPError(
+        "https://integrate.api.nvidia.com/v1/chat/completions",
+        401,
+        "Unauthorized",
+        {},
+        body,
+    )
+
+    def refused_urlopen(request_arg, timeout):
+        raise error
+
+    monkeypatch.setattr("urllib.request.urlopen", refused_urlopen)
+    with pytest.raises(DeadeyeError, match="rejected the credential"):
+        NvidiaProvider().review(ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0))
+    assert body.closed
 
 
 @pytest.mark.skipif(
