@@ -149,7 +149,9 @@ def _call_schema(params: dict[str, Any]) -> dict[str, Any]:
                 "purpose": "string - what the clip is supposed to demonstrate",
                 "subject": "string - the asset or behavior on screen",
                 "camera_path": (f"string - one of {', '.join(CAMERA_PATHS)} or a free description"),
-                "desired_qualities": "string - target proportions, silhouette, material read, timing",
+                "desired_qualities": (
+                    "string - target proportions, silhouette, material read, timing"
+                ),
                 "avoid": "array of strings - clipping, popping, z-fighting, wrong scale, jitter",
                 "references": "array of {path, purpose} comparison assets",
                 "questions": "array of strings - concerns the reviewer must answer",
@@ -252,8 +254,8 @@ def serve(stdin: Any = None, stdout: Any = None) -> int:
     """The stdio loop: one JSON-RPC frame per line, responses on stdout."""
     stdin = stdin if stdin is not None else sys.stdin
     stdout = stdout if stdout is not None else sys.stdout
-    for line in stdin:
-        line = line.strip()
+    for raw_line in stdin:
+        line = raw_line.strip()
         if not line:
             continue
         try:

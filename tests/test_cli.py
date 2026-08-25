@@ -152,7 +152,7 @@ def test_version(capsys) -> None:
     assert capsys.readouterr().out.startswith("deadeye ")
 
 
-def test_prompt_renders_the_injected_prompt_from_an_intent(tmp_path, capsys) -> None:  # noqa: ANN001
+def test_prompt_renders_the_injected_prompt_from_an_intent(tmp_path, capsys) -> None:
     import json as _json
 
     intent = tmp_path / "i.json"
@@ -167,7 +167,7 @@ def test_prompt_renders_the_injected_prompt_from_an_intent(tmp_path, capsys) -> 
     assert '"summary": string' in out
 
 
-def test_prompt_derives_the_media_summary_from_a_clip(clip_dir, tmp_path, capsys) -> None:  # noqa: ANN001
+def test_prompt_derives_the_media_summary_from_a_clip(clip_dir, tmp_path, capsys) -> None:
     import json as _json
 
     intent = tmp_path / "i.json"
@@ -177,7 +177,7 @@ def test_prompt_derives_the_media_summary_from_a_clip(clip_dir, tmp_path, capsys
     assert "10 frame image(s) of the clip's 10 frames" in out
 
 
-def test_prompt_requires_an_intent(capsys) -> None:  # noqa: ANN001
+def test_prompt_requires_an_intent(capsys) -> None:
     code, _, err = _run(["prompt"], capsys)
     assert code == 1
     assert "exactly one of --intent" in err

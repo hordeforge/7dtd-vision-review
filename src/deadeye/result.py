@@ -17,6 +17,7 @@ wall-clock time.
 from __future__ import annotations
 
 import json
+import math
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -77,16 +78,21 @@ def _moment(value: Any, key: str, *, non_negative: bool) -> list[float] | None:
     Models point at a moment with either shape; a single frame index or
     second is the natural way to name one frame, and refusing it would put a
     hard failure on a legitimate answer. Returns None when the value is
-    present but neither shape is valid.
+    present but neither shape is valid. Non-finite floats (`NaN`, the
+    infinities) are refused: they would survive into evidence JSON that no
+    strict JSON reader can parse.
     """
     if isinstance(value, (int, float)) and not isinstance(value, bool):
-        if non_negative and value < 0:
+        if not math.isfinite(value) or (non_negative and value < 0):
             return None
         return [float(value), float(value)]
     if (
         isinstance(value, list)
         and len(value) == 2
-        and all(isinstance(bound, (int, float)) and not isinstance(bound, bool) for bound in value)
+        and all(
+            isinstance(bound, (int, float)) and not isinstance(bound, bool) and math.isfinite(bound)
+            for bound in value
+        )
         and (not non_negative or value[0] >= 0)
         and value[0] <= value[1]
     ):
@@ -111,6 +117,13 @@ def parse_model_json(raw_text: str) -> dict[str, Any]:
             f"model returned invalid structure (not JSON): {exc}; rerun with "
             "--keep-raw-response to preserve a redacted copy for debugging"
         ) from exc
+    except RecursionError as exc:
+        # A response nested beyond the interpreter limit is a malformed
+        # answer, not a bug here: refuse it like any other bad structure.
+        raise DeadeyeError(
+            "model returned invalid structure (nested too deeply); rerun with "
+            "--keep-raw-response to preserve a redacted copy for debugging"
+        ) from exc
     if not isinstance(parsed, dict):
         raise DeadeyeError(
             "model returned invalid structure (a JSON "
@@ -133,6 +146,10 @@ def validate_result(
     explained under `limitations` by convention, but the shape alone does not
     enforce that.
     """
+    if not isinstance(data, dict):
+        # A sequence holding exactly the result key names would slip past the
+        # key-set checks below and die on subscripting; refuse it here.
+        raise DeadeyeError(f"{origin} returned an invalid structure: not a JSON object")
     problems: list[str] = []
     missing = [key for key in RESULT_KEYS if key not in data]
     if missing:

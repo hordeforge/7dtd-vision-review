@@ -47,3 +47,19 @@ open a new one.
 - `make coverage` and the CI-published coverage badge.
 - `SECURITY.md`, documenting the credential boundary, the `--allow-network`
   consent boundary, and what an evidence envelope may contain.
+- Property-based fuzz targets (`tests/test_fuzz_parsers.py`, Hypothesis) for
+  the two untrusted-input parsers: model output through
+  `parse_model_json`/`validate_result`, and intent documents through
+  `parse_intent_text` plus the `redact` credentials backstop.
+
+### Fixed
+
+- Result validation refuses non-finite issue moments: `json.loads` accepts
+  `NaN`/`Infinity` literals, and they would survive into evidence JSON no
+  strict reader can parse.
+- Deeply nested JSON (beyond the interpreter recursion limit) is refused as
+  malformed input by both `parse_model_json` and intent parsing, instead of
+  escaping as an uncaught `RecursionError`.
+- `validate_result` refuses any non-object input up front; a sequence
+  holding exactly the seven result key names previously slipped past the
+  key-set checks and died on subscripting.

@@ -194,6 +194,10 @@ def _decode_json(raw: bytes, origin: str) -> Any:
         return json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise DeadeyeError(f"{origin} is not valid JSON: {exc}") from exc
+    except RecursionError as exc:
+        # A document nested beyond the interpreter limit is malformed input,
+        # not a bug here: refuse it like any other bad structure.
+        raise DeadeyeError(f"{origin} is nested too deeply to parse") from exc
 
 
 def redact(value: Any, parts: tuple[str, ...] = SENSITIVE_KEY_PARTS) -> Any:

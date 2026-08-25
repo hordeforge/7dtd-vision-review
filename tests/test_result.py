@@ -82,6 +82,20 @@ def test_model_json_is_extracted_from_fences_and_refuses_non_json() -> None:
         parse_model_json("[1, 2, 3]")
 
 
+def test_deeply_nested_model_output_is_refused_not_crashed() -> None:
+    # Nesting beyond the interpreter limit is a malformed answer, not a bug
+    # in the parser: it must be refused like any other bad structure.
+    with pytest.raises(DeadeyeError):
+        parse_model_json("[" * 20000 + "]" * 20000)
+
+
+def test_a_non_object_is_refused_even_when_it_names_the_keys() -> None:
+    # A sequence holding exactly the seven key names passes the key-set
+    # checks but cannot be subscripted; it must be refused up front.
+    with pytest.raises(DeadeyeError, match="not a JSON object"):
+        validate_result(list(RESULT_KEYS))
+
+
 def test_a_single_frame_index_or_second_normalizes_to_a_pair() -> None:
     result = validate_result({**VALID, "issues": [{"description": "pops at 10", "at_frame": 10}]})
     assert result["issues"][0]["at_frame"] == [10.0, 10.0]
@@ -101,3 +115,15 @@ def test_an_explicit_null_moment_is_allowed_like_an_absent_one() -> None:
     }
     result = validate_result(data)
     assert result["issues"][0] == {"description": "whole-clip read"}
+
+
+def test_non_finite_moments_are_refused() -> None:
+    # json.loads accepts NaN/Infinity literals; they would survive into
+    # evidence JSON that no strict reader can parse.
+    for probe in (float("nan"), float("inf"), float("-inf")):
+        with pytest.raises(DeadeyeError, match="at_seconds must be"):
+            validate_result({**VALID, "issues": [{"description": "x", "at_seconds": probe}]})
+        with pytest.raises(DeadeyeError, match="at_frame must be"):
+            validate_result({**VALID, "issues": [{"description": "x", "at_frame": probe}]})
+    with pytest.raises(DeadeyeError, match="at_frame must be"):
+        validate_result({**VALID, "issues": [{"description": "x", "at_frame": [0, float("inf")]}]})

@@ -9,10 +9,7 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
-from deadeye.errors import DeadeyeError
-from deadeye.mcp import PROTOCOL_VERSION, TOOLS, handle_frame
+from deadeye.mcp import PROTOCOL_VERSION, handle_frame
 
 
 def _call(method: str, params: dict, request_id: int = 1) -> dict:
@@ -39,7 +36,7 @@ def test_ping_and_tools_list() -> None:
     assert review["inputSchema"]["required"] == ["clip", "allow_network"]
 
 
-def test_review_refuses_without_explicit_consent(tmp_path) -> None:  # noqa: ANN001
+def test_review_refuses_without_explicit_consent(tmp_path) -> None:
     clip = tmp_path / "clip"
     clip.mkdir()
     (clip / "frame-0000.png").write_bytes(b"x")
@@ -48,7 +45,7 @@ def test_review_refuses_without_explicit_consent(tmp_path) -> None:  # noqa: ANN
     assert "allow_network=true" in response["result"]["content"][0]["text"]
 
 
-def test_review_with_a_fake_provider_returns_the_envelope(tmp_path) -> None:  # noqa: ANN001
+def test_review_with_a_fake_provider_returns_the_envelope(tmp_path) -> None:
     clip = tmp_path / "clip"
     clip.mkdir()
     (clip / "frame-0000.png").write_bytes(b"x")
@@ -94,7 +91,7 @@ def test_schema_and_doctor_tools_return_json() -> None:
     assert {state["name"] for state in states["providers"]} == {"fake", "gemini", "nvidia"}
 
 
-def test_prompt_tool_renders_the_injected_instruction(tmp_path) -> None:  # noqa: ANN001
+def test_prompt_tool_renders_the_injected_instruction(tmp_path) -> None:
     intent = tmp_path / "i.json"
     intent.write_text(json.dumps({"purpose": "show the turn"}), encoding="utf-8")
     payload = json.loads(

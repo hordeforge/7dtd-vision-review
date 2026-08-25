@@ -81,6 +81,13 @@ def test_malformed_json_is_refused(tmp_path) -> None:
         load_intent_file(path)
 
 
+def test_deeply_nested_json_is_refused_not_crashed() -> None:
+    # Nesting beyond the interpreter limit must read as a malformed document,
+    # not escape as RecursionError.
+    with pytest.raises(DeadeyeError):
+        parse_intent_text('{"purpose": ' + "[" * 20000 + "]" * 20000 + "}")
+
+
 def test_redact_drops_credential_keys_nested() -> None:
     value = {"ok": 1, "api_key": "secret", "headers": {"Authorization": "Bearer x", "meta": "y"}}
     assert redact(value) == {"ok": 1, "headers": {"meta": "y"}}

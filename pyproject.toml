@@ -33,6 +33,7 @@ dev = [
     "setuptools",
     "pytest>=8",
     "coverage>=7",
+    "hypothesis>=6",
 ]
 
 [project.scripts]
