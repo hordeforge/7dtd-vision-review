@@ -142,7 +142,11 @@ def write_evidence(path: Path, document: dict[str, Any], *, force: bool) -> tupl
 def _atomic_write(path: Path, payload: str) -> None:
     temporary = path.with_name(path.name + ".tmp")
     try:
-        temporary.write_text(payload, encoding="utf-8")
+        # Bytes, never text mode: the digest returned for this payload hashes
+        # its LF-encoded UTF-8 exactly, and a text-mode write would let the
+        # platform's newline translation rewrite it on disk (CRLF), making
+        # every stored evidence hash disagree with its own file.
+        temporary.write_bytes(payload.encode("utf-8"))
         temporary.replace(path)
     except OSError:
         # A failed or interrupted write must not strand a partial file that

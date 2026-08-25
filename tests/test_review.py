@@ -99,6 +99,28 @@ def test_evidence_is_written_and_hashes_address_it(clip_dir, intent_path, tmp_pa
     assert envelope["evidence"]["sha256"] == hashlib.sha256(output.read_bytes()).hexdigest()
 
 
+def test_evidence_bytes_are_the_hashed_utf8_on_every_platform(
+    clip_dir, intent_path, tmp_path
+) -> None:
+    """The stored envelope is exactly the UTF-8 bytes its sha256 hashes: a
+    text-mode write would let platform newline translation (CRLF) rewrite
+    them on disk and silently break hash addressing."""
+    import hashlib
+
+    output = tmp_path / "evidence.json"
+    envelope = run_review(
+        clip_dir,
+        provider=FakeProvider(),
+        intent_path=intent_path,
+        allow_network=True,
+        output=output,
+    )
+    raw = output.read_bytes()
+    assert b"\r" not in raw
+    assert hashlib.sha256(raw).hexdigest() == envelope["evidence"]["sha256"]
+    json.loads(raw.decode("utf-8"))
+
+
 def test_credentials_never_appear_in_evidence(clip_dir, intent_path, tmp_path) -> None:
     output = tmp_path / "evidence.json"
     run_review(
@@ -165,7 +187,7 @@ def test_a_failed_evidence_write_strands_no_partial_temp_file(
     def no_space(self, *args, **kwargs):
         raise OSError(28, "No space left on device")
 
-    monkeypatch.setattr(Path, "write_text", no_space)
+    monkeypatch.setattr(Path, "write_bytes", no_space)
     with pytest.raises(OSError, match="No space left"):
         write_evidence(output, {"kind": "deadeye-review"}, force=False)
     assert list(tmp_path.glob("*.tmp")) == []

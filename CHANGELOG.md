@@ -85,6 +85,10 @@ open a new one.
 
 ### Fixed
 
+- Evidence envelopes are written as raw bytes instead of text mode, so the
+  `evidence.sha256` a review reports always hashes the file's exact contents:
+  a platform whose text writes translate newlines to CRLF would otherwise
+  strand envelopes whose stored hash disagrees with the file on disk.
 - The MCP `review` tool now emits the same stderr disclosure lines as the CLI
   (provider, model, every file and byte about to leave the machine, the
   third-party retention warning) before submitting; previously the transport
