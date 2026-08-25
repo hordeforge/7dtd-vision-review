@@ -127,3 +127,15 @@ def test_non_finite_moments_are_refused() -> None:
             validate_result({**VALID, "issues": [{"description": "x", "at_frame": probe}]})
     with pytest.raises(DeadeyeError, match="at_frame must be"):
         validate_result({**VALID, "issues": [{"description": "x", "at_frame": [0, float("inf")]}]})
+
+
+def test_the_singular_moment_aliases_normalize() -> None:
+    result = validate_result({**VALID, "issues": [{"description": "pops", "frame": 9}]})
+    assert result["issues"][0]["at_frame"] == [9.0, 9.0]
+    result = validate_result({**VALID, "issues": [{"description": "starts", "seconds": 2.5}]})
+    assert result["issues"][0]["at_seconds"] == [2.5, 2.5]
+    # Canonical keys win over aliases when both are present.
+    result = validate_result(
+        {**VALID, "issues": [{"description": "x", "at_frame": [1, 2], "frame": 9}]}
+    )
+    assert result["issues"][0]["at_frame"] == [1.0, 2.0]
