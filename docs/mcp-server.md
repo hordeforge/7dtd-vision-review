@@ -24,7 +24,10 @@ calls, spec error codes, and the review consent boundary.
   core.
 - **Fail closed.** Malformed frames get spec JSON-RPC errors; unknown tools
   error; a review that would need the network refuses without consent, exactly
-  like the CLI.
+  like the CLI. An unexpected fault inside one frame answers `-32603` (with the
+  trace on stderr) instead of tearing down the session, and a tool call that
+  fails outside `DeadeyeError` names the tool and the exception type rather
+  than a bare message.
 
 ## Out of scope for now
 

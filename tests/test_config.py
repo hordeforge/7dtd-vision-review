@@ -94,6 +94,25 @@ def test_a_malformed_config_fails_loudly_and_doctor_reports_it(_isolated_config,
     assert "config error:" in capsys.readouterr().out
 
 
+def test_a_review_over_a_broken_config_names_the_file_not_the_credential(
+    _isolated_config, tmp_path
+) -> None:
+    """The submission path must not read a broken config as 'no credential':
+    that would send the operator hunting for an API key while the real fault
+    is one bad line of TOML."""
+    from deadeye.providers.fake import FakeProvider
+    from deadeye.review import run_review
+
+    _write(_isolated_config, "config.toml", "this is not [ toml\n")
+    clip = tmp_path / "clip"
+    clip.mkdir()
+    (clip / "frame-0000.png").write_bytes(b"x")
+    intent = tmp_path / "i.json"
+    intent.write_text('{"purpose": "p"}', encoding="utf-8")
+    with pytest.raises(ValueError, match="cannot read config file"):
+        run_review(clip, provider=FakeProvider(), intent_path=intent, allow_network=True)
+
+
 def test_default_provider_comes_from_config(_isolated_config) -> None:
     _write(_isolated_config, "config.toml", 'default_provider = "nvidia"\n')
     assert _resolve_provider(None) == "nvidia"

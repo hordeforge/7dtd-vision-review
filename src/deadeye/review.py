@@ -69,6 +69,12 @@ def run_review(
             "deadeye review sends the authored media to a third-party service; "
             "pass --allow-network to consent to that upload"
         )
+    # The submission path reads provider configuration, so a config that
+    # cannot parse must fail here with its real cause. Reading it through the
+    # fail-soft `config.value` instead would degrade silently: an unparseable
+    # file would read as "no credential" and send the operator chasing an API
+    # key while the actual fault is one bad line of TOML.
+    config.load()
     if intent_path is not None and intent_text is not None:
         raise DeadeyeError(
             "deadeye review takes exactly one of --intent PATH or --intent-text JSON, never both"

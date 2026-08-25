@@ -147,6 +147,12 @@ def main(argv: list[str] | None = None) -> int:
     except (DeadeyeError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
+    except OSError as exc:
+        # An unreadable clip, intent, or evidence path must meet the same
+        # one-line refusal contract as every other failure, not a traceback:
+        # the OS message already names the path and the reason.
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
 
 
 def _resolve_provider(name: str | None) -> str:

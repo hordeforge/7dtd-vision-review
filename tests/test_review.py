@@ -149,3 +149,23 @@ def test_disclosure_is_announced_before_submission(clip_dir, intent_path, capsys
     assert "provider: fake" in stderr
     assert "submitting 8 file(s)" in stderr
     assert "retention is governed" in stderr
+
+
+def test_a_failed_evidence_write_strands_no_partial_temp_file(
+    clip_dir, intent_path, tmp_path, monkeypatch
+) -> None:
+    """A write that dies midway (disk full, permissions) must not leave a
+    corrupt `.tmp` beside the evidence directory; the original fault surfaces."""
+    from pathlib import Path
+
+    from deadeye.evidence import write_evidence
+
+    output = tmp_path / "evidence.json"
+
+    def no_space(self, *args, **kwargs):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(Path, "write_text", no_space)
+    with pytest.raises(OSError, match="No space left"):
+        write_evidence(output, {"kind": "deadeye-review"}, force=False)
+    assert list(tmp_path.glob("*.tmp")) == []

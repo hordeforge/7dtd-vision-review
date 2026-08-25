@@ -42,6 +42,22 @@ def test_discover_refuses_an_empty_directory(tmp_path) -> None:
         discover(empty)
 
 
+def test_an_unreadable_clip_directory_is_a_refusal_not_a_traceback(tmp_path, monkeypatch) -> None:
+    """A directory that exists but cannot be listed (permissions, I/O fault)
+    refuses with the operation named instead of leaking an OS exception."""
+    from deadeye import sampling
+
+    unreadable = tmp_path / "locked"
+    unreadable.mkdir()
+
+    def forbidden(directory):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(sampling, "_frames_in", forbidden)
+    with pytest.raises(DeadeyeError, match="cannot read clip directory"):
+        discover(unreadable)
+
+
 def test_discover_refuses_two_videos_in_one_directory(clip_dir_with_video) -> None:
     (clip_dir_with_video / "second.mp4").write_bytes(b"x")
     with pytest.raises(DeadeyeError, match="more than one muxed video"):

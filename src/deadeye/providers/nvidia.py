@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import base64
 import contextlib
+import http.client
 import json
 import urllib.error
 import urllib.request
@@ -164,6 +165,14 @@ class NvidiaProvider:
             ) from exc
         except json.JSONDecodeError as exc:
             raise DeadeyeError(f"provider 'nvidia' returned a non-JSON envelope: {exc}") from exc
+        except (http.client.HTTPException, OSError) as exc:
+            # A connection that dies mid-body (reset, truncated chunked
+            # response) surfaces here, not as a traceback: the request was
+            # billed and no verdict came back, which is a refusal to report.
+            raise DeadeyeError(
+                f"provider 'nvidia' connection failed before a complete "
+                f"response arrived: {exc!r}; no verdict was produced"
+            ) from exc
 
         choices = envelope.get("choices") or []
         if not choices:

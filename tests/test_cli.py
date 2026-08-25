@@ -40,6 +40,37 @@ def test_review_refuses_missing_intent(clip_dir, capsys) -> None:
     assert "exactly one of --intent" in err
 
 
+def test_an_io_fault_meets_the_one_error_line_contract(clip_dir, tmp_path, capsys, monkeypatch):
+    """An unreadable clip or media file must refuse like every other failure
+    (one ERROR line, exit 1), never an unhandled traceback."""
+    from deadeye import cli
+
+    intent = tmp_path / "i.json"
+    intent.write_text(MINIMAL_INTENT)
+
+    def unreadable(*args, **kwargs):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(cli, "run_review", unreadable)
+    code, out, err = _run(
+        [
+            "review",
+            str(clip_dir),
+            "--intent",
+            str(intent),
+            "--provider",
+            "fake",
+            "--allow-network",
+            "--json",
+        ],
+        capsys,
+    )
+    assert code == 1
+    assert out == ""
+    assert err.startswith("ERROR:")
+    assert "Permission denied" in err
+
+
 def test_review_prints_the_envelope_with_json(clip_dir, tmp_path, capsys) -> None:
     intent = tmp_path / "i.json"
     intent.write_text(MINIMAL_INTENT)

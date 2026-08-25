@@ -127,6 +127,27 @@ def test_a_non_media_payload_is_refused_at_body_build_time() -> None:
         build_body(ReviewRequest(prompt="p", media=(audio,), model="m", timeout_seconds=1.0))
 
 
+def test_a_connection_fault_mid_response_is_a_refusal_not_a_crash(monkeypatch) -> None:
+    """A reset or truncated body after the request was billed must surface
+    as one DeadeyeError, never as a raw ConnectionResetError traceback."""
+    import http.client
+
+    monkeypatch.setenv("NVIDIA_API_KEY", "k")
+    request = ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0)
+    faults = [
+        ConnectionResetError("connection reset by peer"),
+        http.client.IncompleteRead(b"partial", 100),
+    ]
+    for fault in faults:
+
+        def broken_urlopen(request_arg, timeout, _fault=fault):
+            raise _fault
+
+        monkeypatch.setattr("urllib.request.urlopen", broken_urlopen)
+        with pytest.raises(DeadeyeError, match="no verdict was produced"):
+            NvidiaProvider().review(request)
+
+
 @pytest.mark.skipif(
     os.environ.get("DEADEYE_NETWORK_TESTS") != "nvidia" or not NvidiaProvider().is_configured(),
     reason="opt-in live run: set DEADEYE_NETWORK_TESTS=nvidia and configure an "

@@ -8,6 +8,7 @@ presence, the request body shape the adapter would send — is pinned offline.
 
 from __future__ import annotations
 
+import io
 import os
 
 import pytest
@@ -61,6 +62,57 @@ def test_attachment_labels_address_the_prompt_order() -> None:
     assert _label_for(frame) == "frame attachment: f.png"
     assert _label_for(video) == "video attachment: c.mp4"
     assert _label_for(reference) == "reference image: r.png"
+
+
+class _FakeResponse(io.BytesIO):
+    """A urlopen stand-in: a context manager carrying one JSON body."""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        return False
+
+
+def _review_request():
+    from deadeye.providers.base import ReviewRequest
+
+    return ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0)
+
+
+def test_a_connection_fault_mid_response_is_a_refusal_not_a_crash(monkeypatch) -> None:
+    """A reset or truncated body after the request was billed must surface
+    as one DeadeyeError, never as a raw ConnectionResetError traceback."""
+    import http.client
+
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    faults = [
+        ConnectionResetError("connection reset by peer"),
+        http.client.IncompleteRead(b"partial", 100),
+    ]
+    for fault in faults:
+
+        def broken_urlopen(request, timeout, _fault=fault):
+            raise _fault
+
+        monkeypatch.setattr("urllib.request.urlopen", broken_urlopen)
+        with pytest.raises(DeadeyeError, match="no verdict was produced"):
+            GeminiProvider().review(_review_request())
+
+
+def test_a_null_content_block_does_not_crash_the_adapter(monkeypatch) -> None:
+    """Gemini can answer `content: null` under a safety block; the adapter
+    reads it as an empty candidate instead of dying on AttributeError."""
+    import json as json_module
+
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    envelope = {"candidates": [{"finishReason": "STOP", "content": None}]}
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        lambda request, timeout: _FakeResponse(json_module.dumps(envelope).encode()),
+    )
+    response = GeminiProvider().review(_review_request())
+    assert response.raw_text == ""
 
 
 @pytest.mark.skipif(

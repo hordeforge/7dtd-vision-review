@@ -70,9 +70,14 @@ def discover(source: Path) -> ClipMedia:
     if not source.is_dir():
         raise DeadeyeError(f"no such clip: {source}")
 
-    frames = _frames_in(source)
-    video = _single_video_in(source)
-    log = _single_log_in(source)
+    try:
+        frames = _frames_in(source)
+        video = _single_video_in(source)
+        log = _single_log_in(source)
+    except OSError as exc:
+        # A directory that lists but cannot be read (permissions, I/O fault)
+        # is a refusal with the operation named, not an OS traceback.
+        raise DeadeyeError(f"cannot read clip directory {source}: {exc}") from exc
     if not frames and video is None:
         raise DeadeyeError(
             f"{source} holds neither frames nor a muxed video; a clip needs at least one"

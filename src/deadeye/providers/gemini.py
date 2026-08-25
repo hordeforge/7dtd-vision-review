@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import base64
 import contextlib
+import http.client
 import json
 import urllib.error
 import urllib.request
@@ -161,6 +162,14 @@ class GeminiProvider:
             ) from exc
         except json.JSONDecodeError as exc:
             raise DeadeyeError(f"provider 'gemini' returned a non-JSON envelope: {exc}") from exc
+        except (http.client.HTTPException, OSError) as exc:
+            # A connection that dies mid-body (reset, truncated chunked
+            # response) surfaces here, not as a traceback: the request was
+            # billed and no verdict came back, which is a refusal to report.
+            raise DeadeyeError(
+                f"provider 'gemini' connection failed before a complete "
+                f"response arrived: {exc!r}; no verdict was produced"
+            ) from exc
 
         candidates = envelope.get("candidates") or []
         if not candidates:
@@ -171,10 +180,9 @@ class GeminiProvider:
                 + (f" (blocked: {reason})" if reason else "")
                 + "; no verdict was produced"
             )
+        content = candidates[0].get("content") or {}
         text = "".join(
-            part.get("text", "")
-            for part in candidates[0].get("content", {}).get("parts", [])
-            if isinstance(part, dict)
+            part.get("text", "") for part in content.get("parts", []) if isinstance(part, dict)
         )
         finish = candidates[0].get("finishReason")
         if finish and finish not in ("STOP", "MAX_TOKENS"):

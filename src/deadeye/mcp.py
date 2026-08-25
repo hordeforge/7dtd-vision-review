@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import sys
+import traceback
 from pathlib import Path
 from typing import Any
 
@@ -235,8 +236,15 @@ def handle_frame(frame: dict[str, Any]) -> dict[str, Any] | None:
             return {"jsonrpc": "2.0", "id": request_id, "result": _tool_result(call(arguments))}
         except DeadeyeError as exc:
             return {"jsonrpc": "2.0", "id": request_id, "result": _tool_error(str(exc))}
-        except (KeyError, TypeError, ValueError) as exc:
-            return {"jsonrpc": "2.0", "id": request_id, "result": _tool_error(str(exc))}
+        except (KeyError, TypeError, ValueError, OSError) as exc:
+            # A bare KeyError's str is just the quoted key ('clip'), which
+            # names neither the tool nor the fault; keep the type and tool on
+            # the record so the client sees what argument was missing.
+            return {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "result": _tool_error(f"tool {name!r} failed: {type(exc).__name__}: {exc}"),
+            }
     return _error(request_id, -32601, "Method not found")
 
 
@@ -270,7 +278,15 @@ def serve(stdin: Any = None, stdout: Any = None) -> int:
             print(json.dumps(_error(None, -32600, "Invalid Request")), file=stdout)
             stdout.flush()
             continue
-        response = handle_frame(frame)
+        try:
+            response = handle_frame(frame)
+        except Exception:  # noqa: BLE001
+            # One faulty frame must not tear down the transport: answer the
+            # spec's internal-error code and keep serving, with the trace on
+            # stderr (stdout stays protocol-only). Justified broad catch: this
+            # is the per-frame isolation boundary of a long-lived server.
+            traceback.print_exc(file=sys.stderr)
+            response = _error(frame.get("id"), -32603, "Internal error")
         if response is not None:
             print(json.dumps(response), file=stdout)
             stdout.flush()

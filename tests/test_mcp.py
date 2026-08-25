@@ -130,6 +130,55 @@ def test_unknown_method_and_tool_get_spec_errors() -> None:
     assert response["error"]["code"] == -32602
 
 
+def test_a_missing_required_argument_names_the_tool_and_the_key(tmp_path) -> None:
+    clip = tmp_path / "clip"
+    clip.mkdir()
+    response = _call(
+        "tools/call", {"name": "review", "arguments": {"allow_network": True, "clip": str(clip)}}
+    )
+    # intent/intent_text both absent: DeadeyeError carries the full message.
+    assert response["result"]["isError"] is True
+    assert "exactly one of --intent" in response["result"]["content"][0]["text"]
+
+    from deadeye import mcp
+
+    original = mcp._CALLS["review"]
+
+    def missing_argument(params):
+        raise KeyError("model_name")
+
+    try:
+        mcp._CALLS["review"] = missing_argument
+        broken = _call("tools/call", {"name": "review", "arguments": {}})
+        text = broken["result"]["content"][0]["text"]
+        assert "'review'" in text and "KeyError" in text and "model_name" in text
+    finally:
+        mcp._CALLS["review"] = original
+
+
+def test_an_internal_fault_answers_32603_and_keeps_the_session_alive(monkeypatch, capsys) -> None:
+    """One faulty frame must not tear down the transport: the spec's
+    internal-error code goes back and the next frame still gets served."""
+    import io
+
+    from deadeye import mcp
+
+    def exploding_schema(params):
+        raise RuntimeError("boom")
+
+    monkeypatch.setitem(mcp._CALLS, "schema", exploding_schema)
+    stdin = io.StringIO(
+        '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"schema","arguments":{}}}\n'
+        '{"jsonrpc":"2.0","id":2,"method":"ping","params":{}}\n'
+    )
+    stdout = io.StringIO()
+    assert mcp.serve(stdin, stdout) == 0
+    lines = [json.loads(line) for line in stdout.getvalue().splitlines()]
+    assert lines[0]["error"]["code"] == -32603
+    assert lines[1]["result"] == {}
+    assert "boom" in capsys.readouterr().err
+
+
 def test_notifications_are_ignored() -> None:
     assert handle_frame({"jsonrpc": "2.0", "method": "notifications/initialized"}) is None
 
