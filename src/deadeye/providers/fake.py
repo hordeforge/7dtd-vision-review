@@ -13,7 +13,6 @@ from __future__ import annotations
 import hashlib
 import json
 
-from ..errors import DeadeyeError
 from .base import ProviderLimits, ReviewRequest, ReviewResponse
 
 
@@ -87,22 +86,3 @@ class FakeProvider:
         return ReviewResponse(
             raw_text=json.dumps(payload), usage=None, model_reported=self.default_model
         )
-
-
-def describe_received(request: ReviewRequest) -> dict[str, object]:
-    """The envelope-only description the fake adapter's tests assert against."""
-    if not request.media:
-        raise DeadeyeError("fake provider received no media")
-    return {
-        "files": [
-            {
-                "name": payload.name,
-                "mime_type": payload.mime_type,
-                "kind": payload.kind,
-                "sha256": hashlib.sha256(payload.data).hexdigest(),
-            }
-            for payload in request.media
-        ],
-        "prompt": request.prompt,
-        "model": request.model,
-    }

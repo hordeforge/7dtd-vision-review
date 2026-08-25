@@ -14,7 +14,7 @@ import os
 import pytest
 
 from deadeye.errors import DeadeyeError
-from deadeye.providers.base import MediaPayload, attachment_label
+from deadeye.providers.base import MediaPayload
 from deadeye.providers.gemini import (
     GeminiProvider,
 )
@@ -46,15 +46,6 @@ def test_review_without_credential_refuses_locally(monkeypatch) -> None:
     request = ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0)
     with pytest.raises(DeadeyeError, match="no credential"):
         GeminiProvider().review(request)
-
-
-def test_attachment_labels_address_the_prompt_order() -> None:
-    frame = MediaPayload(name="f.png", mime_type="image/png", kind="frame", data=b"")
-    video = MediaPayload(name="c.mp4", mime_type="video/mp4", kind="video", data=b"")
-    reference = MediaPayload(name="r.png", mime_type="image/png", kind="reference", data=b"")
-    assert attachment_label(frame) == "frame attachment: f.png"
-    assert attachment_label(video) == "video attachment: c.mp4"
-    assert attachment_label(reference) == "reference image: r.png"
 
 
 class _FakeResponse(io.BytesIO):

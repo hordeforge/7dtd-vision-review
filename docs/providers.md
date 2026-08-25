@@ -49,7 +49,7 @@ not to shape answers, so it sits at the ceiling rather than a tight budget.
 
 The live path is covered by an opt-in test
 (`DEADEYE_NETWORK_TESTS=gemini` + `GEMINI_API_KEY`); the offline suite pins
-limits, MIME mapping, credential presence, and the request-body labels instead.
+limits, MIME mapping, credential presence, and the request body shape instead.
 
 ## nvidia
 
