@@ -175,7 +175,7 @@ def validate_result(
                 continue
             issue: dict[str, Any] = {"description": description.strip()}
             seconds = _moment(entry.get("at_seconds"), "at_seconds", non_negative=False)
-            if "at_seconds" in entry and seconds is None:
+            if "at_seconds" in entry and entry["at_seconds"] is not None and seconds is None:
                 problems.append(
                     f"issue #{index + 1} at_seconds must be [start, end] numbers "
                     "with start <= end, or a single second"
@@ -184,7 +184,7 @@ def validate_result(
             if seconds is not None:
                 issue["at_seconds"] = seconds
             frame = _moment(entry.get("at_frame"), "at_frame", non_negative=True)
-            if "at_frame" in entry and frame is None:
+            if "at_frame" in entry and entry["at_frame"] is not None and frame is None:
                 problems.append(
                     f"issue #{index + 1} at_frame must be [start, end] non-negative "
                     "numbers with start <= end, or a single frame index"
