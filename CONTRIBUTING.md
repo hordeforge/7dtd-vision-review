@@ -90,7 +90,20 @@ not afterwards.
 
 ## Releases
 
-Bump `version` in [pyproject.toml](pyproject.toml) and its mirror in
-`src/deadeye/_version.py`, land that on `main`, then push a matching `vX.Y.Z`
-tag. A tag that disagrees with the manifest fails the release instead of
-publishing a mismatched artifact.
+The version has one canonical home, [pyproject.toml](pyproject.toml),
+mirrored by `src/deadeye/_version.py`; `tests/test_release_contract.py`
+fails on drift between them, so it surfaces in `make check test` rather
+than at tag time. The release sequence:
+
+1. Rename `## Unreleased` in [CHANGELOG.md](CHANGELOG.md) to the new
+   version, bump both version declarations, and land that on `main`.
+2. Push a matching `vX.Y.Z` tag. A tag that disagrees with the manifest or
+   the mirror fails the release instead of publishing a mismatched artifact.
+3. The GitHub Release carries the tagged version's changelog section as its
+   notes (`scripts/release_notes.py`). A version with no changelog section
+   still publishes, but with a default note and a loud warning: add the
+   entry before tagging so consumers read what changed where they look.
+
+While the version is 0.x, breaking changes may ride a minor bump; they are
+still breaking changes for the consuming repositories and follow the rules
+above.

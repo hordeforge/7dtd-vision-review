@@ -21,6 +21,15 @@ open a new one.
 
 ### Added
 
+- GitHub Releases carry the tagged version's section of this changelog as
+  their notes (`scripts/release_notes.py`), so what changed is readable where
+  the release is published; a version with no changelog section still
+  publishes, with a default note and a warning.
+- `tests/test_release_contract.py` pins the consumer-facing contracts (the
+  result key set, the evidence envelope's top-level fields, the intent wire
+  fields, and the schema/rubric/prompt versions) and the agreement between
+  `pyproject.toml` and `src/deadeye/_version.py`, so an accidental change to
+  any of them fails `make check test` instead of shipping.
 - `deadeye doctor` prints the effective top-level settings
   (`default_provider`, `default_model`, `timeout_seconds`) and says so when a
   `DEADEYE_CONFIG_DIR` names a directory holding no config file, so
