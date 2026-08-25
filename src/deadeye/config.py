@@ -21,7 +21,8 @@ Only the files that exist are loaded; a local file without a base file (or
 vice versa) is fine. Values are read through `value(keys)` so a caller never
 handles the merge itself. Values with safety constraints get validated
 readers: `endpoint()` refuses an API-root override that would send the
-provider credential anywhere but https or a loopback proxy.
+provider credential anywhere but https or a loopback proxy, and
+`endpoint_problem()` reports the same fault for `deadeye doctor`.
 """
 
 from __future__ import annotations
@@ -194,8 +195,8 @@ def credential_for(provider: str, env_names: tuple[str, ...]) -> str | None:
     return None
 
 
-def endpoint(keys: tuple[str, ...], fallback: str) -> str:
-    """A provider API root override, validated before anything is submitted.
+def _override_root(keys: tuple[str, ...]) -> str | None:
+    """The configured API-root override, or None when unset; refuses a bad one.
 
     The override exists for a self-hosted proxy, so plain http is accepted
     only for a loopback host; anywhere else the bearer key or API key would
@@ -205,7 +206,7 @@ def endpoint(keys: tuple[str, ...], fallback: str) -> str:
     """
     raw = value(keys)
     if not isinstance(raw, str) or not raw.strip():
-        return fallback
+        return None
     root = raw.strip()
     parts = urlsplit(root)
     host = (parts.hostname or "").strip("[]").lower()
@@ -217,3 +218,22 @@ def endpoint(keys: tuple[str, ...], fallback: str) -> str:
         f"config '{'.'.join(keys)}' must be an https:// URL (plain http only "
         f"for a loopback proxy such as http://localhost): got {raw!r}"
     )
+
+
+def endpoint(keys: tuple[str, ...], fallback: str) -> str:
+    """A provider API root override, validated before anything is submitted."""
+    return _override_root(keys) or fallback
+
+
+def endpoint_problem(keys: tuple[str, ...]) -> str | None:
+    """Why an endpoint override cannot be used, or None; for `doctor`.
+
+    Pure validation over the already-loaded config: no network, so capability
+    discovery stays offline while still surfacing an unusable override before
+    any review is attempted.
+    """
+    try:
+        _override_root(keys)
+    except DeadeyeError as exc:
+        return str(exc)
+    return None

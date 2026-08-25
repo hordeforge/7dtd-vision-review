@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from .. import config
+from ..errors import DeadeyeError
 from ..sampling import MediaKind, flat_label_text
 
 
@@ -117,24 +118,48 @@ def attachment_label(payload: MediaPayload) -> str:
     return f"frame attachment: {name}"
 
 
+def _unusable(provider: str, key: str, value: Any, expected: str) -> DeadeyeError:
+    return DeadeyeError(
+        f"config providers.{provider}.{key} must be {expected}, not {value!r}; "
+        "fix it in config.toml or config.local.toml"
+    )
+
+
 def int_setting(provider: str, key: str, fallback: int) -> int:
     """A provider's integer tuning knob (`providers.<name>.<key>`), or fallback.
 
     The one home every adapter reads its generation knobs through, so the
-    boolean-is-not-an-int guard cannot drift between vendor modules.
+    type guard cannot drift between vendor modules. An absent key falls back
+    to the built-in default; a value that is present but not an integer (a
+    string, a list, a boolean — TOML spells booleans distinctly) is refused
+    with the key named, before any submission. Silently substituting the
+    default would send a request whose parameters differ from the ones the
+    operator wrote down: exactly the misconfiguration a traceable review
+    must not hide.
     """
     value = config.value(("providers", provider, key))
-    return value if isinstance(value, int) and not isinstance(value, bool) else fallback
+    if value is None:
+        return fallback
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise _unusable(provider, key, value, "an integer")
+    return value
 
 
 def float_setting(provider: str, key: str, fallback: float) -> float:
     """A provider's float tuning knob (`providers.<name>.<key>`), or fallback.
 
-    A non-finite value reads as unset: TOML spells them `nan`, `inf`, and
-    `-inf`, and passed through they would reach the request body as a bare
-    `NaN`/`Infinity` token that no JSON reader on the provider side accepts.
+    Same contract as `int_setting`: absent falls back, present-but-unusable
+    is refused with the key named. A non-finite value (`nan`, `inf`, `-inf`
+    in TOML) is refused rather than passed through: it would reach the
+    request body as a bare `NaN`/`Infinity` token that no JSON reader on the
+    provider side accepts, and refusing beats sending a silently different
+    parameter than the one configured.
     """
     value = config.value(("providers", provider, key))
-    if isinstance(value, float) and not math.isfinite(value):
+    if value is None:
         return fallback
-    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else fallback
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise _unusable(provider, key, value, "a finite number")
+    if not math.isfinite(float(value)):
+        raise _unusable(provider, key, value, "a finite number")
+    return float(value)

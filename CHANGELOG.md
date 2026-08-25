@@ -21,6 +21,18 @@ open a new one.
 
 ### Fixed
 
+- Per-provider generation parameters (`max_tokens`, `reasoning_budget`,
+  `temperature`, `top_p`, `max_output_tokens`) are validated instead of
+  silently ignored: a value that is present but unusable — a string where a
+  number belongs, a boolean, a non-finite float such as `nan` — now refuses
+  the submission with the offending key named, rather than quietly sending
+  the built-in default so the request differs from the configuration on
+  record. An absent key still falls back to the built-in default.
+- `deadeye doctor` validates every per-provider `endpoint` override and
+  prints the reason when one is unusable (for example a plain-`http` root on
+  a non-loopback host), so the fault surfaces at diagnosis time instead of at
+  review start. Doctor still contacts nothing.
+
 - The reviewer prompt's author-statement fence can no longer be escaped by
   the text it fences: an intent field, list entry, reference purpose, or
   reference path containing a `-----BEGIN AUTHOR STATEMENT-----` /

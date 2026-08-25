@@ -176,6 +176,14 @@ never silently swapped for another), `timeout_seconds` and `--timeout` must
 be positive numbers, and a per-provider `endpoint` override must be an
 `https://` URL — plain `http` is accepted only for a loopback proxy such as
 `http://localhost:8080`, so no credential ever rides a public wire in
-cleartext. `deadeye doctor` also prints the effective top-level settings
-(`default_provider`, `default_model`, `timeout_seconds`) so a
-misconfiguration is visible without opening the files.
+cleartext. Per-provider generation parameters (`max_tokens`,
+`reasoning_budget`, `temperature`, `top_p`, `max_output_tokens`) follow the
+same rule: a value that is present but unusable for its role — a string
+where a number belongs, a boolean, a non-finite float such as `nan` — is
+refused when a submission starts, with the offending key named, instead of
+being quietly replaced by the built-in default. A review whose parameters
+differ from the configuration on record is not traceable evidence.
+`deadeye doctor` prints the effective top-level settings
+(`default_provider`, `default_model`, `timeout_seconds`) and validates every
+per-provider `endpoint` override, so a misconfiguration is visible at
+diagnosis time without opening the files or starting a review.

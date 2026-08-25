@@ -216,12 +216,11 @@ def test_nvidia_generation_params_flow_from_config(_isolated_config) -> None:
     assert body["top_p"] == 0.95
 
 
-def test_non_finite_float_knobs_read_as_unset(_isolated_config) -> None:
+def test_non_finite_float_knobs_are_refused_not_silently_defaulted(_isolated_config) -> None:
     """TOML spells them `nan`, `inf`, and `-inf`; passed through they would
     reach the request body as bare `NaN`/`Infinity` tokens no provider-side
-    JSON reader accepts."""
-    import json
-
+    JSON reader accepts. Refusing with the key named beats sending a
+    silently different parameter than the one configured."""
     _write(
         _isolated_config,
         "config.toml",
@@ -229,10 +228,54 @@ def test_non_finite_float_knobs_read_as_unset(_isolated_config) -> None:
     )
     frame = MediaPayload(name="f.png", mime_type="image/png", kind="frame", data=b"x")
     request = ReviewRequest(prompt="p", media=(frame,), model="m", timeout_seconds=1.0)
-    body = build_body(request)
-    assert body["temperature"] == 0.6
-    assert body["top_p"] == 0.95
-    json.dumps(body)  # the wire payload must stay strict JSON
+    with pytest.raises(DeadeyeError, match=r"providers\.nvidia\.temperature.*nan"):
+        build_body(request)
+
+
+def test_wrong_typed_generation_knobs_are_refused_not_silently_defaulted(_isolated_config) -> None:
+    """A present-but-unusable value must not quietly become the built-in
+    default: the submission would differ from the configuration on record."""
+    _write(
+        _isolated_config,
+        "config.toml",
+        '[providers.nvidia]\nmax_tokens = "65536"\nreasoning_budget = false\n',
+    )
+    frame = MediaPayload(name="f.png", mime_type="image/png", kind="frame", data=b"x")
+    request = ReviewRequest(prompt="p", media=(frame,), model="m", timeout_seconds=1.0)
+    with pytest.raises(DeadeyeError, match=r"providers\.nvidia\.max_tokens"):
+        build_body(request)
+    config.reset()
+    _write(_isolated_config, "config.toml", "[providers.nvidia]\nreasoning_budget = false\n")
+    with pytest.raises(DeadeyeError, match=r"providers\.nvidia\.reasoning_budget"):
+        build_body(request)
+    # The gemini adapter reads through the same validated readers.
+    from deadeye.providers.gemini import GeminiProvider
+
+    config.reset()
+    _write(
+        _isolated_config,
+        "config.local.toml",
+        "[providers.gemini]\napi_key = \"test\"\nmax_output_tokens = 'high'\n",
+    )
+    with pytest.raises(DeadeyeError, match=r"providers\.gemini\.max_output_tokens"):
+        GeminiProvider().review(request)
+
+
+def test_doctor_reports_an_unusable_endpoint_override(_isolated_config, capsys) -> None:
+    """A bad endpoint override surfaces at diagnosis time, before any review;
+    doctor stays offline and never crashes over it."""
+    from deadeye.cli import main
+
+    _write(
+        _isolated_config,
+        "config.toml",
+        '[providers.nvidia]\nendpoint = "http://proxy.example.com/v1"\n',
+    )
+    assert main(["doctor"]) == 0
+    out = capsys.readouterr().out
+    assert "endpoint:" in out
+    assert "providers.nvidia.endpoint" in out
+    assert "'http://proxy.example.com/v1'" in out
 
 
 def test_provider_credential_reads_config_local(_isolated_config) -> None:

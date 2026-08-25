@@ -12,7 +12,13 @@ An adapter is a narrow protocol in `src/deadeye/providers/base.py`:
 
 Adapters speak HTTP with the standard library. A build tool that already
 carries no SDK has no reason to grow one, and every dependency avoided is a
-supply-chain surface a consuming mod author never has to audit.
+supply-chain surface a consuming mod author never has to audit. Generation
+parameters are read through the shared validated readers in `base.py`: an
+absent key falls back to the adapter's built-in default, while a value that
+is present but unusable (a string where a number belongs, a boolean, a
+non-finite float) is refused with the key named before any submission — a
+silently substituted parameter would make the evidence untraceable to its
+configuration.
 
 ## fake
 

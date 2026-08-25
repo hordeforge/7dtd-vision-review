@@ -269,6 +269,13 @@ def _handle_doctor(args: argparse.Namespace) -> int:
             print(f"timeout_seconds: {_resolve_timeout(None):g}")
         except DeadeyeError as exc:
             print(f"timeout_seconds: not usable ({exc})")
+        # Per-provider endpoint overrides, validated here so a bad one is
+        # visible at diagnosis time instead of at review start. Pure config
+        # validation: nothing is contacted.
+        for name in sorted(PROVIDERS):
+            problem = config.endpoint_problem(("providers", name, "endpoint"))
+            if problem is not None:
+                print(f"endpoint: {problem}")
     return 0
 
 
