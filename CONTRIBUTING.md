@@ -103,6 +103,13 @@ than at tag time. The release sequence:
    notes (`scripts/release_notes.py`). A version with no changelog section
    still publishes, but with a default note and a loud warning: add the
    entry before tagging so consumers read what changed where they look.
+4. The release uploads three artifacts built from the tagged tree: the
+   wheel, the sdist, and a CycloneDX SBOM of the locked resolution. The
+   wheel ships exactly the `deadeye` package plus the PEP 561 `py.typed`
+   marker and the license text; the sdist is a complete source tree whose
+   contents `MANIFEST.in` governs. `tests/test_release_contract.py` builds
+   both and pins what they contain, so a file that drops out of an artifact
+   fails `make check test` before any tag exists.
 
 While the version is 0.x, breaking changes may ride a minor bump; they are
 still breaking changes for the consuming repositories and follow the rules

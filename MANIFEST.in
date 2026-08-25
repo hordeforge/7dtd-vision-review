@@ -1,0 +1,11 @@
+# What the sdist ships beyond setuptools' defaults. The wheel carries only
+# the deadeye package; the sdist is a complete source tree, so everything
+# README.md tells a contributor to run from a checkout (scripts/bootstrap,
+# uv sync --locked, make check test) works from an unpacked tarball.
+include CHANGELOG.md CONTRIBUTING.md SECURITY.md
+include Makefile uv.lock
+include config.toml config.local.toml.example
+graft tests
+graft docs
+graft scripts
+global-exclude __pycache__ *.py[cod]

@@ -28,6 +28,16 @@ cd 7dtd-vision-review
 scripts/bootstrap
 ```
 
+Every `vX.Y.Z` tag also publishes an sdist, a wheel, and a CycloneDX SBOM on
+[GitHub Releases](https://github.com/hordeforge/7dtd-vision-review/releases).
+To install the CLI without cloning, point `uv tool install` at the tagged
+release's wheel asset:
+
+```bash
+uv tool install \
+    "https://github.com/hordeforge/7dtd-vision-review/releases/download/vX.Y.Z/7dtd_vision_review-X.Y.Z-py3-none-any.whl"
+```
+
 Review a clip directory against the offline fake provider (no network, no
 credentials — proves the plumbing end to end):
 

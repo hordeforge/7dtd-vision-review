@@ -10,8 +10,13 @@ lands a changelog entry in the same commit.
 from __future__ import annotations
 
 import re
+import tarfile
 import tomllib
+import zipfile
 from pathlib import Path
+from shutil import rmtree
+
+import pytest
 
 from deadeye._version import __version__
 from deadeye.evidence import EVIDENCE_SCHEMA_VERSION, build_envelope
@@ -152,3 +157,90 @@ def test_current_schema_versions_are_one() -> None:
     # stored evidence still parse; a jump must be deliberate (BREAKING above).
     assert INTENT_SCHEMA_VERSION == 1
     assert EVIDENCE_SCHEMA_VERSION == 1
+
+
+# --- Release artifacts -----------------------------------------------------
+#
+# A vX.Y.Z tag publishes the sdist and wheel `uv build` produces (see
+# .github/workflows/release.yml). These tests build both with the declared
+# backend and pin what ships, so a file that silently drops out of an
+# artifact fails `make check test` instead of surfacing in a release.
+
+SDIST_PREFIX = f"7dtd_vision_review-{__version__}"
+DIST_INFO = f"7dtd_vision_review-{__version__}.dist-info"
+
+
+@pytest.fixture
+def built_artifacts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, list[str]]:
+    from setuptools import build_meta
+
+    monkeypatch.chdir(ROOT)
+    sdist_name = build_meta.build_sdist(str(tmp_path))
+    wheel_name = build_meta.build_wheel(str(tmp_path))
+    assert sdist_name == f"{SDIST_PREFIX}.tar.gz", (
+        "the sdist name must embed the mirrored __version__, not a stale one"
+    )
+    assert wheel_name == f"{SDIST_PREFIX}-py3-none-any.whl"
+    with tarfile.open(tmp_path / sdist_name) as archive:
+        sdist_members = archive.getnames()
+    with zipfile.ZipFile(tmp_path / wheel_name) as archive:
+        wheel_members = archive.namelist()
+    # build_meta leaves egg-info and build/ beside the sources; those are
+    # gitignored byproducts of every artifact build, but the suite should
+    # leave no tarball or wheel behind inside the checkout.
+    rmtree(ROOT / "build", ignore_errors=True)
+    return {"sdist": sdist_members, "wheel": wheel_members}
+
+
+def test_sdist_is_a_complete_source_tree(built_artifacts: dict[str, list[str]]) -> None:
+    members = built_artifacts["sdist"]
+    must_ship = (
+        # Build inputs and metadata.
+        f"{SDIST_PREFIX}/pyproject.toml",
+        f"{SDIST_PREFIX}/README.md",
+        f"{SDIST_PREFIX}/LICENSE",
+        f"{SDIST_PREFIX}/uv.lock",
+        f"{SDIST_PREFIX}/Makefile",
+        f"{SDIST_PREFIX}/config.toml",
+        f"{SDIST_PREFIX}/config.local.toml.example",
+        # The committed test suite must be runnable from the tarball:
+        # conftest.py defines the fixtures every test module imports.
+        f"{SDIST_PREFIX}/tests/conftest.py",
+        f"{SDIST_PREFIX}/tests/test_cli.py",
+        # The contributor workflow README documents from a checkout.
+        f"{SDIST_PREFIX}/scripts/bootstrap",
+        f"{SDIST_PREFIX}/docs/architecture.md",
+        f"{SDIST_PREFIX}/CHANGELOG.md",
+        f"{SDIST_PREFIX}/SECURITY.md",
+        f"{SDIST_PREFIX}/CONTRIBUTING.md",
+    )
+    missing = [name for name in must_ship if name not in members]
+    assert not missing, (
+        f"sdist is missing {missing}; extend MANIFEST.in so an unpacked "
+        "release tarball behaves like a checkout"
+    )
+    assert not any("__pycache__" in name or name.endswith(".pyc") for name in members), (
+        "compiled bytecode never ships in an sdist; MANIFEST.in must exclude it"
+    )
+
+
+def test_wheel_ships_exactly_the_package(built_artifacts: dict[str, list[str]]) -> None:
+    members = built_artifacts["wheel"]
+    shipped = {name for name in members if not name.startswith(DIST_INFO)}
+    assert "deadeye/py.typed" in shipped, (
+        "PEP 561 marker missing: the package is strictly typed, so consumers' "
+        "type checkers must see that"
+    )
+    assert f"{DIST_INFO}/licenses/LICENSE" in members
+    assert f"{DIST_INFO}/entry_points.txt" in members
+    assert not any(name.startswith("tests/") or "__pycache__" in name for name in members), (
+        "the wheel is a runtime artifact: tests and bytecode never ship in it"
+    )
+
+    src = ROOT / "src"
+    on_disk = {p.relative_to(src).as_posix() for p in src.rglob("*.py")}
+    dropped = on_disk - shipped
+    assert not dropped, (
+        f"modules on disk but absent from the wheel: {sorted(dropped)}; a "
+        "subpackage was added without being packaged?"
+    )

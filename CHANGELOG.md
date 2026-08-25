@@ -21,6 +21,17 @@ open a new one.
 
 ### Added
 
+- `tests/test_release_contract.py` builds the release sdist and wheel and
+  pins their contents, so a file that silently drops out of a release
+  artifact fails `make check test` instead of surfacing after the tag.
+- The wheel declares PEP 561 typing (`py.typed`) and PEP 639 licensing
+  (`License-Expression: MIT`, replacing the deprecated TOML-table license),
+  and the build backend floor moves to `setuptools>=77` accordingly.
+- The sdist is now a complete source tree (`MANIFEST.in`): the committed
+  test suite runs from an unpacked release tarball — previously
+  `tests/conftest.py` was omitted, breaking every shipped test — and the
+  docs, changelog, security policy, Makefile, bootstrap script, committed
+  config files, and locked `uv.lock` resolution ride along.
 - GitHub Releases carry the tagged version's section of this changelog as
   their notes (`scripts/release_notes.py`), so what changed is readable where
   the release is published; a version with no changelog section still
