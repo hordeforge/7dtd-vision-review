@@ -262,7 +262,11 @@ def serve(stdin: Any = None, stdout: Any = None) -> int:
             continue
         try:
             frame = json.loads(line)
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, RecursionError):
+            # A frame nested beyond the interpreter limit is malformed input,
+            # not a fault in this loop: it gets the spec's parse error like
+            # any other malformed frame instead of killing the transport
+            # (the same treatment intent.py gives such documents).
             print(json.dumps(_error(None, -32700, "Parse error")), file=stdout)
             stdout.flush()
             continue

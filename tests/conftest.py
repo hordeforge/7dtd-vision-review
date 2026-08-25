@@ -2,9 +2,36 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
+
+
+class _StubOpener:
+    """Stands in for `_http._OPENER`: every open() runs one canned behavior."""
+
+    def __init__(self, behavior: Callable[..., Any]) -> None:
+        self._behavior = behavior
+
+    def open(self, request: Any, timeout: float) -> Any:
+        return self._behavior(request, timeout)
+
+
+@pytest.fixture
+def http_opener(monkeypatch: pytest.MonkeyPatch) -> Callable[[Callable[..., Any]], None]:
+    """Route `post_json`'s HTTP calls through a stub opener, offline.
+
+    Install with the same `(request, timeout)` signature the old urlopen
+    stand-ins used, so each test keeps its exact behavior.
+    """
+    from deadeye.providers import _http
+
+    def install(behavior: Callable[..., Any]) -> None:
+        monkeypatch.setattr(_http, "_OPENER", _StubOpener(behavior))
+
+    return install
 
 
 @pytest.fixture

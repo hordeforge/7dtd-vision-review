@@ -18,6 +18,34 @@ from typing import Any
 
 from ..errors import DeadeyeError
 
+_REDIRECT_CODES = frozenset({301, 302, 303, 307, 308})
+
+
+class _NoRedirects(urllib.request.HTTPRedirectHandler):
+    """Refuse every redirect instead of following it.
+
+    urllib forwards every request header to the redirect target (only
+    content-length/content-type are dropped), so following a 3xx would send
+    the provider credential to whatever host and scheme the Location header
+    names, including a silent https-to-http downgrade. These JSON API roots
+    have no legitimate need to redirect; refusing loudly keeps the credential
+    on exactly the host the endpoint override validated.
+    """
+
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: Any,
+        code: int,
+        msg: str,
+        headers: Any,
+        newurl: str,
+    ) -> urllib.request.Request:
+        raise urllib.error.HTTPError(req.full_url, code, msg, headers, fp)
+
+
+_OPENER = urllib.request.build_opener(_NoRedirects)
+
 
 def post_json(
     provider: str,
@@ -32,7 +60,8 @@ def post_json(
 
     `url` is the adapter's fixed https API root (or an endpoint override
     already validated by `config.endpoint`) plus, at most, encoded model path
-    segments: scheme and host are never caller-controlled.
+    segments: scheme and host are never caller-controlled. Redirects are never
+    followed (`_NoRedirects`), so the credential cannot ride one elsewhere.
     """
     request = urllib.request.Request(  # noqa: S310
         url,
@@ -41,9 +70,7 @@ def post_json(
         method="POST",
     )
     try:
-        with urllib.request.urlopen(  # noqa: S310
-            request, timeout=timeout_seconds
-        ) as response:
+        with _OPENER.open(request, timeout=timeout_seconds) as response:
             envelope: dict[str, Any] = json.load(response)
         return envelope
     except urllib.error.HTTPError as exc:
@@ -58,6 +85,16 @@ def post_json(
             detail = exc.read().decode("utf-8", errors="replace")[:300]
         with contextlib.suppress(OSError):
             exc.close()
+        # The body is provider-controlled text that lands in stderr lines;
+        # flatten control characters so one response cannot forge extra
+        # disclosure-shaped lines in an operator's transcript.
+        detail = "".join(char if char.isprintable() else " " for char in detail)
+        if exc.code in _REDIRECT_CODES:
+            raise DeadeyeError(
+                f"provider {provider!r} answered with HTTP {exc.code} (redirect); "
+                "deadeye never follows redirects because the provider credential "
+                "must reach only the endpoint the request was addressed to"
+            ) from exc
         if exc.code in (401, 403):
             raise DeadeyeError(
                 f"provider {provider!r} rejected the credential (HTTP {exc.code}); "

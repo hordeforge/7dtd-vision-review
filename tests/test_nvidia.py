@@ -121,7 +121,7 @@ def test_a_non_media_payload_is_refused_at_body_build_time() -> None:
         build_body(ReviewRequest(prompt="p", media=(audio,), model="m", timeout_seconds=1.0))
 
 
-def test_a_connection_fault_mid_response_is_a_refusal_not_a_crash(monkeypatch) -> None:
+def test_a_connection_fault_mid_response_is_a_refusal_not_a_crash(monkeypatch, http_opener) -> None:
     """A reset or truncated body after the request was billed must surface
     as one DeadeyeError, never as a raw ConnectionResetError traceback."""
     import http.client
@@ -137,12 +137,12 @@ def test_a_connection_fault_mid_response_is_a_refusal_not_a_crash(monkeypatch) -
         def broken_urlopen(request_arg, timeout, _fault=fault):
             raise _fault
 
-        monkeypatch.setattr("urllib.request.urlopen", broken_urlopen)
+        http_opener(broken_urlopen)
         with pytest.raises(DeadeyeError, match="new billable review"):
             NvidiaProvider().review(request)
 
 
-def test_a_refused_review_closes_the_error_body(monkeypatch) -> None:
+def test_a_refused_review_closes_the_error_body(monkeypatch, http_opener) -> None:
     """The HTTP error body owns the request's socket until it is closed: a
     refused review must release it explicitly, or the long-lived MCP server
     accumulates one dead connection per failure until cyclic GC reclaims the
@@ -170,7 +170,7 @@ def test_a_refused_review_closes_the_error_body(monkeypatch) -> None:
     def refused_urlopen(request_arg, timeout):
         raise error
 
-    monkeypatch.setattr("urllib.request.urlopen", refused_urlopen)
+    http_opener(refused_urlopen)
     with pytest.raises(DeadeyeError, match="rejected the credential"):
         NvidiaProvider().review(ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0))
     assert body.closed

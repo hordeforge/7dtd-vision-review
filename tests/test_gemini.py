@@ -73,7 +73,7 @@ def _review_request():
     return ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0)
 
 
-def test_a_connection_fault_mid_response_is_a_refusal_not_a_crash(monkeypatch) -> None:
+def test_a_connection_fault_mid_response_is_a_refusal_not_a_crash(monkeypatch, http_opener) -> None:
     """A reset or truncated body after the request was billed must surface
     as one DeadeyeError, never as a raw ConnectionResetError traceback."""
     import http.client
@@ -88,12 +88,12 @@ def test_a_connection_fault_mid_response_is_a_refusal_not_a_crash(monkeypatch) -
         def broken_urlopen(request, timeout, _fault=fault):
             raise _fault
 
-        monkeypatch.setattr("urllib.request.urlopen", broken_urlopen)
+        http_opener(broken_urlopen)
         with pytest.raises(DeadeyeError, match="new billable review"):
             GeminiProvider().review(_review_request())
 
 
-def test_a_refused_review_closes_the_error_body(monkeypatch) -> None:
+def test_a_refused_review_closes_the_error_body(monkeypatch, http_opener) -> None:
     """The HTTP error body owns the request's socket until it is closed: a
     refused review must release it explicitly, or the long-lived MCP server
     accumulates one dead connection per failure until cyclic GC reclaims the
@@ -121,28 +121,25 @@ def test_a_refused_review_closes_the_error_body(monkeypatch) -> None:
     def refused_urlopen(request, timeout):
         raise error
 
-    monkeypatch.setattr("urllib.request.urlopen", refused_urlopen)
+    http_opener(refused_urlopen)
     with pytest.raises(DeadeyeError, match="HTTP 429"):
         GeminiProvider().review(_review_request())
     assert body.closed
 
 
-def test_a_null_content_block_does_not_crash_the_adapter(monkeypatch) -> None:
+def test_a_null_content_block_does_not_crash_the_adapter(monkeypatch, http_opener) -> None:
     """Gemini can answer `content: null` under a safety block; the adapter
     reads it as an empty candidate instead of dying on AttributeError."""
     import json as json_module
 
     monkeypatch.setenv("GEMINI_API_KEY", "k")
     envelope = {"candidates": [{"finishReason": "STOP", "content": None}]}
-    monkeypatch.setattr(
-        "urllib.request.urlopen",
-        lambda request, timeout: _FakeResponse(json_module.dumps(envelope).encode()),
-    )
+    http_opener(lambda request, timeout: _FakeResponse(json_module.dumps(envelope).encode()))
     response = GeminiProvider().review(_review_request())
     assert response.raw_text == ""
 
 
-def test_a_non_ascii_model_name_is_percent_encoded_into_the_url(monkeypatch) -> None:
+def test_a_non_ascii_model_name_is_percent_encoded_into_the_url(monkeypatch, http_opener) -> None:
     """The model is one URL path segment: a space or non-ASCII character must
     ride as percent-encoded UTF-8, never as raw request-line bytes."""
     import json as json_module
@@ -155,7 +152,7 @@ def test_a_non_ascii_model_name_is_percent_encoded_into_the_url(monkeypatch) -> 
         seen["url"] = request.full_url
         return _FakeResponse(json_module.dumps(envelope).encode())
 
-    monkeypatch.setattr("urllib.request.urlopen", capture_urlopen)
+    http_opener(capture_urlopen)
     from deadeye.providers.base import ReviewRequest
 
     request = ReviewRequest(prompt="p", media=(), model="gemín 2.5 flash", timeout_seconds=1.0)
@@ -164,8 +161,8 @@ def test_a_non_ascii_model_name_is_percent_encoded_into_the_url(monkeypatch) -> 
     assert seen["url"].endswith("/gem%C3%ADn%202.5%20flash:generateContent")
 
 
-def _capture_body(monkeypatch, envelope: dict) -> dict:
-    """POST through a fake urlopen; return the JSON body the adapter built."""
+def _capture_body(monkeypatch, http_opener, envelope: dict) -> dict:
+    """POST through a stub opener; return the JSON body the adapter built."""
     import json as json_module
 
     monkeypatch.setenv("GEMINI_API_KEY", "k")
@@ -175,26 +172,26 @@ def _capture_body(monkeypatch, envelope: dict) -> dict:
         seen["body"] = json_module.loads(request.data.decode("utf-8"))
         return _FakeResponse(json_module.dumps(envelope).encode())
 
-    monkeypatch.setattr("urllib.request.urlopen", capture_urlopen)
+    http_opener(capture_urlopen)
     return seen
 
 
 _ENVELOPE = {"candidates": [{"finishReason": "STOP", "content": {"parts": [{"text": "ok"}]}}]}
 
 
-def test_the_generation_is_capped_against_runaway_output(monkeypatch) -> None:
+def test_the_generation_is_capped_against_runaway_output(monkeypatch, http_opener) -> None:
     """No cap means an unbounded billable generation when the model loops;
     the adapter must always send one."""
     from deadeye.providers.gemini import DEFAULT_MAX_OUTPUT_TOKENS
 
-    seen = _capture_body(monkeypatch, _ENVELOPE)
+    seen = _capture_body(monkeypatch, http_opener, _ENVELOPE)
     GeminiProvider().review(_review_request())
     generation = seen["body"]["generationConfig"]
     assert generation["maxOutputTokens"] == DEFAULT_MAX_OUTPUT_TOKENS
     assert generation["response_mime_type"] == "application/json"
 
 
-def test_max_output_tokens_can_be_overridden_by_config(monkeypatch, tmp_path) -> None:
+def test_max_output_tokens_can_be_overridden_by_config(monkeypatch, http_opener, tmp_path) -> None:
     from deadeye import config
 
     (tmp_path / "config.local.toml").write_text(
@@ -203,7 +200,7 @@ def test_max_output_tokens_can_be_overridden_by_config(monkeypatch, tmp_path) ->
     monkeypatch.setenv("DEADEYE_CONFIG_DIR", str(tmp_path))
     config.reset()
     try:
-        seen = _capture_body(monkeypatch, _ENVELOPE)
+        seen = _capture_body(monkeypatch, http_opener, _ENVELOPE)
         GeminiProvider().review(_review_request())
         assert seen["body"]["generationConfig"]["maxOutputTokens"] == 1024
     finally:

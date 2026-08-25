@@ -314,3 +314,20 @@ def test_an_undecodable_frame_answers_parse_error_and_keeps_serving() -> None:
     assert lines[0]["result"] == {}
     assert lines[1]["error"]["code"] == -32700
     assert lines[2]["id"] == 3 and lines[2]["result"] == {}
+
+
+def test_a_nested_beyond_the_limit_frame_is_a_parse_error_not_a_crash() -> None:
+    """A frame nested beyond the interpreter limit makes json.loads raise
+    RecursionError; that is malformed input, so it gets -32700 like any other
+    bad frame instead of tearing down the long-lived server."""
+    import io
+
+    from deadeye.mcp import serve
+
+    deep_frame = ("[" * 100000).encode() + b"\n"
+    after = b'{"jsonrpc":"2.0","id":7,"method":"ping","params":{}}\n'
+    stdout = io.StringIO()
+    assert serve(io.BytesIO(deep_frame + after), stdout) == 0
+    lines = [json.loads(line) for line in stdout.getvalue().splitlines()]
+    assert lines[0]["error"]["code"] == -32700
+    assert lines[1]["id"] == 7 and lines[1]["result"] == {}
