@@ -7,6 +7,11 @@
 # The provider `review` uses when --provider is omitted.
 default_provider = "gemini"
 
+# The model `review` uses when --model is omitted. Overrides the selected
+# provider's own model (which falls back to the built-in default). Leave
+# unset to keep each provider's default.
+# default_model = ""
+
 # Seconds to wait for a provider when --timeout is omitted.
 timeout_seconds = 120
 
