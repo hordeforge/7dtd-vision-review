@@ -46,6 +46,12 @@ def test_summary_must_be_non_empty() -> None:
         validate_result({**VALID, "summary": "  "})
 
 
+@pytest.mark.parametrize("key", ["strengths", "recommended_changes", "limitations"], ids=str)
+def test_string_list_fields_are_refused_not_silently_emptied(key: str) -> None:
+    with pytest.raises(DeadeyeError, match=f"{key} must be an array of strings"):
+        validate_result({**VALID, key: ["fine", 7]})
+
+
 def test_issue_moments_are_validated() -> None:
     with pytest.raises(DeadeyeError, match="at_seconds must be"):
         validate_result({**VALID, "issues": [{"description": "x", "at_seconds": [3.0, 2.0]}]})

@@ -258,16 +258,23 @@ def validate_result(
     ):
         problems.append("confidence must be a number between 0 and 1")
 
+    # The string-list fields validate here too, before the gate below: a call
+    # placed after it would append a problem nobody reads and return an
+    # empty list in place of the model's malformed answer.
+    strengths = strings("strengths")
+    recommended_changes = strings("recommended_changes")
+    limitations = strings("limitations")
+
     if problems:
         raise DeadeyeError(
             f"{origin} returned an invalid structure (schema mismatch): " + "; ".join(problems)
         )
     return {
         "summary": summary.strip(),
-        "strengths": strings("strengths"),
+        "strengths": strengths,
         "issues": issues,
-        "recommended_changes": strings("recommended_changes"),
+        "recommended_changes": recommended_changes,
         "rubric_scores": scores,
         "confidence": round(float(confidence), 4),
-        "limitations": strings("limitations"),
+        "limitations": limitations,
     }

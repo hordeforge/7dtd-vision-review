@@ -28,15 +28,20 @@ from __future__ import annotations
 import json
 import sys
 import traceback
+from collections.abc import Callable, Iterable
 from pathlib import Path
-from typing import Any
+from typing import Any, TextIO
 
 from . import __version__
-from .cli import PROVIDERS, _credential_detail, _resolve_provider, _resolve_timeout, schema_document
+from .cli import (
+    PROVIDERS,
+    _resolve_provider,
+    _resolve_timeout,
+    build_preview_prompt,
+    provider_states,
+    schema_document,
+)
 from .errors import DeadeyeError
-from .intent import load_intent_file, parse_intent_text
-from .prompt import build_prompt
-from .result import BASE_RUBRIC
 from .review import run_review as run_review_core
 
 PROTOCOL_VERSION = "2025-06-18"
@@ -138,20 +143,9 @@ def _call_review(params: dict[str, Any]) -> dict[str, Any]:
 
 
 def _call_doctor(params: dict[str, Any]) -> dict[str, Any]:
-    states: list[dict[str, Any]] = []
-    for name, constructor in sorted(PROVIDERS.items()):
-        provider = constructor()
-        states.append(
-            {
-                "name": name,
-                "endpoint_mode": provider.endpoint_mode,
-                "state": "configured" if provider.is_configured() else "unavailable",
-                # The same shape `deadeye doctor --json` prints: where the
-                # credential came from, never its value.
-                "detail": _credential_detail(provider),
-            }
-        )
-    return {"providers": states}
+    # The same shape `deadeye doctor --json` prints, from the same single
+    # home in cli.py: where the credential came from, never its value.
+    return {"providers": provider_states()}
 
 
 def _call_schema(params: dict[str, Any]) -> dict[str, Any]:
@@ -159,25 +153,16 @@ def _call_schema(params: dict[str, Any]) -> dict[str, Any]:
 
 
 def _call_prompt(params: dict[str, Any]) -> dict[str, Any]:
-    from . import sampling
-    from .prompt import preview_media
-
-    if params.get("intent") and params.get("intent_text"):
-        raise DeadeyeError("takes exactly one of intent or intent_text, never both")
-    if params.get("intent"):
-        intent, _ = load_intent_file(Path(params["intent"]))
-    elif params.get("intent_text"):
-        intent, _ = parse_intent_text(params["intent_text"])
-    else:
-        raise DeadeyeError("needs exactly one of intent or intent_text")
-    media = sampling.discover(Path(params["clip"])) if params.get("clip") else None
-    summary, note = preview_media(media)
     return {
-        "prompt": build_prompt(intent, BASE_RUBRIC, media_summary=summary, frame_timing_note=note)
+        "prompt": build_preview_prompt(
+            Path(params["intent"]) if params.get("intent") else None,
+            params.get("intent_text"),
+            Path(params["clip"]) if params.get("clip") else None,
+        )
     }
 
 
-_CALLS: dict[str, Any] = {
+_CALLS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "review": _call_review,
     "doctor": _call_doctor,
     "schema": _call_schema,
@@ -240,8 +225,15 @@ def _error(request_id: Any, code: int, message: str) -> dict[str, Any]:
     return {"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}}
 
 
-def serve(stdin: Any = None, stdout: Any = None) -> int:
-    """The stdio loop: one JSON-RPC frame per line, responses on stdout."""
+def serve(
+    stdin: Iterable[str | bytes] | None = None,
+    stdout: TextIO | None = None,
+) -> int:
+    """The stdio loop: one JSON-RPC frame per line, responses on stdout.
+
+    `stdin` is an iterable of lines, text or bytes (tests pass StringIO or
+    BytesIO); `stdout` is the text stream every response is written to.
+    """
     stdin = stdin if stdin is not None else sys.stdin
     stdout = stdout if stdout is not None else sys.stdout
     # The transport is UTF-8 JSON, so read bytes when the stream exposes them:

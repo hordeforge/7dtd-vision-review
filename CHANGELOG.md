@@ -157,3 +157,8 @@ open a new one.
 - `validate_result` refuses any non-object input up front; a sequence
   holding exactly the seven result key names previously slipped past the
   key-set checks and died on subscripting.
+- `validate_result` refuses a model answer whose `strengths`,
+  `recommended_changes`, or `limitations` is not an array of strings.
+  Those three checks ran after the refusal gate, so the problems they found
+  were never raised and a malformed answer silently became empty lists in
+  the stored evidence.

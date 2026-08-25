@@ -29,10 +29,10 @@ from .. import config
 from ..errors import DeadeyeError
 from ..sampling import IMAGE_SUFFIXES, VIDEO_SUFFIXES
 from ._http import post_json
-from .base import ProviderLimits, ReviewRequest, ReviewResponse, attachment_label
+from .base import ProviderLimits, ReviewRequest, ReviewResponse, attachment_label, int_setting
 
 API_ROOT = "https://generativelanguage.googleapis.com/v1beta/models"
-CREDENTIAL_ENV_VARS = ("GEMINI_API_KEY", "GOOGLE_API_KEY")
+CREDENTIAL_ENV_VARS: tuple[str, ...] = ("GEMINI_API_KEY", "GOOGLE_API_KEY")
 # Gemini documents inline data for both images and video; the ~20 MB figure is
 # the published per-request budget for inline media. Frames are far smaller,
 # and the sampling layer caps the count before submission.
@@ -105,7 +105,9 @@ class GeminiProvider:
                 # A cap, not a tuning knob: an uncapped generation is unbounded
                 # spend when the model loops. Override with
                 # providers.gemini.max_output_tokens.
-                "maxOutputTokens": _int_config("max_output_tokens", DEFAULT_MAX_OUTPUT_TOKENS),
+                "maxOutputTokens": int_setting(
+                    self.name, "max_output_tokens", DEFAULT_MAX_OUTPUT_TOKENS
+                ),
             },
         }
         # The override is validated in config.endpoint: https only, except a
@@ -152,8 +154,3 @@ class GeminiProvider:
             usage=usage if isinstance(usage, dict) else None,
             model_reported=envelope.get("modelVersion"),
         )
-
-
-def _int_config(key: str, fallback: int) -> int:
-    value = config.value(("providers", "gemini", key))
-    return value if isinstance(value, int) and not isinstance(value, bool) else fallback

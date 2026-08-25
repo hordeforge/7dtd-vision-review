@@ -91,16 +91,15 @@ def run_review(
         )
 
     media = sampling.discover(clip)
-    configured_default = config.value(("default_model",))
-    resolved_model = (
-        model
-        or (
+    if model is not None:
+        resolved_model = model
+    else:
+        configured_default = config.value(("default_model",))
+        resolved_model = (
             configured_default
             if isinstance(configured_default, str) and configured_default
-            else None
+            else provider.default_model
         )
-        or provider.default_model
-    )
     if not provider.is_configured():
         raise DeadeyeError(
             f"provider {provider.name!r} is not configured: {provider.configuration_hint()}"
@@ -123,7 +122,7 @@ def run_review(
         max_video_bytes=limits.max_video_bytes,
     )
 
-    submitted: list[tuple[str, str]] = [
+    submitted: list[tuple[str, sampling.MediaKind]] = [
         *candidate_record.submitted_files,
         *((str(reference.path), "reference") for reference in intent.references),
     ]
@@ -201,27 +200,42 @@ def run_review(
             }
         )
 
+    def envelope_for(
+        *,
+        result: dict[str, Any] | None,
+        error: str | None,
+        raw_response: str | None,
+        params: dict[str, Any],
+    ) -> dict[str, Any]:
+        """The envelope for this submission; the one home for shared fields."""
+        return build_envelope(
+            media_entries=tuple(media_entries),
+            sampling=candidate_record,
+            intent=intent,
+            intent_raw=intent_raw,
+            provider_name=provider.name,
+            endpoint_mode=provider.endpoint_mode,
+            model_requested=resolved_model,
+            model_reported=response.model_reported,
+            prompt=prompt,
+            usage=response.usage,
+            total_bytes=total_bytes,
+            elapsed_seconds=elapsed_seconds,
+            result=result,
+            error=error,
+            raw_response=raw_response,
+            params=params,
+        )
+
     try:
         parsed = parse_model_json(response.raw_text)
         result = validate_result(parsed)
     except DeadeyeError:
         if keep_raw_response and output is not None:
-            document = build_envelope(
-                media_entries=tuple(media_entries),
-                sampling=candidate_record,
-                intent=intent,
-                intent_raw=intent_raw,
-                provider_name=provider.name,
-                endpoint_mode=provider.endpoint_mode,
-                model_requested=resolved_model,
-                model_reported=response.model_reported,
-                prompt=prompt,
+            document = envelope_for(
                 result=None,
                 error="the model response failed structural validation; see raw_provider_response",
                 raw_response=redact(response.raw_text),
-                usage=response.usage,
-                total_bytes=total_bytes,
-                elapsed_seconds=elapsed_seconds,
                 params={},
             )
             write_evidence(output, document, force=force)
@@ -241,22 +255,10 @@ def run_review(
         "force": force,
         "allow_network": True,
     }
-    document = build_envelope(
-        media_entries=tuple(media_entries),
-        sampling=candidate_record,
-        intent=intent,
-        intent_raw=intent_raw,
-        provider_name=provider.name,
-        endpoint_mode=provider.endpoint_mode,
-        model_requested=resolved_model,
-        model_reported=response.model_reported,
-        prompt=prompt,
+    document = envelope_for(
         result=result,
         error=None,
         raw_response=redact(response.raw_text) if keep_raw_response else None,
-        usage=response.usage,
-        total_bytes=total_bytes,
-        elapsed_seconds=elapsed_seconds,
         params=params,
     )
 

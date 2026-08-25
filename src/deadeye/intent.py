@@ -132,6 +132,36 @@ def _string_list(data: dict[str, Any], key: str, origin: str) -> tuple[str, ...]
     return items
 
 
+def _references_field(data: dict[str, Any], origin: str) -> tuple[ReferenceMedia, ...]:
+    """The comparison assets under `references`, each typed and bounded."""
+    raw_references = data.get("references")
+    if raw_references is None:
+        return ()
+    if not isinstance(raw_references, list):
+        raise DeadeyeError(f"{origin}: 'references' must be a list")
+    if len(raw_references) > MAX_REFERENCES:
+        raise DeadeyeError(
+            f"{origin}: 'references' lists {len(raw_references)} entries; the "
+            f"limit is {MAX_REFERENCES}. Each reference is uploaded to the "
+            "provider and billed as input media"
+        )
+    references: list[ReferenceMedia] = []
+    for index, entry in enumerate(raw_references):
+        label = f"{origin}: reference #{index + 1}"
+        if not isinstance(entry, dict) or set(entry) != {"path", "purpose"}:
+            raise DeadeyeError(f"{label}: each reference needs exactly 'path' and 'purpose'")
+        reference_path = entry["path"]
+        reference_purpose = entry["purpose"]
+        if not isinstance(reference_path, str) or not reference_path:
+            raise DeadeyeError(f"{label}: 'path' must be a non-empty string")
+        if not isinstance(reference_purpose, str) or not reference_purpose.strip():
+            raise DeadeyeError(f"{label}: 'purpose' must state what the comparison is for")
+        references.append(
+            ReferenceMedia(path=Path(reference_path), purpose=reference_purpose.strip())
+        )
+    return tuple(references)
+
+
 def parse_intent(data: Any, origin: str) -> ReviewIntent:
     """Validate one intent document, refusing with every missing requirement."""
     if not isinstance(data, dict):
@@ -176,38 +206,13 @@ def parse_intent(data: Any, origin: str) -> ReviewIntent:
     # The canonical kinds are documented, but any free description is accepted:
     # what matters is that the author states the motion the clip claims to show.
 
-    references: list[ReferenceMedia] = []
-    raw_references = data.get("references")
-    if raw_references is not None:
-        if not isinstance(raw_references, list):
-            raise DeadeyeError(f"{origin}: 'references' must be a list")
-        if len(raw_references) > MAX_REFERENCES:
-            raise DeadeyeError(
-                f"{origin}: 'references' lists {len(raw_references)} entries; the "
-                f"limit is {MAX_REFERENCES}. Each reference is uploaded to the "
-                "provider and billed as input media"
-            )
-        for index, entry in enumerate(raw_references):
-            label = f"{origin}: reference #{index + 1}"
-            if not isinstance(entry, dict) or set(entry) != {"path", "purpose"}:
-                raise DeadeyeError(f"{label}: each reference needs exactly 'path' and 'purpose'")
-            reference_path = entry["path"]
-            reference_purpose = entry["purpose"]
-            if not isinstance(reference_path, str) or not reference_path:
-                raise DeadeyeError(f"{label}: 'path' must be a non-empty string")
-            if not isinstance(reference_purpose, str) or not reference_purpose.strip():
-                raise DeadeyeError(f"{label}: 'purpose' must state what the comparison is for")
-            references.append(
-                ReferenceMedia(path=Path(reference_path), purpose=reference_purpose.strip())
-            )
-
     return ReviewIntent(
         purpose=purpose,
         subject=_string_field(data, "subject", origin),
         camera_path=camera_path,
         desired_qualities=_string_field(data, "desired_qualities", origin),
         avoid=_string_list(data, "avoid", origin),
-        references=tuple(references),
+        references=_references_field(data, origin),
         questions=_string_list(data, "questions", origin),
         suite=_string_field(data, "suite", origin),
         case=_string_field(data, "case", origin),

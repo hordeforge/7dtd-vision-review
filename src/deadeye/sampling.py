@@ -17,6 +17,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from .errors import DeadeyeError
 
@@ -41,6 +42,14 @@ LOG_SUFFIXES = (".log",)
 
 _FRAME_RE = re.compile(r"^frame-(\d+)\.(?:png|jpe?g|webp)$", re.IGNORECASE)
 
+MediaKind = Literal["frame", "video", "reference"]
+"""A submitted file's role, as the prompt text addresses it.
+
+Shared by `SamplingRecord.submitted_files` here and `MediaPayload.kind` in
+`providers.base`, so a misspelled kind is a type error where it is built
+instead of a silently mislabelled attachment in the reviewer prompt.
+"""
+
 
 @dataclass(frozen=True)
 class ClipMedia:
@@ -63,7 +72,7 @@ class SamplingRecord:
     frames_available: int
     frames_submitted: int
     sampled: bool
-    submitted_files: tuple[tuple[str, str], ...]
+    submitted_files: tuple[tuple[str, MediaKind], ...]
     """(path, kind) for every file sent, in submission order."""
     note: str
 

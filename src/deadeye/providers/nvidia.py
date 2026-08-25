@@ -35,10 +35,17 @@ from .. import config
 from ..errors import DeadeyeError
 from ..sampling import IMAGE_SUFFIXES, VIDEO_SUFFIXES
 from ._http import post_json
-from .base import ProviderLimits, ReviewRequest, ReviewResponse, attachment_label
+from .base import (
+    ProviderLimits,
+    ReviewRequest,
+    ReviewResponse,
+    attachment_label,
+    float_setting,
+    int_setting,
+)
 
 API_ROOT = "https://integrate.api.nvidia.com/v1/chat/completions"
-CREDENTIAL_ENV_VARS = ("NVIDIA_API_KEY",)
+CREDENTIAL_ENV_VARS: tuple[str, ...] = ("NVIDIA_API_KEY",)
 # Conservative per-request budget: media is far smaller, and the sampling
 # layer caps the count before submission.
 MAX_REQUEST_BYTES = 20 * 1024 * 1024
@@ -163,19 +170,9 @@ def build_body(request: ReviewRequest) -> dict[str, object]:
     return {
         "messages": [{"role": "user", "content": parts}],
         "model": request.model,
-        "max_tokens": _int_config("max_tokens", DEFAULT_MAX_TOKENS),
-        "reasoning_budget": _int_config("reasoning_budget", DEFAULT_REASONING_BUDGET),
-        "temperature": _float_config("temperature", DEFAULT_TEMPERATURE),
-        "top_p": _float_config("top_p", DEFAULT_TOP_P),
+        "max_tokens": int_setting("nvidia", "max_tokens", DEFAULT_MAX_TOKENS),
+        "reasoning_budget": int_setting("nvidia", "reasoning_budget", DEFAULT_REASONING_BUDGET),
+        "temperature": float_setting("nvidia", "temperature", DEFAULT_TEMPERATURE),
+        "top_p": float_setting("nvidia", "top_p", DEFAULT_TOP_P),
         "stream": False,
     }
-
-
-def _int_config(key: str, fallback: int) -> int:
-    value = config.value(("providers", "nvidia", key))
-    return value if isinstance(value, int) and not isinstance(value, bool) else fallback
-
-
-def _float_config(key: str, fallback: float) -> float:
-    value = config.value(("providers", "nvidia", key))
-    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else fallback

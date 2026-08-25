@@ -19,6 +19,9 @@ from typing import Any
 from ..errors import DeadeyeError
 
 _REDIRECT_CODES = frozenset({301, 302, 303, 307, 308})
+# How much of a provider's error body may ride in a refusal line: enough to
+# name the fault (quota, malformed key) and never a whole payload.
+_MAX_FAULT_BODY_CHARS = 300
 
 
 class _NoRedirects(urllib.request.HTTPRedirectHandler):
@@ -82,7 +85,7 @@ def post_json(
         # dead connection until a GC pass reclaims the exception chain.
         detail = ""
         with contextlib.suppress(OSError):
-            detail = exc.read().decode("utf-8", errors="replace")[:300]
+            detail = exc.read().decode("utf-8", errors="replace")[:_MAX_FAULT_BODY_CHARS]
         with contextlib.suppress(OSError):
             exc.close()
         # The body is provider-controlled text that lands in stderr lines;

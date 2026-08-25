@@ -235,8 +235,7 @@ def _credential_detail(provider: VideoReviewProvider) -> str:
         # A keyless provider (the fake) must not be described as holding a
         # key just because some other provider's credential is configured.
         return provider.configuration_hint()
-    env_names = provider.credential_env_names if hasattr(provider, "credential_env_names") else ()
-    from_env = any(os.environ.get(name) for name in env_names)
+    from_env = any(os.environ.get(name) for name in provider.credential_env_names)
     from_local = config.value(("providers", provider.name, "api_key"))
     top_level = config.value(("api_key",))
     if from_env:
@@ -248,57 +247,77 @@ def _credential_detail(provider: VideoReviewProvider) -> str:
     return provider.configuration_hint()
 
 
-def _handle_prompt(args: argparse.Namespace) -> int:
-    """Render the exact prompt the gateway would inject, without a review.
+def build_preview_prompt(
+    intent_path: Path | None, intent_text: str | None, clip: Path | None
+) -> str:
+    """The exact reviewer prompt for an intent, rendered without a review.
 
-    This is the harness an agent (or a person) uses to see and verify what a
-    review would ask the model, before anything is submitted.
+    The one home both surfaces share: `deadeye prompt` prints it and the MCP
+    `prompt` tool wraps it, so they cannot drift. Exactly one intent route is
+    required; `clip` is optional context for the media summary.
     """
     from . import sampling
     from .intent import load_intent_file, parse_intent_text
     from .prompt import build_prompt, preview_media
     from .result import BASE_RUBRIC
 
-    if args.intent is not None and args.intent_text is not None:
+    if intent_path is not None and intent_text is not None:
         raise DeadeyeError(
-            "deadeye prompt takes exactly one of --intent PATH or --intent-text JSON, never both"
+            "takes exactly one of --intent PATH / intent or --intent-text JSON, never both"
         )
-    if args.intent is not None:
-        intent, _ = load_intent_file(Path(args.intent))
-    elif args.intent_text is not None:
-        intent, _ = parse_intent_text(args.intent_text)
+    if intent_path is not None:
+        intent, _ = load_intent_file(Path(intent_path))
+    elif intent_text is not None:
+        intent, _ = parse_intent_text(intent_text)
     else:
-        raise DeadeyeError(
-            "deadeye prompt needs exactly one of --intent PATH or --intent-text JSON"
-        )
+        raise DeadeyeError("needs exactly one of --intent PATH / intent or --intent-text JSON")
 
-    media = sampling.discover(Path(args.clip)) if args.clip is not None else None
+    media = sampling.discover(Path(clip)) if clip is not None else None
     media_summary, frame_note = preview_media(media)
-    print(
-        build_prompt(intent, BASE_RUBRIC, media_summary=media_summary, frame_timing_note=frame_note)
+    return build_prompt(
+        intent, BASE_RUBRIC, media_summary=media_summary, frame_timing_note=frame_note
     )
+
+
+def _handle_prompt(args: argparse.Namespace) -> int:
+    """Render the exact prompt the gateway would inject, without a review.
+
+    This is the harness an agent (or a person) uses to see and verify what a
+    review would ask the model, before anything is submitted.
+    """
+    print(build_preview_prompt(args.intent, args.intent_text, args.clip))
     return 0
 
 
-def _handle_doctor(args: argparse.Namespace) -> int:
+def provider_states() -> list[dict[str, Any]]:
+    """Per-provider capability state, for `doctor` on every surface.
+
+    The single home both print: `deadeye doctor --json` and the MCP `doctor`
+    tool return the same shapes by contract, so this is built once and never
+    allowed to drift into two versions.
+    """
     states: list[dict[str, Any]] = []
     for name, constructor in sorted(PROVIDERS.items()):
         provider = constructor()
-        configured = provider.is_configured()
         states.append(
             {
                 "name": name,
                 "endpoint_mode": provider.endpoint_mode,
-                "state": "configured" if configured else "unavailable",
+                "state": "configured" if provider.is_configured() else "unavailable",
                 "detail": _credential_detail(provider),
             }
         )
-    load_failure = config.load_failure()
+    return states
+
+
+def _handle_doctor(args: argparse.Namespace) -> int:
+    states = provider_states()
     try:
         sources = config.load().sources()
     except ValueError:
         # A broken config is reported below, never a crash.
         sources = []
+    load_failure = config.load_failure()
     if args.json:
         print(json.dumps(states, indent=2, sort_keys=True))
     else:

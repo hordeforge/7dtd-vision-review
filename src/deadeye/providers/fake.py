@@ -21,6 +21,7 @@ class FakeProvider:
     name = "fake"
     endpoint_mode = "in-process-fake"
     requires_credential = False
+    credential_env_names: tuple[str, ...] = ()
     _limits = ProviderLimits(
         suffixes=(".png", ".jpg", ".jpeg", ".webp", ".mp4"),
         max_bytes=20 * 1024 * 1024,

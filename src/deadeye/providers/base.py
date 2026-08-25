@@ -17,6 +17,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from .. import config
+from ..sampling import MediaKind
+
 
 @dataclass(frozen=True)
 class ProviderLimits:
@@ -40,8 +43,8 @@ class MediaPayload:
 
     name: str
     mime_type: str
-    kind: str
-    """'frame', 'video', or 'reference' — how the prompt addresses it."""
+    kind: MediaKind
+    """How the prompt addresses it: 'frame', 'video', or 'reference'."""
     data: bytes
 
 
@@ -72,6 +75,8 @@ class VideoReviewProvider(Protocol):
     name: str
     endpoint_mode: str
     requires_credential: bool
+    credential_env_names: tuple[str, ...]
+    """Environment variables a credential may arrive in; empty when keyless."""
 
     @property
     def default_model(self) -> str: ...
@@ -103,3 +108,19 @@ def attachment_label(payload: MediaPayload) -> str:
     if payload.kind == "reference":
         return f"reference image: {payload.name}"
     return f"frame attachment: {payload.name}"
+
+
+def int_setting(provider: str, key: str, fallback: int) -> int:
+    """A provider's integer tuning knob (`providers.<name>.<key>`), or fallback.
+
+    The one home every adapter reads its generation knobs through, so the
+    boolean-is-not-an-int guard cannot drift between vendor modules.
+    """
+    value = config.value(("providers", provider, key))
+    return value if isinstance(value, int) and not isinstance(value, bool) else fallback
+
+
+def float_setting(provider: str, key: str, fallback: float) -> float:
+    """A provider's float tuning knob (`providers.<name>.<key>`), or fallback."""
+    value = config.value(("providers", provider, key))
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else fallback
