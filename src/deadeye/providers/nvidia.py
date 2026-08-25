@@ -2,9 +2,11 @@
 
 The OpenAI-compatible chat-completions endpoint
 (`https://integrate.api.nvidia.com/v1/chat/completions`) accepts images as
-`image_url` content parts; local frames are submitted as base64 data URLs, so
-no upload round trip is needed. A second real provider behind the same narrow
-protocol: bearer-token auth, no SDK, standard library only.
+`image_url` content parts and videos as `video_url` parts (the omni model is
+video-capable, per NVIDIA's own API reference: "Videos use type =
+video_url"); local media is submitted as base64 data URLs, so no upload round
+trip is needed. A second real provider behind the same narrow protocol:
+bearer-token auth, no SDK, standard library only.
 
 The model identifier is a default, not a contract: providers and model names
 change, so the caller can always pass `--model`. The generation defaults
@@ -19,10 +21,10 @@ precedence), travels in an `Authorization` header (never a query string, so
 it cannot land in an access log), and is never printed, logged, or written
 into evidence.
 
-Media policy: this adapter takes images only (multi-image `image_url`
-parts), never a muxed video — the sampling layer therefore always submits the
-frame sequence, sampled down to the declared frame budget, which the
-evidence records.
+Media policy: a muxed video goes as a single `video_url` part when one exists
+and fits the inline budget; otherwise the frame sequence goes as multi-image
+`image_url` parts, sampled down to the declared frame budget (the API's
+verified 12-image cap), which the evidence records.
 """
 
 from __future__ import annotations
@@ -40,13 +42,15 @@ from .base import MediaPayload, ProviderLimits, ReviewRequest, ReviewResponse
 API_ROOT = "https://integrate.api.nvidia.com/v1/chat/completions"
 CREDENTIAL_ENV_VARS = ("NVIDIA_API_KEY",)
 IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp")
-# Conservative per-request budget: frames are far smaller, and the sampling
+VIDEO_SUFFIXES = (".mp4", ".webm", ".mov")
+# Conservative per-request budget: media is far smaller, and the sampling
 # layer caps the count before submission.
 MAX_REQUEST_BYTES = 20 * 1024 * 1024
 # Multi-image vision-chat limits sit well below a 10s/4fps clip's 40 frames,
 # so the sampling layer drops to this with even spacing, first and last kept.
 # 12 is the API's own published bound, verified live: a 16-frame submission
 # was refused with "At most 12 image(s) may be provided in one prompt".
+# A single video part is not subject to the image cap.
 MAX_FRAMES_PER_REQUEST = 12
 
 DEFAULT_MODEL = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
@@ -60,6 +64,9 @@ MIME_BY_SUFFIX = {
     ".jpg": "image/jpeg",
     ".jpeg": "image/jpeg",
     ".webp": "image/webp",
+    ".mp4": "video/mp4",
+    ".webm": "video/webm",
+    ".mov": "video/quicktime",
 }
 
 
@@ -77,11 +84,11 @@ class NvidiaProvider:
     @property
     def limits(self) -> ProviderLimits:
         return ProviderLimits(
-            suffixes=IMAGE_SUFFIXES,
+            suffixes=IMAGE_SUFFIXES + VIDEO_SUFFIXES,
             max_bytes=MAX_REQUEST_BYTES,
             max_frames=MAX_FRAMES_PER_REQUEST,
-            accepts_video=False,
-            max_video_bytes=None,
+            accepts_video=True,
+            max_video_bytes=MAX_REQUEST_BYTES,
         )
 
     def credential(self) -> str | None:
@@ -183,23 +190,26 @@ class NvidiaProvider:
 def build_body(request: ReviewRequest) -> dict[str, object]:
     """The chat-completions payload, as a plain dict (offline-testable).
 
-    Local frames travel as base64 data URLs in `image_url` parts, addressed
-    from the text side by the same fixed attachment labels the prompt
-    announces.
+    Local media travels as base64 data URLs: frames in `image_url` parts, a
+    muxed video in a single `video_url` part (NVIDIA's documented form for
+    video in chat completions), addressed from the text side by the same fixed
+    attachment labels the prompt announces.
     """
     parts: list[dict[str, object]] = [{"type": "text", "text": request.prompt}]
     for payload in request.media:
         parts.append({"type": "text", "text": _label_for(payload)})
-        if not payload.mime_type.startswith("image/"):
-            raise DeadeyeError(
-                f"provider 'nvidia' cannot ingest {payload.mime_type}; it is a "
-                "vision-chat endpoint that takes images only, so a muxed video "
-                "cannot reach it (the sampling layer sends frames instead)"
-            )
         data_url = f"data:{payload.mime_type};base64," + base64.b64encode(payload.data).decode(
             "ascii"
         )
-        parts.append({"type": "image_url", "image_url": {"url": data_url}})
+        if payload.mime_type.startswith("video/"):
+            parts.append({"type": "video_url", "video_url": {"url": data_url}})
+        elif payload.mime_type.startswith("image/"):
+            parts.append({"type": "image_url", "image_url": {"url": data_url}})
+        else:
+            raise DeadeyeError(
+                f"provider 'nvidia' cannot ingest {payload.mime_type}; it is a "
+                "vision-chat endpoint that takes images and video only"
+            )
     return {
         "messages": [{"role": "user", "content": parts}],
         "model": request.model,
@@ -222,6 +232,8 @@ def _float_config(key: str, fallback: float) -> float:
 
 
 def _label_for(payload: MediaPayload) -> str:
+    if payload.kind == "video":
+        return f"video attachment: {payload.name}"
     if payload.kind == "reference":
         return f"reference image: {payload.name}"
     return f"frame attachment: {payload.name}"

@@ -42,14 +42,16 @@ limits, MIME mapping, credential presence, and the request-body labels instead.
 
 `nvidia` is the second hosted adapter: NVIDIA's NIM chat-completions endpoint
 (`integrate.api.nvidia.com/v1/chat/completions`), an OpenAI-compatible
-vision-chat surface. Local frames are submitted as base64 data URLs in
-`image_url` content parts — no upload round trip — and the endpoint takes
-images only, so the sampling layer always sends the frame sequence (sampled
-down to the adapter's frame budget, recorded in the evidence), never a muxed
-video. The default model is
-`nvidia/nemotron-3-nano-omni-30b-a3b-reasoning` with the generation settings
-its verified payload uses (`max_tokens`, `reasoning_budget`, `temperature`,
-`top_p`), all module constants rather than per-review knobs.
+vision-chat surface. A muxed video goes as a single `video_url` content part
+(NVIDIA's documented form for video: "Videos use type = video_url"); local
+frames go as base64 data URLs in `image_url` parts — no upload round trip.
+The omni default model is video-capable, so the sampling layer prefers the
+muxed video and falls back to the frame sequence (sampled down to the
+adapter's 12-image budget, recorded in the evidence) only when no video fits.
+The default model is `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning` with
+the generation settings its verified payload uses (`max_tokens`,
+`reasoning_budget`, `temperature`, `top_p`), all module constants rather
+than per-review knobs.
 
 The key arrives from `NVIDIA_API_KEY`, travels in an `Authorization` header
 (never a query string), and is never printed, logged, or written into
