@@ -11,9 +11,9 @@ a vision model. It takes a clip (a muxed video or a frame sequence) plus the
 author's recorded intent, samples the media down when the provider's budget
 demands it, submits it to a configured vision-capable provider, and returns
 one stable, pipeline-owned result shape. Consumed programmatically by
-`7dtd-asset-pipeline` (`shamway review-video`, via its `review_video.py`) and
-`7dtd-playtest` (`scripts/review_video.py`); usable standalone through the
-`deadeye` CLI. An MCP server surface is planned ([docs/mcp-server.md](docs/mcp-server.md)).
+`7dtd-asset-pipeline` (`shamway review-video`, via its `video_review.py`,
+which invokes the `deadeye` CLI); usable standalone through the `deadeye`
+CLI or its MCP server (`deadeye mcp`, [docs/mcp-server.md](docs/mcp-server.md)).
 
 It owns the provider boundary only. It owns no clip, no intent, no game, and
 no acceptance decision: a verdict here is advisory evidence, never a sign-off.
