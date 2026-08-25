@@ -1,8 +1,16 @@
-.PHONY: all check lint typecheck test
+.PHONY: help all check lint typecheck test coverage
+
+.DEFAULT_GOAL := help
 
 # uv runs the suite when it is available so contributors share one toolchain;
 # the plain interpreter still works, because the core has no dependencies.
 PYTHON := $(shell command -v uv >/dev/null 2>&1 && echo "uv run --no-project python3" || echo python3)
+
+help:
+	@echo "check     lint + typecheck + compile"
+	@echo "test      offline test suite"
+	@echo "coverage  test suite with a line-coverage report"
+	@echo "all       check + test"
 
 all: check test
 
@@ -34,3 +42,8 @@ typecheck:
 
 test:
 	PYTHONPATH=src $(PYTHON) -m pytest -q
+
+# Line coverage feeds the README badge, which CI regenerates on main.
+coverage:
+	PYTHONPATH=src $(PYTHON) -m coverage run --source=src -m pytest -q
+	$(PYTHON) -m coverage report -m

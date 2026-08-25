@@ -1,0 +1,5 @@
+# LF everywhere: this project targets Linux-first tooling, and a CRLF checkout
+# or commit breaks every #!/usr/bin/env shell script with "bad interpreter".
+# No binary files are tracked, so one rule covers the tree; every tracked file
+# is already LF, so this forces no renormalization.
+* text=auto eol=lf

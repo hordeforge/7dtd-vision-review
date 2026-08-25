@@ -27,7 +27,13 @@ classifiers = [
 # releases, so every checkout and every CI job must agree on exactly one.
 # Declared here (PEP 735) so the pins have a single home and land in uv.lock,
 # which `uv sync --locked` verifies on every install.
-dev = ["ruff==0.16.4", "mypy==2.3.1", "setuptools", "pytest>=8"]
+dev = [
+    "ruff==0.16.4",
+    "mypy==2.3.1",
+    "setuptools",
+    "pytest>=8",
+    "coverage>=7",
+]
 
 [project.scripts]
 deadeye = "deadeye.cli:main"

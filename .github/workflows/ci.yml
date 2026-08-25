@@ -41,3 +41,44 @@ jobs:
       - run: deadeye schema
       - run: deadeye doctor --json
       - run: make check test
+
+  coverage-badge:
+    # Publishes the line-coverage badge to the badges branch, which
+    # raw.githubusercontent serves to the README. Main pushes only: a PR gets
+    # its verdict from the test job and never sees the write token this job
+    # needs.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - run: echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+      - run: make coverage
+      - run: python scripts/coverage_badge.py "$RUNNER_TEMP/coverage.svg"
+      - name: Publish the badge to the badges branch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          url="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git ls-remote --exit-code --heads origin badges >/dev/null 2>&1; then
+            git clone --depth 1 --branch badges "$url" badge-repo
+          else
+            git init -q -b badges badge-repo
+          fi
+          cp "$RUNNER_TEMP/coverage.svg" badge-repo/
+          cd badge-repo
+          git remote remove origin 2>/dev/null || true
+          git remote add origin "$url"
+          git config user.name "hordeforge-ci"
+          git config user.email "ci@hordeforge.noreply.github.com"
+          git add coverage.svg
+          git diff --cached --quiet || git commit -m "update coverage badge"
+          git push origin badges
