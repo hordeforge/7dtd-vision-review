@@ -79,7 +79,6 @@ def test_review_human_summary_without_json(clip_dir, tmp_path, capsys) -> None:
 
 
 def test_review_refuses_unknown_provider(clip_dir, tmp_path, capsys) -> None:
-    import sys
 
     intent = tmp_path / "i.json"
     intent.write_text(MINIMAL_INTENT)
@@ -146,7 +145,6 @@ def test_schema_prints_the_contract(capsys) -> None:
 
 
 def test_version(capsys) -> None:
-    import sys
 
     with pytest.raises(SystemExit) as exc_info:
         main(["--version"])

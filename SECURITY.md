@@ -19,8 +19,12 @@ receive no fixes).
   provider key.
 - **Uploading media requires explicit consent.** No real provider is contacted
   without `--allow-network`; the `fake` provider is offline by construction.
-  Frames, clips, and `client.log` contents leave the machine when the flag is
-  given, so treat a clip directory as the thing being published.
+  Sampled frames, muxed clips, and intent-declared reference media leave the
+  machine when the flag is given, so treat everything named in the stderr
+  disclosure lines as published. A `client.log` sitting beside the frames is
+  discovered but never submitted or stored (`src/deadeye/sampling.py`
+  discovers it; nothing reads it), so log contents stay local today — do not
+  rely on that staying true without re-checking.
 - **A provider response is untrusted input.** It is parsed and validated into
   the result shape before use (`src/deadeye/result.py`); a malformed or
   hostile response is a refusal, never a partially applied verdict.
@@ -28,6 +32,10 @@ receive no fixes).
   result. A consuming repository that gates on a deadeye verdict alone has
   moved a human sign-off into a model, which is a security decision, not a
   convenience.
+
+The full attack surface — entry points, trust boundaries, ranked threats, and
+abuse cases with file references — lives in
+[docs/THREAT_MODEL.md](docs/THREAT_MODEL.md).
 
 ## Reporting
 

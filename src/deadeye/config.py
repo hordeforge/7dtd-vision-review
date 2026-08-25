@@ -102,34 +102,35 @@ class Config:
         ]
 
 
-_loaded: Config | None = None
-_load_failed: str | None = None
+class _Cache:
+    """Process-wide config cache; attribute writes keep this `global`-free."""
+
+    loaded: Config | None = None
+    failed: str | None = None
 
 
 def load() -> Config:
     """The process-wide merged config; a parse failure surfaces once, loudly."""
-    global _loaded, _load_failed
-    if _loaded is None and _load_failed is None:
+    if _Cache.loaded is None and _Cache.failed is None:
         try:
-            _loaded = Config(_discover())
+            _Cache.loaded = Config(_discover())
         except ValueError as exc:
-            _load_failed = str(exc)
+            _Cache.failed = str(exc)
             raise
-    if _loaded is None:
-        raise ValueError(_load_failed or "config failed to load")
-    return _loaded
+    if _Cache.loaded is None:
+        raise ValueError(_Cache.failed or "config failed to load")
+    return _Cache.loaded
 
 
 def load_failure() -> str | None:
     """The parse error from the failed `load()`, or None; for doctor."""
-    return _load_failed
+    return _Cache.failed
 
 
 def reset() -> None:
     """Forget the cached config (tests)."""
-    global _loaded, _load_failed
-    _loaded = None
-    _load_failed = None
+    _Cache.loaded = None
+    _Cache.failed = None
 
 
 def value(keys: str | tuple[str, ...]) -> Any:
@@ -138,14 +139,14 @@ def value(keys: str | tuple[str, ...]) -> Any:
     Fail-soft: a config that failed to parse reads as no value everywhere
     (providers report unavailable), and `load_failure()` names the error.
     """
-    if _load_failed is not None:
+    if _Cache.failed is not None:
         return None
-    if _loaded is None:
+    if _Cache.loaded is None:
         try:
             return load().value(keys)
         except ValueError:
             return None
-    return _loaded.value(keys)
+    return _Cache.loaded.value(keys)
 
 
 def credential_for(provider: str, env_names: tuple[str, ...]) -> str | None:

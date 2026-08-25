@@ -196,7 +196,9 @@ complete intent) without any network, and no test reads a credential.
 ## Security
 
 Credential handling, the network-consent boundary, and what an evidence
-envelope may contain are documented in [SECURITY.md](SECURITY.md).
+envelope may contain are documented in [SECURITY.md](SECURITY.md); the full
+attack surface with ranked threats is modeled in
+[docs/THREAT_MODEL.md](docs/THREAT_MODEL.md).
 
 ## License
 
