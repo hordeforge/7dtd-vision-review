@@ -137,8 +137,13 @@ def write_evidence(path: Path, document: dict[str, Any], *, force: bool) -> tupl
             "overwrites one by default; compare the documents, or pass --force"
         )
     payload = json.dumps(document, indent=2, sort_keys=True)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    _atomic_write(path, payload)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _atomic_write(path, payload)
+    except OSError as exc:
+        # A bare errno would leave the caller guessing which argument failed;
+        # name the evidence path the way every other refusal names its cause.
+        raise DeadeyeError(f"cannot write evidence file {path}: {exc}") from exc
     return path, sha256_bytes(payload.encode("utf-8"))
 
 

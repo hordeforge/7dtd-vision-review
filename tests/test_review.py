@@ -242,7 +242,8 @@ def test_a_failed_evidence_write_strands_no_partial_temp_file(
     clip_dir, intent_path, tmp_path, monkeypatch
 ) -> None:
     """A write that dies midway (disk full, permissions) must not leave a
-    corrupt `.tmp` beside the evidence directory; the original fault surfaces."""
+    corrupt `.tmp` beside the evidence directory; the original fault surfaces,
+    wrapped in the one-refusal contract with the path named."""
     from pathlib import Path
 
     from deadeye.evidence import write_evidence
@@ -253,8 +254,12 @@ def test_a_failed_evidence_write_strands_no_partial_temp_file(
         raise OSError(28, "No space left on device")
 
     monkeypatch.setattr(Path, "write_bytes", no_space)
-    with pytest.raises(OSError, match="No space left"):
+    with pytest.raises(
+        DeadeyeError, match=r"cannot write evidence file .*No space left"
+    ) as exc_info:
         write_evidence(output, {"kind": "deadeye-review"}, force=False)
+    # The OS fault is preserved as the cause, never swallowed by the wrap.
+    assert isinstance(exc_info.value.__cause__, OSError)
     assert list(tmp_path.glob("*.tmp")) == []
 
 

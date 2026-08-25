@@ -155,6 +155,45 @@ def test_review_writes_evidence_with_output(clip_dir, tmp_path, capsys) -> None:
     assert json.loads(out)["evidence"]["path"] == str(output)
 
 
+def test_an_unwritable_output_path_is_named_in_the_refusal(
+    clip_dir, tmp_path, capsys, monkeypatch
+) -> None:
+    """A write failure at --output must refuse like every other failure, and
+    the one ERROR line must name the evidence path instead of a bare errno,
+    so the caller can tell which argument failed."""
+    from deadeye import evidence
+
+    intent = tmp_path / "i.json"
+    intent.write_text(MINIMAL_INTENT)
+
+    def unwritable(*args, **kwargs):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(evidence, "_atomic_write", unwritable)
+    code, out, err = _run(
+        [
+            "review",
+            str(clip_dir),
+            "--intent",
+            str(intent),
+            "--provider",
+            "fake",
+            "--allow-network",
+            "--json",
+            "--output",
+            str(tmp_path / "evidence.json"),
+        ],
+        capsys,
+    )
+    assert code == 1
+    assert out == ""
+    # Disclosure lines precede the refusal on stderr; the final line names
+    # the evidence path and the reason, never a bare errno.
+    last = err.rstrip().splitlines()[-1]
+    assert last.startswith("ERROR: cannot write evidence file ")
+    assert "Permission denied" in last
+
+
 def test_doctor_reports_offline_state(capsys) -> None:
     code, out, _ = _run(["doctor", "--json"], capsys)
     assert code == 0

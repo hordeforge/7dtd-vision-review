@@ -78,9 +78,12 @@ def _build_parser() -> argparse.ArgumentParser:
     review.add_argument(
         "--intent",
         type=Path,
+        metavar="PATH",
         help="the intent JSON file committed beside the source (the reproducible route)",
     )
-    review.add_argument("--intent-text", help="inline intent JSON instead of --intent")
+    review.add_argument(
+        "--intent-text", metavar="JSON", help="inline intent JSON instead of --intent"
+    )
     review.add_argument(
         "--provider",
         choices=sorted(PROVIDERS),
@@ -93,7 +96,9 @@ def _build_parser() -> argparse.ArgumentParser:
         help="consent to uploading the media to the provider (required)",
     )
     review.add_argument("--json", action="store_true", help="print the full evidence envelope")
-    review.add_argument("--output", type=Path, help="write the evidence envelope to PATH")
+    review.add_argument(
+        "--output", type=Path, metavar="PATH", help="write the evidence envelope to PATH"
+    )
     review.add_argument(
         "--keep-raw-response",
         action="store_true",
@@ -103,6 +108,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--timeout",
         type=float,
         default=None,
+        metavar="SECONDS",
         help="seconds to wait for the provider (default: config timeout_seconds or 120)",
     )
     review.add_argument(
@@ -115,6 +121,19 @@ def _build_parser() -> argparse.ArgumentParser:
     doctor = subparsers.add_parser(
         "doctor",
         help="report provider capability state without contacting any provider",
+        description=(
+            "report provider capability state without contacting any provider: "
+            "which providers are usable right now, which config files were "
+            "loaded, and the effective settings."
+        ),
+        epilog=(
+            "examples:\n"
+            "  deadeye doctor\n"
+            "      provider states, config sources, effective settings\n"
+            "  deadeye doctor --json\n"
+            "      the same provider states as a JSON array, for scripts"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     doctor.add_argument("--json", action="store_true", help="print an array of provider states")
     doctor.set_defaults(handler=_handle_doctor)
@@ -122,6 +141,14 @@ def _build_parser() -> argparse.ArgumentParser:
     schema = subparsers.add_parser(
         "schema",
         help="print the intent and result schemas as JSON",
+        epilog=(
+            "examples:\n"
+            "  deadeye schema\n"
+            "      print both schemas; the output is always JSON\n"
+            "  deadeye schema | jq '.intent.required'\n"
+            "      check what an intent file must contain"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     schema.set_defaults(handler=_handle_schema)
 
@@ -129,13 +156,30 @@ def _build_parser() -> argparse.ArgumentParser:
         "prompt",
         help="render the exact reviewer prompt the gateway injects for an "
         "intent, without running a review",
+        description=(
+            "render the exact reviewer prompt the gateway injects for an "
+            "intent, without running a review or contacting anything."
+        ),
+        epilog=(
+            "examples:\n"
+            "  deadeye prompt --intent intent.json\n"
+            "      render the reviewer prompt from a committed intent file\n"
+            "  deadeye prompt --intent intent.json --clip CLIP\n"
+            "      include the media summary a real review would derive\n"
+            "\n"
+            "Exactly one of --intent PATH / --intent-text JSON is required."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     prompt.add_argument(
         "--intent",
         type=Path,
+        metavar="PATH",
         help="the intent JSON file (the reproducible route)",
     )
-    prompt.add_argument("--intent-text", help="inline intent JSON instead of --intent")
+    prompt.add_argument(
+        "--intent-text", metavar="JSON", help="inline intent JSON instead of --intent"
+    )
     prompt.add_argument(
         "--clip",
         type=Path,
