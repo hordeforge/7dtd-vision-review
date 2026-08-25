@@ -139,3 +139,14 @@ def test_the_singular_moment_aliases_normalize() -> None:
         {**VALID, "issues": [{"description": "x", "at_frame": [1, 2], "frame": 9}]}
     )
     assert result["issues"][0]["at_frame"] == [1.0, 2.0]
+
+
+def test_start_end_pairs_normalize_to_moment_ranges() -> None:
+    result = validate_result(
+        {**VALID, "issues": [{"description": "warp", "start_frame": 9, "end_frame": 11}]}
+    )
+    assert result["issues"][0]["at_frame"] == [9.0, 11.0]
+    result = validate_result(
+        {**VALID, "issues": [{"description": "warp", "start_seconds": 1.0, "end_seconds": 3.5}]}
+    )
+    assert result["issues"][0]["at_seconds"] == [1.0, 3.5]
