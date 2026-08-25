@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from .intent import ReviewIntent
 from .result import RubricDimension
-from .sampling import ClipMedia
+from .sampling import ClipMedia, flat_label_text
 
 
 def preview_media(media: ClipMedia | None) -> tuple[str, str]:
@@ -23,7 +23,7 @@ def preview_media(media: ClipMedia | None) -> tuple[str, str]:
     if media is None:
         return "the submitted media (a muxed video or a sampled frame sequence)", ""
     if media.video is not None:
-        return f"a single muxed video file ({media.video.name})", ""
+        return f"a single muxed video file ({flat_label_text(media.video.name)})", ""
     return (
         f"{len(media.frames)} frame image(s) of the clip's {len(media.frames)} frames",
         "Frames arrive in the order listed; an issue's at_frame index refers to "
@@ -104,7 +104,8 @@ def build_prompt(
     if intent.references:
         lines.append("  reference media, in attachment order after the candidate:")
         lines.extend(
-            f"    - {reference.purpose} ({reference.path.name})" for reference in intent.references
+            f"    - {reference.purpose} ({flat_label_text(reference.path.name)})"
+            for reference in intent.references
         )
     lines.append("-----END AUTHOR STATEMENT-----")
 

@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from .. import config
-from ..sampling import MediaKind
+from ..sampling import MediaKind, flat_label_text
 
 
 @dataclass(frozen=True)
@@ -103,12 +103,18 @@ class VideoReviewProvider(Protocol):
 
 
 def attachment_label(payload: MediaPayload) -> str:
-    """How every adapter's prompt text addresses one attachment, by role."""
+    """How every adapter's prompt text addresses one attachment, by role.
+
+    The filename is authored-local text interpolated outside the author
+    statement's data-only fence, so control characters are flattened: a name
+    carrying a newline cannot forge extra label-shaped lines beside it.
+    """
+    name = flat_label_text(payload.name)
     if payload.kind == "video":
-        return f"video attachment: {payload.name}"
+        return f"video attachment: {name}"
     if payload.kind == "reference":
-        return f"reference image: {payload.name}"
-    return f"frame attachment: {payload.name}"
+        return f"reference image: {name}"
+    return f"frame attachment: {name}"
 
 
 def int_setting(provider: str, key: str, fallback: int) -> int:

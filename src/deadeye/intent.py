@@ -57,6 +57,25 @@ MAX_ITEM_CHARS = 500
 MAX_REFERENCES = 8
 """Maximum comparison assets; each one is read, hashed, and uploaded."""
 
+# The reviewer prompt fences every intent field between the BEGIN/END AUTHOR
+# STATEMENT markers and declares that block data-only (`prompt.py`). A field
+# carrying a marker line of its own could close that fence early and move
+# everything after it outside the data-only declaration, so the markers are
+# refused wherever intent text is accepted.
+FENCE_MARKERS = ("-----BEGIN AUTHOR STATEMENT", "-----END AUTHOR STATEMENT")
+
+
+def _carries_fence_marker(value: str) -> bool:
+    return any(marker in value for marker in FENCE_MARKERS)
+
+
+def _refuse_fence_marker(key: str, origin: str) -> DeadeyeError:
+    return DeadeyeError(
+        f"{origin}: {key} contains an author-statement fence marker "
+        f"({' or '.join(FENCE_MARKERS)}); reword it without that line so the "
+        "reviewer prompt's data-only fence cannot be escaped"
+    )
+
 
 @dataclass(frozen=True)
 class ReferenceMedia:
@@ -109,6 +128,8 @@ def _string_field(data: dict[str, Any], key: str, origin: str) -> str:
             f"{MAX_FIELD_CHARS}. State the intent concisely: every character is "
             "billed as prompt tokens on every review"
         )
+    if _carries_fence_marker(stripped):
+        raise _refuse_fence_marker(f"field {key!r}", origin)
     return stripped
 
 
@@ -129,6 +150,8 @@ def _string_list(data: dict[str, Any], key: str, origin: str) -> tuple[str, ...]
                 f"{origin}: an entry in {key!r} is {len(item)} characters; the "
                 f"per-entry limit is {MAX_ITEM_CHARS}"
             )
+        if _carries_fence_marker(item):
+            raise _refuse_fence_marker(f"an entry in {key!r}", origin)
     return items
 
 
@@ -154,11 +177,16 @@ def _references_field(data: dict[str, Any], origin: str) -> tuple[ReferenceMedia
         reference_purpose = entry["purpose"]
         if not isinstance(reference_path, str) or not reference_path:
             raise DeadeyeError(f"{label}: 'path' must be a non-empty string")
+        # The file's name renders inside the fence beside its purpose, so a
+        # marker hidden in a filename would escape the same way.
+        if _carries_fence_marker(reference_path):
+            raise _refuse_fence_marker(f"{label}: 'path'", origin)
         if not isinstance(reference_purpose, str) or not reference_purpose.strip():
             raise DeadeyeError(f"{label}: 'purpose' must state what the comparison is for")
-        references.append(
-            ReferenceMedia(path=Path(reference_path), purpose=reference_purpose.strip())
-        )
+        stripped_purpose = reference_purpose.strip()
+        if _carries_fence_marker(stripped_purpose):
+            raise _refuse_fence_marker(f"{label}: 'purpose'", origin)
+        references.append(ReferenceMedia(path=Path(reference_path), purpose=stripped_purpose))
     return tuple(references)
 
 

@@ -93,6 +93,12 @@ characters each, and `references` at 8 files. Every field lands verbatim in
 the billable prompt, so a runaway intent is refused with a named limit
 instead of being priced at the provider.
 
+The prompt declares the author statement data-only between
+`-----BEGIN AUTHOR STATEMENT-----` and `-----END AUTHOR STATEMENT-----`
+markers. Intent text or a reference path containing one of those markers is
+refused at parse time: a marker inside the intent could close the fence early
+and let the rest of the statement speak as gateway instructions.
+
 ## The result shape
 
 The same family the audio-review pipeline uses, so a caller handling both

@@ -19,6 +19,19 @@ left to be discovered by a failing parse downstream.
 below is unreleased, and the first tag will close this section rather than
 open a new one.
 
+### Fixed
+
+- The reviewer prompt's author-statement fence can no longer be escaped by
+  the text it fences: an intent field, list entry, reference purpose, or
+  reference path containing a `-----BEGIN AUTHOR STATEMENT-----` /
+  `-----END AUTHOR STATEMENT-----` marker is refused at parse time, before
+  anything is submitted, because such a marker could close the data-only
+  fence early and let the rest of the statement speak as gateway
+  instructions. Filenames rendered into prompt text (attachment labels, the
+  reference listing, media summaries) have control characters flattened, so
+  a name carrying a newline cannot forge extra label-shaped lines; evidence
+  keeps the true paths.
+
 ### Added
 
 - Vendored end-to-end test: `scripts/e2e.sh` runs the full chain against a

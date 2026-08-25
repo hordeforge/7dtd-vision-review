@@ -173,8 +173,8 @@ def sample(
                     "frames to sample instead; shorten or recompress the clip"
                 )
             note = (
-                f"muxed video {media.video.name} is {size} bytes, over the provider's "
-                f"{max_video_bytes}-byte video budget; sampled frames instead"
+                f"muxed video {flat_label_text(media.video.name)} is {size} bytes, over "
+                f"the provider's {max_video_bytes}-byte video budget; sampled frames instead"
             )
         else:
             return SamplingRecord(
@@ -182,7 +182,7 @@ def sample(
                 frames_submitted=0,
                 sampled=False,
                 submitted_files=((str(media.video), "video"),),
-                note=f"submitted muxed video {media.video.name} ({size} bytes)",
+                note=f"submitted muxed video {flat_label_text(media.video.name)} ({size} bytes)",
             )
     else:
         note = ""
@@ -232,6 +232,19 @@ def _evenly_spaced(frames: list[Path], count: int) -> list[Path]:
     indices.add(0)
     indices.add(len(frames) - 1)
     return [frames[index] for index in sorted(indices)][:count]
+
+
+def flat_label_text(value: str) -> str:
+    """A filename made safe to interpolate into reviewer-prompt text.
+
+    Filenames are authored-local untrusted text that reaches the model both
+    outside the author-statement fence (attachment labels) and inside it (the
+    reference listing, the media summary). A name carrying a newline or any
+    other control character could forge extra label-shaped lines there; every
+    non-printable character becomes a space. Evidence keeps the true path;
+    only prompt-facing renderings are flattened.
+    """
+    return "".join(char if char.isprintable() else " " for char in value)
 
 
 def mime_for_suffix(suffix: str) -> str:

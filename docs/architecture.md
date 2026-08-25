@@ -28,9 +28,12 @@ reviewer instruction from the intent (`purpose`, `subject`, `camera_path`,
 exact JSON result shape, and announces what media actually reached the model.
 The intent block is authored free text, so it rides fenced between BEGIN/END
 markers declared as data, never instructions: an intent may steer what the
-model looks at, never how it answers. A caller never writes or passes a
-prompt; `deadeye prompt` renders the assembled instruction for inspection
-before submission. The prompt and rubric versions ride in the evidence so a
+model looks at, never how it answers. Intent text or a reference filename
+carrying a fence marker of its own is refused locally, so the fence cannot be
+closed early and spoken around, and filenames rendered into prompt text have
+control characters flattened so no line can be forged inside them. A caller
+never writes or passes a prompt; `deadeye prompt` renders the assembled
+instruction for inspection before submission. The prompt and rubric versions ride in the evidence so a
 review is traceable to the instruction it answered.
 
 **Consent comes before everything.** Submitting media is networked, billable,
