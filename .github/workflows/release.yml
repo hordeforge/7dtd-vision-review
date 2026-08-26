@@ -66,7 +66,20 @@ jobs:
           fi
           echo "ok: tag $TAG matches pyproject.toml and _version.py ($PYPROJECT)"
 
-      - run: uv build
+      # SOURCE_DATE_EPOCH pinned to the tagged commit: setuptools stamps
+      # wheel entries from it, so rebuilding the same tag yields
+      # byte-identical wheels. Without it no two builds agree.
+      - name: Build the sdist and wheel
+        shell: bash
+        run: |
+          set -euo pipefail
+          export SOURCE_DATE_EPOCH="$(git log -1 --pretty=format:%ct)"
+          echo "building with SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH"
+          uv build
+          # setuptools does not apply the epoch to sdists (tar members keep
+          # checkout mtimes and the builder's uid leaks in), so canonicalize
+          # them with the same pinned value; see scripts/reproducible_artifacts.py.
+          python3 scripts/reproducible_artifacts.py dist
 
       # A CycloneDX 1.5 inventory of exactly what the committed uv.lock
       # resolves to, attached beside the artifacts so consumers and

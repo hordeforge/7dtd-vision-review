@@ -1,5 +1,9 @@
 [build-system]
-requires = ["setuptools>=77"]
+# Pinned to the exact version the committed uv.lock resolves (the dev group
+# carries the same pin): a floating `>=77` here would let every isolated
+# `uv build` resolve whatever setuptools shipped that week, so the same tag
+# could produce different bytes in June and July. Bump both pins together.
+requires = ["setuptools==84.0.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -30,10 +34,11 @@ classifiers = [
 dev = [
     "ruff==0.16.4",
     "mypy==2.3.1",
-    # Same floor as [build-system]: the artifact-contract suite builds real
-    # sdists and wheels through this venv's backend, so it must never exercise
-    # one older than what releases declare.
-    "setuptools>=77",
+    # Exact pin, mirrored in [build-system]: the artifact-contract suite
+    # builds real sdists and wheels, and an isolated `uv build` installs this
+    # same version into its fresh environment. One backend version everywhere;
+    # bump both pins together.
+    "setuptools==84.0.0",
     "pytest>=8",
     "coverage>=7",
     "hypothesis>=6",
