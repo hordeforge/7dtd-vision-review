@@ -115,15 +115,22 @@ def run_review(
     frame_note = _frame_timing_note(submission.record)
     prompt = build_prompt(intent, media_summary=media_summary, frame_timing_note=frame_note)
 
-    payloads = tuple(
-        MediaPayload(
-            name=Path(path).name,
-            mime_type=mime_for_suffix(Path(path).suffix),
-            kind=kind,
-            data=Path(path).read_bytes(),
+    payload_list: list[MediaPayload] = []
+    for path, kind in submission.files:
+        p = Path(path)
+        try:
+            data = p.read_bytes()
+        except OSError as exc:
+            raise DeadeyeError(f"cannot read {kind} file {p} for submission: {exc}") from exc
+        payload_list.append(
+            MediaPayload(
+                name=p.name,
+                mime_type=mime_for_suffix(p.suffix),
+                kind=kind,
+                data=data,
+            )
         )
-        for path, kind in submission.files
-    )
+    payloads = tuple(payload_list)
     request = ReviewRequest(
         prompt=prompt,
         media=payloads,

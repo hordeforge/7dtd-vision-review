@@ -15,6 +15,7 @@ import os
 
 import pytest
 
+from deadeye import config
 from deadeye.errors import DeadeyeError
 from deadeye.providers.base import MediaPayload, ReviewRequest, attachment_label
 from deadeye.providers.nvidia import (
@@ -22,6 +23,17 @@ from deadeye.providers.nvidia import (
     NvidiaProvider,
     build_body,
 )
+
+
+@pytest.fixture(autouse=True)
+def _isolated_config(tmp_path, monkeypatch):
+    """Isolate each test from the repo-root config.local.toml."""
+    config.reset()
+    directory = tmp_path / "cfg"
+    directory.mkdir(exist_ok=True)
+    monkeypatch.setenv("DEADEYE_CONFIG_DIR", str(directory))
+    yield
+    config.reset()
 
 
 def test_limits_declare_video_and_frames() -> None:

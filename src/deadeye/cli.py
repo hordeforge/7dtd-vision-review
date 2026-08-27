@@ -297,7 +297,7 @@ def _handle_doctor(args: argparse.Namespace) -> int:
     states = provider_states()
     try:
         sources = config.load().sources()
-    except ValueError:
+    except (ValueError, DeadeyeError):
         # A broken config is reported below, never a crash.
         sources = []
     load_failure = config.load_failure()
