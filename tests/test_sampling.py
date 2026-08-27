@@ -53,7 +53,7 @@ def test_an_unreadable_clip_directory_is_a_refusal_not_a_traceback(tmp_path, mon
     def forbidden(directory):
         raise PermissionError(13, "Permission denied")
 
-    monkeypatch.setattr(sampling, "_frames_in", forbidden)
+    monkeypatch.setattr(sampling, "_scan_directory", forbidden)
     with pytest.raises(DeadeyeError, match="cannot read clip directory"):
         discover(unreadable)
 

@@ -116,12 +116,8 @@ def run_review(
     prompt = build_prompt(intent, media_summary=media_summary, frame_timing_note=frame_note)
 
     payload_list: list[MediaPayload] = []
-    for path, kind in submission.files:
+    for (path, kind), data in zip(submission.files, submission.file_bytes, strict=True):
         p = Path(path)
-        try:
-            data = p.read_bytes()
-        except OSError as exc:
-            raise DeadeyeError(f"cannot read {kind} file {p} for submission: {exc}") from exc
         payload_list.append(
             MediaPayload(
                 name=p.name,
@@ -254,6 +250,8 @@ class _Submission:
     entries: tuple[dict[str, Any], ...]
     """The envelope's `media` entries, hashed once here."""
     total_bytes: int
+    file_bytes: tuple[bytes, ...]
+    """Cached file contents, one per entry, read during hashing."""
 
 
 def _prepare_submission(
@@ -292,12 +290,13 @@ def _prepare_submission(
     # reference, a reference inside the clip) is uploaded twice, and the
     # disclosure must count every byte that leaves the machine.
     hashed = [sha256_file(Path(path)) for path, _ in files]
-    total_bytes = sum(size for _, size in hashed)
+    total_bytes = sum(size for _, size, _ in hashed)
+    cached_bytes = tuple(data for _, _, data in hashed)
     # Adapters submit inline base64 (3 raw bytes become 4 on the wire), so
     # the per-request budget is compared against the encoded total: a raw
     # byte count would pass a submission the provider refuses after the
     # upload. The disclosure still reports raw bytes, the files' true sizes.
-    wire_bytes = sum(base64_wire_bytes(size) for _, size in hashed)
+    wire_bytes = sum(base64_wire_bytes(size) for _, size, _ in hashed)
     if limits.max_bytes is not None and wire_bytes > limits.max_bytes:
         raise DeadeyeError(
             f"submission is {total_bytes} bytes ({wire_bytes} as submitted base64); "
@@ -313,13 +312,14 @@ def _prepare_submission(
             "mime_type": mime_for_suffix(Path(path).suffix),
             "kind": kind,
         }
-        for (path, kind), (digest, size) in zip(files, hashed, strict=True)
+        for (path, kind), (digest, size, _) in zip(files, hashed, strict=True)
     ]
     return _Submission(
         record=record,
         files=tuple(files),
         entries=tuple(entries),
         total_bytes=total_bytes,
+        file_bytes=cached_bytes,
     )
 
 

@@ -95,9 +95,7 @@ def discover(source: Path) -> ClipMedia:
         raise DeadeyeError(f"no such clip: {source}")
 
     try:
-        frames = _frames_in(source)
-        video = _single_match(source, VIDEO_SUFFIXES, "muxed video", "review one clip at a time")
-        log = _single_match(source, LOG_SUFFIXES, "log file", "keep the clip self-contained")
+        frames, video, log = _scan_directory(source)
     except OSError as exc:
         # A directory that lists but cannot be read (permissions, I/O fault)
         # is a refusal with the operation named, not an OS traceback.
@@ -109,32 +107,41 @@ def discover(source: Path) -> ClipMedia:
     return ClipMedia(frames=tuple(frames), video=video, log=log, source=source)
 
 
-def _frames_in(directory: Path) -> list[Path]:
+def _scan_directory(directory: Path) -> tuple[list[Path], Path | None, Path | None]:
+    """Single-pass directory scan: find frames, muxed video, and log file.
+
+    Three separate ``iterdir()`` calls (one per file role) each reopen the
+    directory and re-stat every entry.  A single pass collapses them into one
+    readdir + one stat per file, cutting the syscall count roughly in thirds
+    for a clip with many frames.
+    """
     numbered: list[tuple[int, Path]] = []
+    fallback_images: list[Path] = []
+    videos: list[Path] = []
+    logs: list[Path] = []
+
     for candidate in sorted(directory.iterdir()):
+        suffix = candidate.suffix.lower()
+        if candidate.is_file():
+            if suffix in VIDEO_SUFFIXES:
+                videos.append(candidate)
+            elif suffix in LOG_SUFFIXES:
+                logs.append(candidate)
+            elif suffix in IMAGE_SUFFIXES:
+                fallback_images.append(candidate)
         match = _FRAME_RE.match(candidate.name)
         if match:
             numbered.append((int(match.group(1)), candidate))
-    if numbered:
-        return [path for _, path in sorted(numbered)]
-    # A frame directory that does not use the playtest naming is still a frame
-    # directory; sort whatever image files exist by name.
-    return sorted(
-        candidate
-        for candidate in directory.iterdir()
-        if candidate.is_file() and candidate.suffix.lower() in IMAGE_SUFFIXES
-    )
+
+    frames = [path for _, path in sorted(numbered)] if numbered else fallback_images
+
+    video = _require_single(videos, directory, "muxed video", "review one clip at a time")
+    log = _require_single(logs, directory, "log file", "keep the clip self-contained")
+    return frames, video, log
 
 
-def _single_match(
-    directory: Path, suffixes: tuple[str, ...], what: str, remedy: str
-) -> Path | None:
-    """The one file in `directory` matching `suffixes`, or None; two is a refusal."""
-    matches = [
-        candidate
-        for candidate in directory.iterdir()
-        if candidate.is_file() and candidate.suffix.lower() in suffixes
-    ]
+def _require_single(matches: list[Path], directory: Path, what: str, remedy: str) -> Path | None:
+    """Zero or one match, or a refusal."""
     if len(matches) > 1:
         raise DeadeyeError(
             f"{directory} holds more than one {what} "

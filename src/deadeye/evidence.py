@@ -44,17 +44,19 @@ def sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def sha256_file(path: Path) -> tuple[str, int]:
+def sha256_file(path: Path) -> tuple[str, int, bytes]:
     digest = hashlib.sha256()
+    chunks: list[bytes] = []
     total = 0
     try:
         with path.open("rb") as handle:
             while chunk := handle.read(1024 * 1024):
                 digest.update(chunk)
+                chunks.append(chunk)
                 total += len(chunk)
     except OSError as exc:
         raise DeadeyeError(f"cannot hash file {path}: {exc}") from exc
-    return digest.hexdigest(), total
+    return digest.hexdigest(), total, b"".join(chunks)
 
 
 def build_envelope(
