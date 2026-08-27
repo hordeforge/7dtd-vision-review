@@ -23,6 +23,9 @@ from __future__ import annotations
 
 import json
 import math
+from collections.abc import Iterator
+from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -87,7 +90,7 @@ def _json_text(values: st.SearchStrategy) -> st.SearchStrategy:
 # ---------------------------------------------------------------------------
 
 
-def _assert_pipeline_shape(result: dict) -> None:
+def _assert_pipeline_shape(result: dict[str, Any]) -> None:
     assert set(result) == set(RESULT_KEYS)
     assert isinstance(result["summary"], str) and result["summary"].strip()
     for key in ("strengths", "recommended_changes", "limitations"):
@@ -172,7 +175,7 @@ def _looks_sensitive(key: str) -> bool:
     return folded == "key" or any(part in folded for part in SENSITIVE_KEY_PARTS)
 
 
-def _walk_keys(value: object):
+def _walk_keys(value: object) -> Iterator[str]:
     if isinstance(value, dict):
         for key, item in value.items():
             yield key
@@ -238,13 +241,13 @@ def test_fuzz_intent_parse_never_crashes_and_round_trips(document: object) -> No
         intent = load_intent(None, text)[0]
     except DeadeyeError:
         return  # refusal: the only allowed failure mode
-    assert isinstance(intent.purpose, str) and intent.purpose.strip()
-    assert intent.camera_path == "" or isinstance(intent.camera_path, str)
+    assert intent.purpose.strip()
+    assert intent.camera_path == "" or intent.camera_path.strip()
     for field in (intent.avoid, intent.questions):
-        assert all(isinstance(item, str) and item.strip() for item in field)
+        assert all(item.strip() for item in field)
     for reference in intent.references:
-        assert reference.path != ""
-        assert isinstance(reference.purpose, str) and reference.purpose.strip()
+        assert reference.path != Path()
+        assert reference.purpose.strip()
     # Round trip across the persistence boundary: the shape written by
     # as_dict must read back identical.
     assert parse_intent(intent.as_dict(), "round-trip").as_dict() == intent.as_dict()
