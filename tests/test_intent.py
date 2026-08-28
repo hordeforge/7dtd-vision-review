@@ -10,6 +10,7 @@ import pytest
 from deadeye.errors import DeadeyeError
 from deadeye.intent import (
     CAMERA_PATHS,
+    MAX_INTENT_BYTES,
     load_intent,
     parse_intent,
     redact,
@@ -179,6 +180,15 @@ def test_a_utf8_bom_is_tolerated_and_the_raw_bytes_keep_it(tmp_path) -> None:
 def test_inline_intent_text_with_a_leading_bom_parses() -> None:
     intent, _ = load_intent(None, "\ufeff" + json.dumps({"purpose": "x"}))
     assert intent.purpose == "x"
+
+
+def test_an_oversized_intent_file_is_refused_without_reading_it_all(tmp_path) -> None:
+    """The field caps only run after the document is in memory. A huge file
+    on the MCP review path must be refused at the read, not retained."""
+    path = tmp_path / "huge.json"
+    path.write_bytes(b'{"purpose": "' + b"x" * (MAX_INTENT_BYTES) + b'"}')
+    with pytest.raises(DeadeyeError, match=f"{MAX_INTENT_BYTES} bytes"):
+        load_intent(path, None)
 
 
 def test_deeply_nested_json_is_refused_not_crashed() -> None:

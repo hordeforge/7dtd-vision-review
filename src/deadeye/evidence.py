@@ -18,6 +18,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import os
 import tempfile
 import uuid
 from datetime import UTC, datetime
@@ -186,11 +187,15 @@ def _atomic_write(path: Path, payload: str) -> None:
             # (CRLF), making every stored evidence hash disagree with its own
             # file.
             handle.write(payload.encode("utf-8"))
+            handle.flush()
+            os.fsync(handle.fileno())
         temporary.replace(path)
-    except OSError:
-        # A failed or interrupted write must not strand a partial file that
-        # looks like evidence beside the real one; surface the original fault.
+        temporary = None
+    finally:
+        # Any exit except a successful replace (OSError, KeyboardInterrupt,
+        # a failed flush) must not strand a partial file that looks like
+        # evidence beside the real one. After replace the `.tmp` name is
+        # gone, so `temporary` is cleared first.
         if temporary is not None:
             with contextlib.suppress(OSError):
                 temporary.unlink(missing_ok=True)
-        raise

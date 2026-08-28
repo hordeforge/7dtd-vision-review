@@ -413,3 +413,27 @@ def test_a_nested_beyond_the_limit_frame_is_a_parse_error_not_a_crash() -> None:
     lines = [json.loads(line) for line in stdout.getvalue().splitlines()]
     assert lines[0]["error"]["code"] == -32700
     assert lines[1]["id"] == 7 and lines[1]["result"] == {}
+
+
+def test_an_oversized_frame_is_a_parse_error_and_keeps_serving(monkeypatch) -> None:
+    """A JSON-RPC line with no bound would retain whatever a client writes
+    until the next newline. An oversized frame must be discarded through that
+    newline so the next request is still aligned, and answered as parse error
+    rather than tearing the session down."""
+    import io
+
+    from deadeye import mcp
+
+    monkeypatch.setattr(mcp, "_MAX_FRAME_BYTES", 64)
+    stdin = io.BytesIO(
+        b'{"jsonrpc":"2.0","id":1,"method":"ping","params":{}}\n'
+        + b"x" * 200
+        + b"\n"
+        + b'{"jsonrpc":"2.0","id":3,"method":"ping","params":{}}\n'
+    )
+    stdout = io.StringIO()
+    assert mcp.serve(stdin, stdout) == 0
+    lines = [json.loads(line) for line in stdout.getvalue().splitlines()]
+    assert lines[0]["result"] == {}
+    assert lines[1]["error"]["code"] == -32700
+    assert lines[2]["id"] == 3 and lines[2]["result"] == {}

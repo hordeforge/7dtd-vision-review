@@ -222,7 +222,13 @@ def main(argv: list[str] | None = None) -> int:
         # that final flush quiet; it is deliberately best-effort, because an
         # embedded caller's stdout need not expose a file descriptor.
         with contextlib.suppress(OSError):
-            os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+            # `os.open` returns a new fd that dup2 copies onto stdout; close
+            # the extra handle so it does not outlive the redirect.
+            devnull = os.open(os.devnull, os.O_WRONLY)
+            try:
+                os.dup2(devnull, sys.stdout.fileno())
+            finally:
+                os.close(devnull)
         return 141
     except (DeadeyeError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

@@ -93,10 +93,11 @@ Committed beside the source the clip describes:
 optional context. The intent's exact bytes are hashed into the evidence
 document.
 
-Every free-text field is bounded locally before anything is submitted: each
-field is capped at 2,000 characters, `avoid`/`questions` at 32 entries of 500
-characters each, and `references` at 8 files. Every field lands verbatim in
-the billable prompt, so a runaway intent is refused with a named limit
+Every free-text field is bounded locally before anything is submitted: the
+document itself is refused above 64 KiB at the read, each field is capped at
+2,000 characters, `avoid`/`questions` at 32 entries of 500 characters each,
+and `references` at 8 files. Every field lands verbatim in the billable
+prompt, so a runaway intent is refused with a named limit
 instead of being priced at the provider.
 
 The prompt declares the author statement data-only between
@@ -131,8 +132,10 @@ and tool/parameter information with credentials removed. A later review never
 overwrites an earlier envelope by default.
 
 The envelope is written through a unique private temporary file in its
-destination directory and atomically replaced into place; a stale predictable
-temporary filename cannot redirect the write through a symlink.
+destination directory, flushed and `fsync`'d, then atomically replaced into
+place; a stale predictable temporary filename cannot redirect the write
+through a symlink, and a failed or interrupted write deletes the temporary
+file so it cannot accumulate beside the destination.
 
 ## Running a review twice
 

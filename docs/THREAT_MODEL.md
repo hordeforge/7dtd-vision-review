@@ -156,7 +156,10 @@ permissions.
 | Name-based redaction backstop on params, usage, raw response | secret landing in evidence/stdout (I) | `intent.py:199-213`; applied at `evidence.py:113-117,124`, `review.py:202,236`; pinned by `tests/test_intent.py:84-96` |
 | Vendor payload validated, refuse-not-coerce | hostile/malformed responses (T) | `result.py:97-244`; adapters extract text only |
 | Local limits before submission: suffix allowlist, byte budget, frame cap | oversized/unexpected uploads (D) | `base.py:21-34`; `sampling.py:128-201`; `review.py:103-129` |
-| Evidence no-overwrite by default, atomic write, SHA-256 addressing | history rewriting (T/R) | `evidence.py:128-144` |
+| Bounded HTTP success (8 MiB) and error-body (300-character) reads; socket closed on the fault path | unbounded provider payload retained in the MCP process (D) | `providers/_http.py` `_read_response_body` / `_read_fault_body` |
+| MCP stdio frames capped at 1 MiB, discarded through the next newline | unbounded JSON-RPC line on the long-lived server (D) | `mcp.py` `_MAX_FRAME_BYTES` |
+| Intent document capped at 64 KiB at the read, then per-field caps | huge intent file filling the process (D) | `intent.py` `MAX_INTENT_BYTES` |
+| Evidence no-overwrite by default, atomic write with fsync, temp unlink on every failed path, SHA-256 addressing | history rewriting (T/R); stranded `.tmp` files | `evidence.py` `_atomic_write` |
 | Endpoint override validated: https only, plain http loopback-only, refused before submission | cleartext credential egress via config (part of T1) | `config.py` `endpoint()`; pinned by `tests/test_config.py` endpoint tests |
 | Config values validated at resolution: unknown `default_provider` and unusable timeout refused with named errors | silent wrong-provider / wrong-timeout operation (misconfiguration) | `surface.py` `_resolve_provider`/`_resolve_timeout`; pinned by `tests/test_config.py`, `tests/test_mcp.py` |
 | Doctor reports presence only, never contacts a provider | capability probing used as an oracle (I) | `base.py:82-88`; `cli.py:179-209` |
@@ -212,7 +215,8 @@ there on purpose. One control, three high-impact output channels.
 
 `build_prompt` interpolates every intent field verbatim
 (`prompt.py:54-74`), so oversized input inflates billable tokens. Bounded in
-the same pass that wrote this note: `intent.py` caps each free-text field at
+the same pass that wrote this note: `intent.py` refuses a document above
+64 KiB at the read, then caps each free-text field at
 2,000 characters, `avoid`/`questions` at 32 entries of 500 characters each,
 and `references` at 8 files (pinned by `tests/test_intent.py`), and the gemini
 adapter caps output with `maxOutputTokens`. A multi-megabyte `--intent-text`

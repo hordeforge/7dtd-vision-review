@@ -39,7 +39,10 @@ calls, spec error codes, and the review consent boundary.
   like the CLI. An unexpected fault inside one frame answers `-32603` (with the
   trace on stderr) instead of tearing down the session, and a tool call that
   fails outside `DeadeyeError` names the tool and the exception type rather
-  than a bare message.
+  than a bare message. A JSON-RPC line larger than 1 MiB is the same parse
+  error (`-32700`): the extra bytes are discarded through the next newline so
+  the following frame stays aligned, and the process cannot grow with one
+  unbounded stdin line.
 
 ## Out of scope for now
 
