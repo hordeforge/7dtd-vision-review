@@ -10,8 +10,9 @@ The boundaries from the CLI do not weaken:
 
 - `review` takes an explicit `allow_network` parameter and refuses the upload
   without it, exactly like `--allow-network`.
-- Credentials still come only from the environment or `config.local.toml`;
-  disclosure lines go to stderr; the redaction backstop still applies.
+- Credentials still come from the environment or loaded configuration
+  (normally `config.local.toml`); disclosure lines go to stderr; the
+  redaction backstop still applies.
 - stdout is the JSON-RPC channel: nothing here prints to stdout except the
   framed responses.
 - Fail closed: malformed frames get spec JSON-RPC errors, unknown tools

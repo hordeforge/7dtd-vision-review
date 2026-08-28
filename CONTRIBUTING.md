@@ -48,8 +48,9 @@ contract. It must:
   dependencies** on purpose: a consuming tool that already ships no SDK has
   no reason to grow one. A provider that needs a vendor SDK is a discussion,
   not a pull request.
-- take its credential from the environment or `config.local.toml`, never from
-  a command-line flag, and never print, log, or store it.
+- take its credential from the environment or loaded configuration (normally
+  the gitignored `config.local.toml`), never from a command-line flag, and
+  never print, log, or store it.
 - declare which media it accepts (frames, muxed video, or both) and its
   limits, so `sampling` can record exactly what went and what was dropped.
 - treat the response as untrusted input: parse and validate into the result

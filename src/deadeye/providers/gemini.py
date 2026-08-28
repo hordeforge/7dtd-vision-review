@@ -9,9 +9,10 @@ the caller can always pass `--model` and `deadeye doctor` reports
 configuration rather than hard-coding one vendor.
 
 The key arrives from `GEMINI_API_KEY` / `GOOGLE_API_KEY` (environment) or
-`providers.gemini.api_key` in `config.local.toml` (see `config.py` for the
-precedence), is sent in a header (never a query string, so it cannot land in
-an access log), and is never printed, logged, or written into evidence.
+`providers.gemini.api_key` in the loaded configuration (normally the
+gitignored `config.local.toml`; see `config.py` for precedence), is sent in a
+header (never a query string, so it cannot land in an access log), and is
+never printed, logged, or written into evidence.
 
 Media policy: a muxed video goes inline when it fits the per-request inline
 budget; otherwise (or when the clip has no muxed video) the sampled frame
@@ -66,7 +67,7 @@ class GeminiProvider:
         )
 
     def credential(self) -> str | None:
-        """The configured key (env first, then config.local.toml), or None.
+        """The configured key (environment first, then configuration), or None.
 
         Never logged; callers send it only.
         """

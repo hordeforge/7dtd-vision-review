@@ -97,9 +97,10 @@ open a new one.
   provider's raw response inside the envelope.
 - `deadeye doctor` and `deadeye schema`.
 - `config.toml` plus a gitignored `config.local.toml` for provider settings
-  and credentials, mirroring the sibling llm-proxy convention. Precedence:
-  CLI flags > environment > `config.local.toml` > `config.toml` > defaults.
-  `deadeye doctor` reports which file a key came from, never its value.
+  and credentials, mirroring the sibling llm-proxy convention. Command-line
+  options override configured equivalents; credentials prefer environment
+  variables, then merged configuration, where the local file wins. `deadeye
+  doctor` reports the credential source category, never its value.
 - `ADVISORY_NOTE` on every result: a model critique is evidence, never an
   acceptance.
 - `make coverage` and the CI-published coverage badge.

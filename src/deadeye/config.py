@@ -5,10 +5,11 @@ loaded in order, the local file winning on conflict. The local file is
 gitignored, which is where an API key goes instead of an `export` on every
 shell.
 
-Precedence, from strongest to weakest:
-
-    CLI flags > environment variables > config.local.toml > config.toml
-    > built-in defaults
+Precedence depends on the setting: command-line review options override their
+configured counterparts; provider credentials use environment variables first,
+then the merged local/base configuration. All other settings come from the
+merged configuration, with `config.local.toml` winning over `config.toml`,
+then fall back to their built-in defaults.
 
 Discovery (the first directory holding any config file wins, so a checkout
 that carries one shadows the home one):

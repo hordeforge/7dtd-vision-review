@@ -157,10 +157,11 @@ it never means submitting the media twice.
 | `gemini` | muxed video inline or a frame sequence | `GEMINI_API_KEY` or `GOOGLE_API_KEY` |
 | `nvidia` | muxed video (`video_url`) or a frame sequence (NVIDIA NIM) | `NVIDIA_API_KEY` |
 
-Credentials come from the environment or from `config.local.toml` (see
-Configuration), never as a command argument, printed output, or stored
-evidence. `deadeye doctor` reports state without contacting a provider and
-names where each key came from. The provider protocol and adapter details live
+Credentials come from the environment or the loaded configuration (normally
+the gitignored `config.local.toml`; see Configuration), never as a command
+argument, printed output, or stored evidence. `deadeye doctor` reports state
+without contacting a provider and names whether a key came from the
+environment or configuration. The provider protocol and adapter details live
 in [docs/providers.md](providers.md).
 
 ## Configuration
@@ -177,13 +178,16 @@ mirroring the sibling llm-proxy convention:
   overrides. Copy `config.local.toml.example` to `config.local.toml` and set
   the key; no `export` needed per shell.
 
-Precedence: CLI flags > environment variables > `config.local.toml` >
-`config.toml` > built-in defaults. Discovery (first directory holding any
-config file wins): `DEADEYE_CONFIG_DIR`, then the current directory, then
-`~/.config/deadeye/`. A key may be top-level (`api_key = "nvapi-..."`, like
-llm-proxy) or per provider (`[providers.nvidia] api_key = "..."`), with the
-per-provider one winning. `deadeye doctor` prints which files were loaded and
-where each key came from — never the value.
+Command-line options override their configured equivalents. Credentials prefer
+the environment, then the merged configuration; all other settings come from
+the merged configuration. In that merge, `config.local.toml` wins over
+`config.toml`, and built-in defaults apply when no value is configured.
+Discovery (first directory holding any config file wins): `DEADEYE_CONFIG_DIR`,
+then the current directory, then `~/.config/deadeye/`. A key may be top-level
+(`api_key = "nvapi-..."`, like llm-proxy) or per provider
+(`[providers.nvidia] api_key = "..."`), with the per-provider one winning.
+`deadeye doctor` prints which files were loaded and whether a credential came
+from the environment or configuration — never its value.
 
 Values are validated before use, not deep inside a submission:
 `default_provider` must name a known provider (an unknown name is refused,

@@ -1,8 +1,8 @@
 # End-to-end test
 
 `scripts/e2e.sh` is the vendored end-to-end test for deadeye: one command
-that captures a clip **inside 7 Days to Die** and reviews it against a real
-vision provider. It is the full chain — asset-pipeline scaffold, playtest
+that captures a clip **inside 7 Days to Die** and reviews it against the
+selected provider. It is the full chain — asset-pipeline scaffold, playtest
 in-game capture, deadeye review — with no synthetic media and no desktop or
 screen recording anywhere: every frame is the client process's own
 `ScreenCapture` framebuffer (the `CaseDef.StagedClip` support in
@@ -49,7 +49,8 @@ The script exits non-zero on any failure, so it can run as a gate.
 - a Steam install of 7 Days to Die with the playtest harness built (the
   script builds it on first use) and a stock dedicated server;
 - `ffmpeg` and `uv` on `PATH`;
-- a configured provider key in `config.local.toml`.
+- a configured hosted-provider key in `config.local.toml`, unless you pass
+  `--provider fake` for the offline review path.
 
 Nothing here is hardcoded to a particular host: install locations come from
 discovery and environment variables.
@@ -87,9 +88,10 @@ from a `7dtd-playtest` capture) without booting the game:
 scripts/e2e.sh --clip .local/e2e/<stamp>/capture/motion_thing.mp4
 ```
 
-`--clip` with `--provider fake` runs the whole pipeline offline — no game,
-no network, no billable call — which is the cheapest way to prove the
-plumbing:
+`--clip` with `--provider fake` skips capture and runs the review path
+offline — no game, no network, no billable call. The script still performs
+its normal local preflight, so the sibling checkouts and `ffmpeg` remain
+required. This is the cheapest way to prove the review plumbing:
 
 ```bash
 scripts/e2e.sh --provider fake --clip .local/e2e/<stamp>/capture/motion_thing.mp4

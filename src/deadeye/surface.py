@@ -85,9 +85,9 @@ def _credential_detail(provider: VideoReviewProvider) -> str:
     if any(os.environ.get(name) for name in provider.credential_env_names):
         return "key from environment"
     if config.text(("providers", provider.name, "api_key")):
-        return "key from config.local.toml"
+        return "key from configuration"
     if config.text(("api_key",)):
-        return "key from config.local.toml (top-level api_key)"
+        return "key from configuration (top-level api_key)"
     return provider.configuration_hint()
 
 
