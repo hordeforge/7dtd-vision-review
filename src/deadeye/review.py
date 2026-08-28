@@ -111,7 +111,7 @@ def run_review(
             "governed by that provider's terms, so send only assets you may disclose"
         )
 
-    media_summary = _media_summary(submission.record, media, submission.total_bytes)
+    media_summary = _media_summary(submission.record, submission.total_bytes)
     frame_note = _frame_timing_note(submission.record)
     prompt = build_prompt(intent, media_summary=media_summary, frame_timing_note=frame_note)
 
@@ -325,7 +325,6 @@ def _prepare_submission(
 
 def _media_summary(
     record: sampling.SamplingRecord,
-    media: sampling.ClipMedia,
     total_bytes: int,
 ) -> str:
     if record.submitted_files and record.submitted_files[0][1] == "video":
