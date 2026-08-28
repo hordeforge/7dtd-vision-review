@@ -65,14 +65,10 @@ def _strict_json_numbers(value: Any) -> Any:
     if isinstance(value, float) and not math.isfinite(value):
         return None
     if isinstance(value, dict):
-        return _strict_json_object(value)
+        return {key: _strict_json_numbers(item) for key, item in value.items()}
     if isinstance(value, list):
         return [_strict_json_numbers(item) for item in value]
     return value
-
-
-def _strict_json_object(envelope: dict[str, Any]) -> dict[str, Any]:
-    return {key: _strict_json_numbers(item) for key, item in envelope.items()}
 
 
 def _decode_envelope(provider: str, raw: bytes, headers: Any) -> str:
@@ -137,7 +133,7 @@ def post_json(
             # Valid JSON that is not an object (a bare array, a string) would
             # otherwise crash an adapter's key lookup with a raw traceback.
             raise DeadeyeError(f"provider {provider!r} returned a non-object JSON envelope")
-        return _strict_json_object(envelope)
+        return {key: _strict_json_numbers(value) for key, value in envelope.items()}
     except urllib.error.HTTPError as exc:
         # A body that cannot be read must degrade to the status line, not
         # to an unbound name when the message below formats it. The error
