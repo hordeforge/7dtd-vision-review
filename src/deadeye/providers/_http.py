@@ -24,6 +24,11 @@ _REDIRECT_CODES = frozenset({301, 302, 303, 307, 308})
 # How much of a provider's error body may ride in a refusal line: enough to
 # name the fault (quota, malformed key) and never a whole payload.
 _MAX_FAULT_BODY_CHARS = 300
+# A successful model response is a compact JSON verdict, not a media stream.
+# Bound it so a malformed endpoint or proxy cannot make the long-lived MCP
+# server retain an unbounded response body. Eight MiB leaves ample room for a
+# 65k-token JSON verdict plus provider metadata.
+_MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 
 
 class _NoRedirects(urllib.request.HTTPRedirectHandler):
@@ -101,6 +106,24 @@ def _decode_envelope(provider: str, raw: bytes, headers: Any) -> str:
         ) from exc
 
 
+def _read_response_body(response: Any, provider: str) -> bytes:
+    """Read one bounded successful JSON response from a hosted provider."""
+    chunks: list[bytes] = []
+    remaining = _MAX_RESPONSE_BYTES + 1
+    while remaining:
+        raw = response.read(min(64 * 1024, remaining))
+        if not isinstance(raw, bytes):
+            raise DeadeyeError(f"provider {provider!r} returned a non-bytes response body")
+        if not raw:
+            return b"".join(chunks)
+        chunks.append(raw)
+        remaining -= len(raw)
+    raise DeadeyeError(
+        f"provider {provider!r} returned more than {_MAX_RESPONSE_BYTES} response bytes; "
+        "the review response is too large to retain safely"
+    )
+
+
 def post_json(
     provider: str,
     url: str,
@@ -125,7 +148,7 @@ def post_json(
     )
     try:
         with _OPENER.open(request, timeout=timeout_seconds) as response:
-            raw = response.read()
+            raw = _read_response_body(response, provider)
             envelope: Any = json.loads(
                 _decode_envelope(provider, raw, getattr(response, "headers", None))
             )
