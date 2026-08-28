@@ -40,8 +40,6 @@ if TYPE_CHECKING:
 
     from .providers import VideoReviewProvider
 
-DEFAULT_TIMEOUT_SECONDS = 120.0
-
 
 def run_review(
     clip: Path,
@@ -51,7 +49,7 @@ def run_review(
     intent_text: str | None = None,
     model: str | None = None,
     allow_network: bool = False,
-    timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+    timeout_seconds: float = config.DEFAULT_TIMEOUT_SECONDS,
     keep_raw_response: bool = False,
     output: Path | None = None,
     force: bool = False,
