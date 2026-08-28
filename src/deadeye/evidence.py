@@ -46,18 +46,15 @@ def sha256_bytes(payload: bytes) -> str:
 
 
 def sha256_file(path: Path) -> tuple[str, int, bytes]:
-    digest = hashlib.sha256()
-    chunks: list[bytes] = []
-    total = 0
     try:
-        with path.open("rb") as handle:
-            while chunk := handle.read(1024 * 1024):
-                digest.update(chunk)
-                chunks.append(chunk)
-                total += len(chunk)
+        payload = path.read_bytes()
     except OSError as exc:
         raise DeadeyeError(f"cannot hash file {path}: {exc}") from exc
-    return digest.hexdigest(), total, b"".join(chunks)
+    # The caller must retain the exact bytes for the inline-media request.
+    # Reading into chunks and joining them after hashing kept both the chunk
+    # list and a second whole-file copy alive at once. Hash the one retained
+    # buffer directly instead.
+    return sha256_bytes(payload), len(payload), payload
 
 
 def build_envelope(

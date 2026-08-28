@@ -288,6 +288,12 @@ def _prepare_submission(
         *record.submitted_files,
         *((str(reference.path), "reference") for reference in intent.references),
     ]
+    # Reject an impossible request before reading any attachment. In
+    # particular, references may total far more than a hosted provider's
+    # request limit; retaining all of them just to refuse the request wastes
+    # disk I/O and can create a large, avoidable memory spike.
+    declared_sizes = [_file_size(Path(path)) for path, _ in files]
+    _enforce_request_budget(declared_sizes, limits.max_bytes, provider_name)
     # Per entry, not per unique path: the same file listed twice (a repeated
     # reference, a reference inside the clip) is uploaded twice, and the
     # disclosure must count every byte that leaves the machine.
@@ -298,14 +304,9 @@ def _prepare_submission(
     # the per-request budget is compared against the encoded total: a raw
     # byte count would pass a submission the provider refuses after the
     # upload. The disclosure still reports raw bytes, the files' true sizes.
-    wire_bytes = sum(base64_wire_bytes(size) for _, size, _ in hashed)
-    if limits.max_bytes is not None and wire_bytes > limits.max_bytes:
-        raise DeadeyeError(
-            f"submission is {total_bytes} bytes ({wire_bytes} as submitted base64); "
-            f"provider {provider_name!r} accepts at "
-            f"most {limits.max_bytes} per request. Sample fewer frames, shorten the "
-            "clip, or drop reference media"
-        )
+    # The files can change between the metadata preflight and their reads.
+    # Validate the bytes actually retained and submitted as well.
+    _enforce_request_budget([size for _, size, _ in hashed], limits.max_bytes, provider_name)
     entries = [
         {
             "path": path,
@@ -323,6 +324,26 @@ def _prepare_submission(
         total_bytes=total_bytes,
         file_bytes=cached_bytes,
     )
+
+
+def _file_size(path: Path) -> int:
+    """Return a submission file's size without materializing its contents."""
+    try:
+        return path.stat().st_size
+    except OSError as exc:
+        raise DeadeyeError(f"cannot inspect file {path}: {exc}") from exc
+
+
+def _enforce_request_budget(sizes: list[int], max_bytes: int | None, provider_name: str) -> None:
+    """Refuse encoded media that cannot fit in one provider request."""
+    total_bytes = sum(sizes)
+    wire_bytes = sum(base64_wire_bytes(size) for size in sizes)
+    if max_bytes is not None and wire_bytes > max_bytes:
+        raise DeadeyeError(
+            f"submission is {total_bytes} bytes ({wire_bytes} as submitted base64); "
+            f"provider {provider_name!r} accepts at most {max_bytes} per request. "
+            "Sample fewer frames, shorten the clip, or drop reference media"
+        )
 
 
 def _media_summary(

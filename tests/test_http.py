@@ -136,6 +136,25 @@ def test_a_deeply_nested_envelope_is_refused_not_crashed(http_opener) -> None:
         _post()
 
 
+def test_an_oversized_success_response_is_refused_with_a_bounded_read(
+    http_opener, monkeypatch
+) -> None:
+    """A provider response is retained for parsing, so a bad endpoint must
+    not make that allocation unbounded in the MCP server."""
+    from deadeye.providers import _http
+
+    monkeypatch.setattr(_http, "_MAX_RESPONSE_BYTES", 16)
+
+    class RecordingResponse(io.BytesIO):
+        def read(self, size=-1):
+            assert size == 17
+            return super().read(size)
+
+    http_opener(lambda request, timeout: RecordingResponse(b"x" * 17))
+    with pytest.raises(DeadeyeError, match="more than 16 response bytes"):
+        _post()
+
+
 class _CharsetResponse(io.BytesIO):
     """A BytesIO carrying a Content-Type header, like a real HTTPResponse."""
 

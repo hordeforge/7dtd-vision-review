@@ -477,3 +477,23 @@ def test_the_request_budget_counts_base64_wire_size_not_raw_bytes(clip_dir, inte
     with pytest.raises(DeadeyeError, match=r"32 bytes \(64 as submitted base64\)"):
         run_review(clip_dir, provider=provider, intent_path=intent_path, allow_network=True)
     assert provider.requests == []
+
+
+def test_an_over_budget_request_is_refused_before_any_attachment_is_read(
+    clip_dir, intent_path, monkeypatch
+) -> None:
+    """The size preflight protects a large invalid request from needless disk
+    reads and from retaining every attachment in memory before refusing it."""
+    from deadeye import review
+
+    def should_not_read(path):
+        raise AssertionError(f"over-budget request read {path}")
+
+    monkeypatch.setattr(review, "sha256_file", should_not_read)
+    with pytest.raises(DeadeyeError, match=r"32 bytes \(64 as submitted base64\)"):
+        run_review(
+            clip_dir,
+            provider=_WireBudgetFake(),
+            intent_path=intent_path,
+            allow_network=True,
+        )
