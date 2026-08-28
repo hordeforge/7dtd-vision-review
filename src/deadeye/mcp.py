@@ -111,11 +111,30 @@ def _tool_error(message: str) -> dict[str, Any]:
     return {"content": [{"type": "text", "text": f"ERROR: {message}"}], "isError": True}
 
 
+def _optional_boolean(params: dict[str, Any], name: str) -> bool:
+    """An optional MCP control flag, defaulting to false when absent.
+
+    JSON strings are truthy in Python, so `bool(params[name])` would turn a
+    client-supplied value such as ``"false"`` into permission to retain raw
+    responses or overwrite an earlier evidence envelope. Control flags must
+    therefore be literal JSON booleans at this protocol boundary.
+    """
+    if name not in params:
+        return False
+    value = params[name]
+    if not isinstance(value, bool):
+        raise DeadeyeError(f"review parameter {name!r} must be a boolean")
+    return value
+
+
 def _call_review(params: dict[str, Any]) -> dict[str, Any]:
-    if not params.get("allow_network"):
+    if params.get("allow_network") is not True:
         raise DeadeyeError(
-            "review uploads the clip to a third party; pass allow_network=true to consent"
+            "review uploads the clip to a third party; pass allow_network=true "
+            "as a JSON boolean to consent"
         )
+    keep_raw_response = _optional_boolean(params, "keep_raw_response")
+    force = _optional_boolean(params, "force")
     provider_name = _resolve_provider(params.get("provider"))
     # Same resolution and validation as the CLI flag: the tool argument, else
     # config's timeout_seconds, else the built-in default.
@@ -136,9 +155,9 @@ def _call_review(params: dict[str, Any]) -> dict[str, Any]:
         model=params.get("model"),
         allow_network=True,
         timeout_seconds=timeout,
-        keep_raw_response=bool(params.get("keep_raw_response")),
+        keep_raw_response=keep_raw_response,
         output=output,
-        force=bool(params.get("force")),
+        force=force,
         notify=notify,
     )
 

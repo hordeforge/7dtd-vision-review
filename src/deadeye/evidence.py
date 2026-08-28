@@ -18,6 +18,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import tempfile
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -166,17 +167,27 @@ def write_evidence(path: Path, document: dict[str, Any], *, force: bool) -> tupl
 
 
 def _atomic_write(path: Path, payload: str) -> None:
-    temporary = path.with_name(path.name + ".tmp")
+    temporary: Path | None = None
     try:
-        # Bytes, never text mode: the digest returned for this payload hashes
-        # its LF-encoded UTF-8 exactly, and a text-mode write would let the
-        # platform's newline translation rewrite it on disk (CRLF), making
-        # every stored evidence hash disagree with its own file.
-        temporary.write_bytes(payload.encode("utf-8"))
+        # `NamedTemporaryFile` creates a unique file with private permissions
+        # in the destination directory. A predictable `path + ".tmp"` name
+        # would let another user who can write that directory pre-create a
+        # symlink and redirect this write before the final replace.
+        with tempfile.NamedTemporaryFile(
+            mode="wb", dir=path.parent, prefix=f".{path.name}.", suffix=".tmp", delete=False
+        ) as handle:
+            temporary = Path(handle.name)
+            # Bytes, never text mode: the digest returned for this payload
+            # hashes its LF-encoded UTF-8 exactly, and a text-mode write would
+            # let the platform's newline translation rewrite it on disk
+            # (CRLF), making every stored evidence hash disagree with its own
+            # file.
+            handle.write(payload.encode("utf-8"))
         temporary.replace(path)
     except OSError:
         # A failed or interrupted write must not strand a partial file that
         # looks like evidence beside the real one; surface the original fault.
-        with contextlib.suppress(OSError):
-            temporary.unlink(missing_ok=True)
+        if temporary is not None:
+            with contextlib.suppress(OSError):
+                temporary.unlink(missing_ok=True)
         raise

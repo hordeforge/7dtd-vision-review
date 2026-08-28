@@ -128,6 +128,10 @@ versions, the validated result, the disclosure confirmation, usage metadata
 when reported, and tool/parameter information with credentials removed. A
 later review never overwrites an earlier envelope by default.
 
+The envelope is written through a unique private temporary file in its
+destination directory and atomically replaced into place; a stale predictable
+temporary filename cannot redirect the write through a symlink.
+
 ## Running a review twice
 
 Every review is a new billable submission to a third party; deadeye itself
