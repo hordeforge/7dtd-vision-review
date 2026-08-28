@@ -108,6 +108,34 @@ def test_a_rerun_into_an_occupied_output_refuses_before_any_submission(
     assert submissions == []
 
 
+def test_an_output_directory_refuses_before_any_submission(
+    clip_dir, intent_path, tmp_path, monkeypatch
+) -> None:
+    """A directory cannot become an evidence file, even with --force."""
+    output = tmp_path / "evidence"
+    output.mkdir()
+
+    submissions: list[object] = []
+    provider = FakeProvider()
+    real_review = provider.review
+
+    def counting(request):
+        submissions.append(request)
+        return real_review(request)
+
+    monkeypatch.setattr(provider, "review", counting)
+    with pytest.raises(DeadeyeError, match="not a regular file"):
+        run_review(
+            clip_dir,
+            provider=provider,
+            intent_path=intent_path,
+            allow_network=True,
+            output=output,
+            force=True,
+        )
+    assert submissions == []
+
+
 def test_a_failed_evidence_write_still_delivers_the_billed_verdict(
     clip_dir, intent_path, tmp_path, monkeypatch
 ) -> None:

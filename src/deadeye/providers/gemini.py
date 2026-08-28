@@ -30,7 +30,14 @@ from .. import config
 from ..errors import DeadeyeError
 from ..sampling import IMAGE_SUFFIXES, VIDEO_SUFFIXES
 from ._http import post_json
-from .base import ProviderLimits, ReviewRequest, ReviewResponse, attachment_label, int_setting
+from .base import (
+    ProviderLimits,
+    ReviewRequest,
+    ReviewResponse,
+    attachment_label,
+    first_response_object,
+    int_setting,
+)
 
 API_ROOT = "https://generativelanguage.googleapis.com/v1beta/models"
 CREDENTIAL_ENV_VARS: tuple[str, ...] = ("GEMINI_API_KEY", "GOOGLE_API_KEY")
@@ -129,20 +136,40 @@ class GeminiProvider:
             credential_env=CREDENTIAL_ENV_VARS[0],
         )
 
-        candidates = envelope.get("candidates") or []
-        if not candidates:
-            feedback = envelope.get("promptFeedback") or {}
-            reason = feedback.get("blockReason")
+        candidates = envelope.get("candidates")
+        if not isinstance(candidates, list) or not candidates:
+            feedback = envelope.get("promptFeedback")
+            reason = feedback.get("blockReason") if isinstance(feedback, dict) else None
             raise DeadeyeError(
                 "provider 'gemini' returned no candidate"
                 + (f" (blocked: {reason})" if reason else "")
                 + "; no verdict was produced"
             )
-        content = candidates[0].get("content") or {}
-        text = "".join(
-            part.get("text", "") for part in content.get("parts", []) if isinstance(part, dict)
+        candidate = first_response_object(
+            envelope, key="candidates", item_name="candidate", provider_name=self.name
         )
-        finish = candidates[0].get("finishReason")
+        content = candidate.get("content")
+        if content is None:
+            content = {}
+        if not isinstance(content, dict):
+            raise DeadeyeError(
+                "provider 'gemini' returned invalid candidate content; no verdict was produced"
+            )
+        raw_parts = content.get("parts", [])
+        if not isinstance(raw_parts, list):
+            raise DeadeyeError(
+                "provider 'gemini' returned invalid candidate parts; no verdict was produced"
+            )
+        response_parts: list[object] = raw_parts
+        text_parts: list[str] = []
+        for part in response_parts:
+            if not isinstance(part, dict):
+                continue
+            part_text = part.get("text")
+            if isinstance(part_text, str):
+                text_parts.append(part_text)
+        text = "".join(text_parts)
+        finish = candidate.get("finishReason")
         if finish and finish not in ("STOP", "MAX_TOKENS"):
             raise DeadeyeError(
                 f"provider 'gemini' ended the response early (finishReason {finish}); "
@@ -152,5 +179,7 @@ class GeminiProvider:
         return ReviewResponse(
             raw_text=text,
             usage=usage if isinstance(usage, dict) else None,
-            model_reported=envelope.get("modelVersion"),
+            model_reported=(
+                envelope["modelVersion"] if isinstance(envelope.get("modelVersion"), str) else None
+            ),
         )

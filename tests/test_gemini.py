@@ -130,6 +130,26 @@ def test_a_null_content_block_does_not_crash_the_adapter(monkeypatch, http_opene
     assert response.raw_text == ""
 
 
+@pytest.mark.parametrize(
+    "candidates",
+    [{"content": {}}, ["not an object"]],
+)
+def test_an_invalid_candidate_list_is_a_refusal_not_an_attribute_error(
+    monkeypatch, http_opener, candidates
+) -> None:
+    import json as json_module
+
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    http_opener(
+        lambda request, timeout: _FakeResponse(
+            json_module.dumps({"candidates": candidates}).encode()
+        )
+    )
+
+    with pytest.raises(DeadeyeError, match=r"invalid candidate|no candidate"):
+        GeminiProvider().review(_review_request())
+
+
 def test_a_non_ascii_model_name_is_percent_encoded_into_the_url(monkeypatch, http_opener) -> None:
     """The model is one URL path segment: a space or non-ASCII character must
     ride as percent-encoded UTF-8, never as raw request-line bytes."""

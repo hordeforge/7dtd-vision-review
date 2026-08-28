@@ -26,6 +26,17 @@ def test_discover_sorts_frames_by_number_not_name(clip_dir_with_video) -> None:
     assert media.frames[-1].name == "frame-0010.png"
 
 
+def test_discover_ignores_a_directory_named_like_a_frame(clip_dir) -> None:
+    """Only regular files can become submitted frame attachments."""
+    (clip_dir / "frame-0010.png").mkdir()
+
+    media = discover(clip_dir)
+
+    assert [frame.name for frame in media.frames] == [
+        f"frame-{index:04d}.png" for index in range(10)
+    ]
+
+
 def test_discover_accepts_a_single_video_or_image_file(tmp_path) -> None:
     video = tmp_path / "clip.mp4"
     video.write_bytes(b"v")

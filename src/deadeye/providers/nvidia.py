@@ -40,6 +40,7 @@ from .base import (
     ReviewRequest,
     ReviewResponse,
     attachment_label,
+    first_response_object,
     float_setting,
     int_setting,
 )
@@ -120,16 +121,22 @@ class NvidiaProvider:
             credential_env=CREDENTIAL_ENV_VARS[0],
         )
 
-        choices = envelope.get("choices") or []
-        if not choices:
-            raise DeadeyeError("provider 'nvidia' returned no choice; no verdict was produced")
-        message = choices[0].get("message") or {}
+        choice = first_response_object(
+            envelope, key="choices", item_name="choice", provider_name=self.name
+        )
+        message = choice.get("message")
+        if message is None:
+            message = {}
+        if not isinstance(message, dict):
+            raise DeadeyeError(
+                "provider 'nvidia' returned invalid choice message; no verdict was produced"
+            )
         text = message.get("content")
         if not isinstance(text, str) or not text.strip():
             raise DeadeyeError(
                 "provider 'nvidia' returned no text content; no verdict was produced"
             )
-        finish = choices[0].get("finish_reason")
+        finish = choice.get("finish_reason")
         if finish and finish not in ("stop", "length"):
             raise DeadeyeError(
                 f"provider 'nvidia' ended the response early (finish_reason {finish}); "
@@ -139,7 +146,7 @@ class NvidiaProvider:
         return ReviewResponse(
             raw_text=text,
             usage=usage if isinstance(usage, dict) else None,
-            model_reported=envelope.get("model"),
+            model_reported=envelope["model"] if isinstance(envelope.get("model"), str) else None,
         )
 
 

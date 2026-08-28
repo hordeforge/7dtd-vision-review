@@ -118,6 +118,32 @@ def attachment_label(payload: MediaPayload) -> str:
     return f"frame attachment: {name}"
 
 
+def first_response_object(
+    envelope: dict[str, Any],
+    *,
+    key: str,
+    item_name: str,
+    provider_name: str,
+) -> dict[str, Any]:
+    """The first object in a provider response list, or a refusal.
+
+    Adapters use distinct envelope keys but share this contract: an absent or
+    empty list means no verdict, while a non-list or non-object entry is a
+    malformed provider response that must not escape as an AttributeError.
+    """
+    entries = envelope.get(key)
+    if not isinstance(entries, list) or not entries:
+        raise DeadeyeError(
+            f"provider {provider_name!r} returned no {item_name}; no verdict was produced"
+        )
+    entry = entries[0]
+    if not isinstance(entry, dict):
+        raise DeadeyeError(
+            f"provider {provider_name!r} returned an invalid {item_name}; no verdict was produced"
+        )
+    return entry
+
+
 def _unusable(provider: str, key: str, value: Any, expected: str) -> DeadeyeError:
     return DeadeyeError(
         f"config providers.{provider}.{key} must be {expected}, not {value!r}; "

@@ -142,7 +142,9 @@ def ensure_writable(path: Path, *, force: bool) -> None:
     before credentials are read or any byte leaves the machine, so the guard
     never has to be paid for), and `write_evidence` re-checks at write time.
     """
-    if path.is_file() and not force:
+    if path.exists() and not path.is_file():
+        raise DeadeyeError(f"{path} is not a regular file and cannot hold review evidence")
+    if (path.is_file() or path.is_symlink()) and not force:
         raise DeadeyeError(
             f"{path} already holds an earlier review and a later review never "
             "overwrites one by default; compare the documents, or pass --force"

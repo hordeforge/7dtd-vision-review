@@ -203,6 +203,20 @@ def test_a_refused_review_closes_the_error_body(monkeypatch, http_opener) -> Non
     assert body.closed
 
 
+@pytest.mark.parametrize("choices", [{"message": {}}, ["not an object"]])
+def test_an_invalid_choice_list_is_a_refusal_not_an_attribute_error(
+    monkeypatch, http_opener, choices
+) -> None:
+    import io
+    import json
+
+    monkeypatch.setenv("NVIDIA_API_KEY", "k")
+    http_opener(lambda request, timeout: io.BytesIO(json.dumps({"choices": choices}).encode()))
+
+    with pytest.raises(DeadeyeError, match=r"invalid choice|no choice"):
+        NvidiaProvider().review(ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0))
+
+
 @pytest.mark.skipif(
     os.environ.get("DEADEYE_NETWORK_TESTS") != "nvidia" or not NvidiaProvider().is_configured(),
     reason="opt-in live run: set DEADEYE_NETWORK_TESTS=nvidia and configure an "

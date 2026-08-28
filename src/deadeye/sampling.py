@@ -129,9 +129,9 @@ def _scan_directory(directory: Path) -> tuple[list[Path], Path | None, Path | No
                 logs.append(candidate)
             elif suffix in IMAGE_SUFFIXES:
                 fallback_images.append(candidate)
-        match = _FRAME_RE.match(candidate.name)
-        if match:
-            numbered.append((int(match.group(1)), candidate))
+            match = _FRAME_RE.match(candidate.name)
+            if match:
+                numbered.append((int(match.group(1)), candidate))
 
     frames = [path for _, path in sorted(numbered)] if numbered else fallback_images
 
