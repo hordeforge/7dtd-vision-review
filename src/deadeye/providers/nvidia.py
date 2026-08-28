@@ -16,10 +16,10 @@ are module constants because they are the model's own tuning surface, not
 per-review knobs.
 
 The key arrives from `NVIDIA_API_KEY` (environment) or
-`providers.nvidia.api_key` in `config.local.toml` (see `config.py` for the
-precedence), travels in an `Authorization` header (never a query string, so
-it cannot land in an access log), and is never printed, logged, or written
-into evidence.
+`providers.nvidia.api_key` in the loaded configuration (normally the
+gitignored `config.local.toml`; see `config.py` for precedence), travels in
+an `Authorization` header (never a query string, so it cannot land in an
+access log), and is never printed, logged, or written into evidence.
 
 Media policy: a muxed video goes as a single `video_url` part when one exists
 and fits the inline budget; otherwise the frame sequence goes as multi-image
@@ -84,7 +84,7 @@ class NvidiaProvider:
         )
 
     def credential(self) -> str | None:
-        """The configured key (env first, then config.local.toml), or None.
+        """The configured key (environment first, then configuration), or None.
 
         Never logged; callers send it only.
         """

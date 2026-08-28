@@ -87,7 +87,7 @@ class VideoReviewProvider(Protocol):
     def limits(self) -> ProviderLimits: ...
 
     def is_configured(self) -> bool:
-        """Whether the credential material is present (environment or local config).
+        """Whether the credential material is present (environment or configuration).
 
         Presence only: this must never contact the provider, so capability
         discovery, `deadeye doctor`, and offline runs stay offline.

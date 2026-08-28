@@ -35,8 +35,9 @@
 #   E2E_MOD_DIR           fixture modlet dir (default: .local/vision-e2e-mod)
 #
 # Provider selection: --provider, else the config's default_provider when
-# that provider has a key, else the first configured real provider, else a
-# refusal naming what is missing.
+# that provider has a key, else the first configured hosted provider, else a
+# refusal naming what is missing. An explicit --provider fake uses the
+# offline stand-in instead.
 #
 # Exit codes:
 #   0  full chain reviewed and evidence written
@@ -337,7 +338,11 @@ INTENT="${INTENT:-$MOD_DIR/thing.review.json}"
 [[ -f "$INTENT" ]] || die "no intent file at $INTENT (pass --intent FILE or scaffold the fixture)"
 EVIDENCE="$RUN_DIR/evidence.json"
 CLIP_BYTES="$(stat -c %s "$CLIP_INPUT")"
-say "submitting $CLIP_INPUT ($CLIP_BYTES bytes) to provider '$PROVIDER' -- billable, with --allow-network"
+if [[ "$PROVIDER" == "fake" ]]; then
+    say "reviewing $CLIP_INPUT ($CLIP_BYTES bytes) with the offline fake provider"
+else
+    say "submitting $CLIP_INPUT ($CLIP_BYTES bytes) to provider '$PROVIDER' -- billable, with --allow-network"
+fi
 say "evidence will be written to $EVIDENCE"
 
 ARGS=(review "$CLIP_INPUT" --intent "$INTENT" --provider "$PROVIDER")

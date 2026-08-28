@@ -297,7 +297,7 @@ def test_doctor_never_attributes_a_key_to_the_keyless_provider(
         )
         # The real providers do report where their key came from.
         gemini_line = next(line for line in out.splitlines() if line.startswith("gemini:"))
-        assert "key from config.local.toml" in gemini_line
+        assert "key from configuration" in gemini_line
     finally:
         config.reset()
 

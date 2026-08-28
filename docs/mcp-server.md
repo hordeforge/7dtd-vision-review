@@ -17,8 +17,8 @@ calls, spec error codes, and the review consent boundary.
   no second result format.
 - **Consent and credentials do not weaken.** `--allow-network` becomes an
   explicit per-call parameter that refuses the upload when unset; credentials
-  still come only from the environment or `config.local.toml`; disclosure
-  lines still precede submission.
+  still come from the environment or loaded configuration (normally the
+  gitignored `config.local.toml`); disclosure lines still precede submission.
 - **Duplicate calls are duplicate submissions.** The server keeps no state
   between frames, so a client that resends a `review` call (lost response,
   timeout, replay) triggers a second billable submission rather than
