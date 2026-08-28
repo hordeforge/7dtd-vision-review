@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -77,6 +78,22 @@ def test_an_earlier_evidence_envelope_is_never_overwritten_by_default(
         force=True,
     )
     assert envelope["evidence"]["path"] == str(output)
+
+
+def test_review_envelope_records_utc_instant_and_monotonic_elapsed(clip_dir, intent_path) -> None:
+    """The live path stamps UTC and records a non-negative elapsed duration."""
+    envelope = run_review(
+        clip_dir,
+        provider=FakeProvider(),
+        intent_path=intent_path,
+        allow_network=True,
+    )
+    parsed = datetime.fromisoformat(envelope["created_utc"])
+    assert parsed.tzinfo is not None
+    assert parsed.utcoffset() == timedelta(0)
+    elapsed = envelope["provider"]["elapsed_seconds"]
+    assert isinstance(elapsed, float)
+    assert elapsed >= 0
 
 
 def test_a_rerun_into_an_occupied_output_refuses_before_any_submission(

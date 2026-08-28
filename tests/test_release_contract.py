@@ -13,6 +13,7 @@ import re
 import tarfile
 import tomllib
 import zipfile
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from shutil import rmtree
 
@@ -99,7 +100,7 @@ def test_result_key_set_is_pinned() -> None:
     ), BREAKING
 
 
-def _envelope() -> dict[str, object]:
+def _envelope(*, elapsed_seconds: float = 0.0) -> dict[str, object]:
     return build_envelope(
         media_entries=(),
         sampling=SamplingRecord(
@@ -132,7 +133,7 @@ def _envelope() -> dict[str, object]:
         usage=None,
         total_bytes=0,
         params={},
-        elapsed_seconds=0.0,
+        elapsed_seconds=elapsed_seconds,
     )
 
 
@@ -177,6 +178,35 @@ def test_intent_wire_field_set_is_pinned() -> None:
     parsed = parse_intent(document, "intent")
     assert set(document) == set(ReviewIntent.__dataclass_fields__) | {"schema_version"}, BREAKING
     assert isinstance(parsed, ReviewIntent)
+
+
+def test_created_utc_is_an_aware_utc_instant() -> None:
+    """`created_utc` is an RFC 3339 instant, never host-local or zone-less.
+
+    A naive stamp would be interpreted in the consumer's TZ (a 23:30 UTC
+    run becoming the previous calendar day in US zones) and a host-local
+    offset would freeze whatever TZ the review machine happened to use.
+    """
+    stamp = _envelope()["created_utc"]
+    assert isinstance(stamp, str)
+    parsed = datetime.fromisoformat(stamp)
+    assert parsed.tzinfo is not None
+    assert parsed.utcoffset() == timedelta(0)
+    # Aware UTC `isoformat(timespec="seconds")` emits `+00:00`, never `Z`
+    # and never a missing offset. Pin that so a later naive or local stamp
+    # cannot ship as the same field.
+    assert stamp.endswith("+00:00")
+    assert "T" in stamp
+    # Second precision: the field is an audit instant, not a unique id
+    # (`review_id` is). Subseconds must not reappear as a format change.
+    assert parsed == parsed.replace(microsecond=0)
+    assert abs((parsed - datetime.now(UTC)).total_seconds()) < 5
+
+
+def test_elapsed_seconds_is_recorded_to_milliseconds() -> None:
+    provider = _envelope(elapsed_seconds=1.23456)["provider"]
+    assert isinstance(provider, dict)
+    assert provider["elapsed_seconds"] == 1.235
 
 
 def test_contract_versions_are_recorded_in_the_envelope() -> None:

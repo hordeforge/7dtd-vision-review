@@ -313,7 +313,10 @@ EOF
 fi
 
 # --------------------------------------------------------- 2. in-game clip
-STAMP="$(date -u +%Y%m%d-%H%M%S)"
+# UTC date plus pid: a second-resolution stamp alone is a unique-id collision
+# when two invocations start in the same UTC second (they would share the
+# capture dir, the playtest session name, and evidence.json).
+STAMP="$(date -u +%Y%m%d-%H%M%S)-$$"
 RUN_DIR="$OUT_BASE/$STAMP"
 mkdir -p "$RUN_DIR"
 

@@ -34,7 +34,9 @@ open a new one.
   moves to the new `docs/reference.md` (command reference, intent schema,
   result shape, evidence envelope, configuration rules).
 - The evidence envelope's `provider` block records `elapsed_seconds`, the
-  wall-clock time the provider call took, beside the reported token usage.
+  monotonic duration of the provider call, beside the reported token usage.
+  `created_utc` is an RFC 3339 UTC instant with an explicit offset, never
+  host-local time.
 - Intent documents are bounded locally before anything is submitted: each
   free-text field is capped at 2,000 characters, `avoid`/`questions` at 32
   entries of 500 characters each, and `references` at 8 files. Every field
@@ -120,6 +122,10 @@ open a new one.
 
 ### Fixed
 
+- `scripts/e2e.sh` names each run directory `<utc-stamp>-<pid>` instead of
+  a second-resolution UTC stamp alone, so two invocations started in the
+  same second no longer share a capture directory, playtest session name,
+  or evidence path.
 - Per-request byte budgets now count the size media reaches the wire as:
   every adapter submits inline base64, where 3 raw bytes become 4, so a
   budget check on raw file bytes waved through submissions (for example an

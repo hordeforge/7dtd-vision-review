@@ -40,13 +40,25 @@ def source_date_epoch() -> int:
         )
         raise SystemExit(2)
     try:
-        return int(raw)
+        epoch = int(raw)
     except ValueError:
         print(
             f"reproducible_artifacts: SOURCE_DATE_EPOCH must be an integer, got {raw!r}",
             file=sys.stderr,
         )
         raise SystemExit(2) from None
+    # gzip's mtime is a 32-bit unsigned unix time (wraps in 2106). A negative
+    # or overflowing value would raise an opaque struct.pack error, or wrap
+    # into a different year, so refuse it here with the same wording as a
+    # missing epoch.
+    if epoch < 0 or epoch > 0xFFFFFFFF:
+        print(
+            f"reproducible_artifacts: SOURCE_DATE_EPOCH must be a unix time "
+            f"in 0..4294967295, got {epoch}",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    return epoch
 
 
 def _canonical_mode(mode: int) -> int:
