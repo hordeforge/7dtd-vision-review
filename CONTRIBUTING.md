@@ -10,6 +10,11 @@ make check test
 While iterating, run one module or one test instead of the whole suite:
 `uv run pytest tests/test_review.py -q`, filtering further with `-k NAME`.
 
+The dev group in `pyproject.toml` (ruff, mypy, pytest, coverage, hypothesis,
+setuptools) is exact pins, the same versions `uv.lock` resolves. A range
+there lets a lock-less install pick a newer major and disagree with CI;
+bump the pin and regenerate the lock together.
+
 Agent-facing rules live in [AGENTS.md](AGENTS.md) and apply to human
 contributors too. The organization-wide rules are in
 [hordeforge/.github](https://github.com/hordeforge/.github/blob/main/REPOSITORY_STANDARDS.md).

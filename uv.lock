@@ -25,10 +25,10 @@ dev = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "coverage", specifier = ">=7" },
-    { name = "hypothesis", specifier = ">=6" },
+    { name = "coverage", specifier = "==7.15.4" },
+    { name = "hypothesis", specifier = "==6.165.10" },
     { name = "mypy", specifier = "==2.3.1" },
-    { name = "pytest", specifier = ">=8" },
+    { name = "pytest", specifier = "==9.1.1" },
     { name = "ruff", specifier = "==0.16.4" },
     { name = "setuptools", specifier = "==84.0.0" },
 ]

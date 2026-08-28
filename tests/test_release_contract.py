@@ -33,6 +33,8 @@ BREAKING = (
 )
 
 FINAL_VERSION = re.compile(r"^\d+\.\d+\.\d+$")
+# PEP 508 exact pin: name==version, no extras, no range operators.
+EXACT_PIN = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)==([^,;<>=!~\s]+)$")
 
 
 def test_manifest_and_version_mirror_agree() -> None:
@@ -48,6 +50,41 @@ def test_version_is_a_final_release_triple() -> None:
     # The tag gate in .github/workflows/release.yml pairs a vX.Y.Z tag with
     # this version. A pre-release needs a conscious change here first.
     assert FINAL_VERSION.fullmatch(__version__), BREAKING
+
+
+def test_dev_dependencies_are_exact_pins_matching_the_lock() -> None:
+    # A range here lets a lock-less install pick a newer major; ruff/mypy
+    # verdicts and the suite itself then disagree with CI. Every tool in
+    # the dev group, and the build backend, is one exact version.
+    manifest = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    lock = tomllib.loads((ROOT / "uv.lock").read_text(encoding="utf-8"))
+    locked = {pkg["name"]: pkg["version"] for pkg in lock["package"]}
+
+    def require_exact(requirement: str, *, role: str) -> tuple[str, str]:
+        matched = EXACT_PIN.fullmatch(requirement)
+        assert matched is not None, (
+            f"{role} {requirement!r} is not an exact name==version pin; "
+            "bump the pin and uv.lock together, never reopen a range"
+        )
+        name, version = matched.group(1), matched.group(2)
+        assert locked.get(name) == version, (
+            f"{role} pins {name}=={version} but uv.lock resolves "
+            f"{name}=={locked.get(name)!r}; keep the pin and the lock in sync"
+        )
+        return name, version
+
+    backend = manifest["build-system"]["requires"]
+    assert len(backend) == 1, "one build backend; extra requires grow the isolated build env"
+    backend_name, backend_version = require_exact(backend[0], role="build-system.requires")
+
+    pinned: dict[str, str] = {}
+    for requirement in manifest["dependency-groups"]["dev"]:
+        name, version = require_exact(requirement, role="dependency-groups.dev")
+        pinned[name] = version
+    assert pinned.get(backend_name) == backend_version, (
+        f"dev group must pin {backend_name}=={backend_version} to match "
+        "[build-system]; bump both together"
+    )
 
 
 def test_result_key_set_is_pinned() -> None:

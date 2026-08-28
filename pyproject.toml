@@ -27,10 +27,12 @@ classifiers = [
 # library, the same supply-chain posture the sibling asset pipeline keeps. A
 # consuming tool that already carries no SDK has no reason to grow one.
 [dependency-groups]
-# Lint and type-check versions are load-bearing: verdicts change between
-# releases, so every checkout and every CI job must agree on exactly one.
+# Tool versions are load-bearing: ruff/mypy verdicts, pytest collection,
+# coverage reports, and Hypothesis examples change between releases, so
+# every checkout and every CI job must agree on exactly one of each.
 # Declared here (PEP 735) so the pins have a single home and land in uv.lock,
-# which `uv sync --locked` verifies on every install.
+# which `uv sync --locked` verifies on every install. Ranges would let a
+# lock-less `uv sync` (or an isolated extra install) pick a newer major.
 dev = [
     "ruff==0.16.4",
     "mypy==2.3.1",
@@ -39,9 +41,9 @@ dev = [
     # same version into its fresh environment. One backend version everywhere;
     # bump both pins together.
     "setuptools==84.0.0",
-    "pytest>=8",
-    "coverage>=7",
-    "hypothesis>=6",
+    "pytest==9.1.1",
+    "coverage==7.15.4",
+    "hypothesis==6.165.10",
 ]
 
 [project.scripts]
