@@ -22,7 +22,6 @@ from .intent import CAMERA_PATHS, INTENT_SCHEMA_VERSION, load_intent
 from .prompt import build_prompt, preview_media
 from .providers import FakeProvider, GeminiProvider, NvidiaProvider
 from .result import BASE_RUBRIC, RESULT_KEYS, RUBRIC_VERSION
-from .review import DEFAULT_TIMEOUT_SECONDS
 
 if TYPE_CHECKING:
     from .providers import VideoReviewProvider
@@ -67,7 +66,7 @@ def _resolve_timeout(raw: Any) -> float:
     """
     value = raw if raw is not None else config.value(("timeout_seconds",))
     if value is None:
-        return DEFAULT_TIMEOUT_SECONDS
+        return config.DEFAULT_TIMEOUT_SECONDS
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise DeadeyeError(f"timeout must be a positive number of seconds, not {value!r}")
     seconds = float(value)

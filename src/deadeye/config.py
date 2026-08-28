@@ -40,6 +40,7 @@ from .errors import DeadeyeError
 CONFIG_ENV = "DEADEYE_CONFIG_DIR"
 BASE_NAME = "config.toml"
 LOCAL_NAME = "config.local.toml"
+DEFAULT_TIMEOUT_SECONDS = 120.0
 
 # Hosts for which a plain-http endpoint override is tolerated: a local
 # self-hosted proxy. Anywhere else, the credential must ride https.
