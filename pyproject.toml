@@ -102,6 +102,7 @@ select = [
   "PTH",   # pathlib over os.path string surgery
   "ERA",   # commented-out code must not survive a commit
   "FURB",  # refurb: cleaner stdlib idioms for common operations
+  "FIX",   # unresolved FIXME markers cannot silently accumulate
   "LOG",   # logging call hygiene (exc_info, warn vs warning)
   "RET",   # redundant returns and collapsible return paths
   "RSE",   # needless parens on raised exceptions
