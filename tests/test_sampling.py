@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from deadeye.errors import DeadeyeError
@@ -94,7 +96,7 @@ def test_video_over_budget_falls_back_to_sampled_frames(clip_dir_with_video) -> 
 def test_frames_are_sampled_evenly_keeping_first_and_last(clip_dir) -> None:
     media = discover(clip_dir)
     record = sample(media, max_frames=4, video_capable=False, max_video_bytes=None)
-    names = [path.rsplit("/", 1)[-1] for path, _ in record.submitted_files]
+    names = [Path(path).name for path, _ in record.submitted_files]
     assert names == ["frame-0000.png", "frame-0003.png", "frame-0006.png", "frame-0009.png"]
     assert record.frames_available == 10
     assert record.frames_submitted == 4

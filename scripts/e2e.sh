@@ -287,7 +287,7 @@ EOF
             "$SHAMWAY" acceptance-provider --harness-dll "$HARNESS_DLL" --install --json \
                 > .provider.json
         )
-        SUITE="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["suite"])' "$MOD_DIR/.provider.json")"
+        SUITE="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["suite"])' "$MOD_DIR/.provider.json")"
         [[ -n "$SUITE" ]] || die "shamway acceptance-provider reported no suite id"
         printf '%s\n' "$SUITE" > "$MOD_DIR/.suite"
         cat > "$MOD_DIR/thing.review.json" <<EOF
@@ -340,7 +340,7 @@ fi
 INTENT="${INTENT:-$MOD_DIR/thing.review.json}"
 [[ -f "$INTENT" ]] || die "no intent file at $INTENT (pass --intent FILE or scaffold the fixture)"
 EVIDENCE="$RUN_DIR/evidence.json"
-CLIP_BYTES="$(stat -c %s "$CLIP_INPUT")"
+CLIP_BYTES="$(python3 -c 'import os, sys; print(os.stat(sys.argv[1]).st_size)' "$CLIP_INPUT")"
 if [[ "$PROVIDER" == "fake" ]]; then
     say "reviewing $CLIP_INPUT ($CLIP_BYTES bytes) with the offline fake provider"
 else
@@ -357,7 +357,7 @@ deadeye "${ARGS[@]}" > "$RUN_DIR/evidence.stdout.json"
 # ------------------------------------------------------------- summary
 python3 - "$EVIDENCE" "$CLIP_INPUT" <<'EOF'
 import json, sys
-evidence = json.load(open(sys.argv[1]))
+evidence = json.load(open(sys.argv[1], encoding="utf-8"))
 result = evidence.get("result", {})
 provider = evidence.get("provider") or {}
 print()

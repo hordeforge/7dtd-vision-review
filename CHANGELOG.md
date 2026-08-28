@@ -120,6 +120,10 @@ open a new one.
   (`pytest==9.1.1`, `coverage==7.15.4`, `hypothesis==6.165.10`), matching
   ruff, mypy, and setuptools, so a lock-less install cannot pick a newer
   major than the committed `uv.lock`.
+- Config discovery's home fallback follows `XDG_CONFIG_HOME` when that
+  variable is set (`$XDG_CONFIG_HOME/deadeye`); an empty or unset value
+  still uses `~/.config/deadeye`. A host that relocated its XDG config
+  directory is no longer skipped in favour of a hardcoded `~/.config`.
 
 ### Fixed
 
@@ -143,6 +147,9 @@ open a new one.
   a second-resolution UTC stamp alone, so two invocations started in the
   same second no longer share a capture directory, playtest session name,
   or evidence path.
+- `scripts/e2e.sh` reads the clip's byte size with Python's `os.stat`
+  instead of GNU `stat -c`, so the size line does not depend on a GNU
+  coreutils flag.
 - Per-request byte budgets now count the size media reaches the wire as:
   every adapter submits inline base64, where 3 raw bytes become 4, so a
   budget check on raw file bytes waved through submissions (for example an

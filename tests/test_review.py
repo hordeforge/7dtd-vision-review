@@ -390,7 +390,10 @@ def test_evidence_write_does_not_follow_a_precreated_temp_symlink(tmp_path) -> N
     output = tmp_path / "evidence.json"
     protected = tmp_path / "protected.txt"
     protected.write_text("do not overwrite", encoding="utf-8")
-    output.with_name(output.name + ".tmp").symlink_to(protected)
+    try:
+        output.with_name(output.name + ".tmp").symlink_to(protected)
+    except OSError:
+        pytest.skip("this host cannot create the attacker symlink")
 
     write_evidence(output, {"kind": "deadeye-review"}, force=False)
 
