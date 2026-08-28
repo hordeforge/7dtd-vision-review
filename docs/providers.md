@@ -25,7 +25,10 @@ declared in `Content-Type` when it decodes, UTF-8 (JSON's default) otherwise,
 and a body that decodes as neither is refused with one error naming the
 provider — the same fault family as any other malformed answer — rather than
 escaping as a raw decode crash after a billed submission or manufacturing
-replacement characters into evidence.
+replacement characters into evidence. Successful JSON bodies are capped at
+8 MiB; a 4xx/5xx body is read only up to the 300-character fault slice, then
+the socket is closed, so a hostile or misconfigured endpoint cannot retain
+an unbounded error payload in the long-lived MCP server.
 
 ## fake
 

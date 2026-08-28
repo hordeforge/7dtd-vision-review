@@ -365,6 +365,24 @@ def test_a_failed_evidence_write_strands_no_partial_temp_file(
     assert list(tmp_path.glob("*.tmp")) == []
 
 
+def test_an_interrupted_evidence_replace_does_not_strand_a_temp_file(tmp_path, monkeypatch) -> None:
+    """A non-OSError during the final rename used to skip the unlink path,
+    leaving a `.tmp` sibling beside the destination. Every exit except a
+    successful replace must delete the temporary file."""
+    from pathlib import Path
+
+    from deadeye.evidence import write_evidence
+
+    def boom(self: Path, target: Path) -> Path:
+        raise RuntimeError("interrupted")
+
+    monkeypatch.setattr(Path, "replace", boom)
+    with pytest.raises(RuntimeError, match="interrupted"):
+        write_evidence(tmp_path / "evidence.json", {"kind": "deadeye-review"}, force=False)
+    assert list(tmp_path.glob("*.tmp")) == []
+    assert not (tmp_path / "evidence.json").exists()
+
+
 def test_evidence_write_does_not_follow_a_precreated_temp_symlink(tmp_path) -> None:
     """A stale predictable temp name must not redirect an evidence write."""
     from deadeye.evidence import write_evidence

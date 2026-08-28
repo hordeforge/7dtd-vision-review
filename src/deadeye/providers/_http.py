@@ -124,6 +124,36 @@ def _read_response_body(response: Any, provider: str) -> bytes:
     )
 
 
+def _read_fault_body(exc: urllib.error.HTTPError) -> str:
+    """A bounded slice of an HTTP error body, then the socket is closed.
+
+    The success path already caps what it retains; the error path must too.
+    `HTTPError.read()` with no size would pull the whole body into memory
+    (a hostile or misconfigured endpoint, or a proxy that answers with a
+    media payload on 5xx) before the 300-character slice, and the MCP
+    server is long-lived. Read only the character budget's worth of bytes,
+    flatten them for stderr, and close so the connection is not pinned on
+    the exception chain until the next GC pass.
+    """
+    chunks: list[bytes] = []
+    remaining = _MAX_FAULT_BODY_CHARS
+    try:
+        while remaining:
+            raw = exc.read(min(64 * 1024, remaining))
+            if not raw:
+                break
+            chunks.append(raw)
+            remaining -= len(raw)
+    except OSError:
+        pass
+    finally:
+        with contextlib.suppress(OSError):
+            exc.close()
+    return flat_label_text(
+        b"".join(chunks).decode("utf-8", errors="replace")[:_MAX_FAULT_BODY_CHARS]
+    )
+
+
 def post_json(
     provider: str,
     url: str,
@@ -159,20 +189,9 @@ def post_json(
         return {key: _strict_json_numbers(value) for key, value in envelope.items()}
     except urllib.error.HTTPError as exc:
         # A body that cannot be read must degrade to the status line, not
-        # to an unbound name when the message below formats it. The error
-        # body owns the request's socket until closed, so close it here
-        # rather than leaving it to the cyclic collector: the MCP server
-        # is long-lived, and each refused review would otherwise hold one
-        # dead connection until a GC pass reclaims the exception chain.
-        detail = ""
-        with contextlib.suppress(OSError):
-            detail = exc.read().decode("utf-8", errors="replace")[:_MAX_FAULT_BODY_CHARS]
-        with contextlib.suppress(OSError):
-            exc.close()
-        # The body is provider-controlled text that lands in stderr lines;
-        # the same flattening prompt labels get: one response cannot forge
-        # extra disclosure-shaped lines in an operator's transcript.
-        detail = flat_label_text(detail)
+        # to an unbound name when the message below formats it. The read
+        # is bounded and the socket is closed inside `_read_fault_body`.
+        detail = _read_fault_body(exc)
         if exc.code in _REDIRECT_CODES:
             raise DeadeyeError(
                 f"provider {provider!r} answered with HTTP {exc.code} (redirect); "

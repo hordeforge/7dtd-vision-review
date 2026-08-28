@@ -29,9 +29,9 @@ from __future__ import annotations
 import json
 import sys
 import traceback
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
-from typing import Any, TextIO
+from typing import Any, TextIO, TypeVar
 
 from . import __version__
 from .errors import DeadeyeError, EvidenceWriteError
@@ -47,6 +47,14 @@ from .surface import (
 
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_NAME = "deadeye"
+# One JSON-RPC frame is a path plus a small intent document, never media.
+# Without a cap the long-lived stdio loop retains whatever a client writes
+# until the next newline, so a missing delimiter (or a multi-megabyte
+# `intent_text`) becomes an unbounded allocation. One MiB is far above any
+# honest tools/call and still small enough to refuse before the process
+# grows with the input.
+_MAX_FRAME_BYTES = 1 * 1024 * 1024
+_READ_CHUNK_BYTES = 8192
 
 TOOLS: list[dict[str, Any]] = [
     {
@@ -267,6 +275,79 @@ def _error(request_id: Any, code: int, message: str) -> dict[str, Any]:
     return {"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}}
 
 
+_Line = TypeVar("_Line", bytes, str)
+
+
+def _discard_through_newline(read: Callable[[int], Any], newline: _Line) -> _Line:
+    """Drop bytes until (and including) the next newline; return what follows."""
+    empty: _Line = newline[:0]
+    while True:
+        chunk = read(_READ_CHUNK_BYTES)
+        if not chunk:
+            return empty
+        if not isinstance(chunk, type(newline)):
+            return empty
+        index = chunk.find(newline)
+        if index >= 0:
+            return chunk[index + len(newline) :]
+
+
+def _split_stdio_frames(
+    read: Callable[[int], Any],
+    first: _Line,
+    newline: _Line,
+    max_bytes: int,
+) -> Iterator[_Line | None]:
+    """Chunked newline split that never retains more than `max_bytes` of a frame.
+
+    `None` means the current frame exceeded the cap and was discarded through
+    its terminating newline (or EOF), so the next yield is still aligned.
+    """
+    leftover: _Line = first
+    while True:
+        while True:
+            index = leftover.find(newline)
+            if index < 0:
+                break
+            line, leftover = leftover[:index], leftover[index + len(newline) :]
+            yield None if len(line) > max_bytes else line
+        if len(leftover) > max_bytes:
+            yield None
+            leftover = _discard_through_newline(read, newline)
+            continue
+        chunk = read(_READ_CHUNK_BYTES)
+        if not chunk:
+            if leftover:
+                yield None if len(leftover) > max_bytes else leftover
+            return
+        if not isinstance(chunk, type(leftover)):
+            return
+        leftover += chunk
+
+
+def _iter_pre_split_frames(source: Iterable[Any], max_bytes: int) -> Iterator[bytes | str | None]:
+    """Bound frames that already arrive one line at a time (a list, a test double)."""
+    for raw_line in source:
+        if isinstance(raw_line, bytes):
+            payload: bytes | str = raw_line.removesuffix(b"\n")
+        else:
+            payload = raw_line.removesuffix("\n")
+        yield None if len(payload) > max_bytes else payload
+
+
+def _iter_stdio_frames(source: Any, max_bytes: int) -> Iterator[bytes | str | None]:
+    """One raw newline-delimited frame at a time, or None when a frame is oversized."""
+    read = getattr(source, "read", None)
+    if not callable(read):
+        yield from _iter_pre_split_frames(source, max_bytes)
+        return
+    first = read(_READ_CHUNK_BYTES)
+    if not first:
+        return
+    newline: bytes | str = b"\n" if isinstance(first, bytes) else "\n"
+    yield from _split_stdio_frames(read, first, newline, max_bytes)
+
+
 def serve(
     stdin: Iterable[str | bytes] | None = None,
     stdout: TextIO | None = None,
@@ -282,7 +363,11 @@ def serve(
     # a frame with an invalid byte must get the spec's parse error like any
     # other malformed frame, not kill the loop inside the text iterator.
     source = getattr(stdin, "buffer", stdin)
-    for raw_line in source:
+    for raw_line in _iter_stdio_frames(source, _MAX_FRAME_BYTES):
+        if raw_line is None:
+            print(json.dumps(_error(None, -32700, "Parse error")), file=stdout)
+            stdout.flush()
+            continue
         if isinstance(raw_line, bytes):
             try:
                 line = raw_line.decode("utf-8").strip()

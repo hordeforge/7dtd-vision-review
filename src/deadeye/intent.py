@@ -56,6 +56,8 @@ MAX_ITEM_CHARS = 500
 """Per-entry character budget inside those lists."""
 MAX_REFERENCES = 8
 """Maximum comparison assets; each one is read, hashed, and uploaded."""
+MAX_INTENT_BYTES = 64 * 1024
+"""Whole-document cap before parse, so a huge file cannot fill the process."""
 
 # The reviewer prompt fences every intent field between the BEGIN/END AUTHOR
 # STATEMENT markers and declares that block data-only (`prompt.py`). A field
@@ -259,7 +261,8 @@ def load_intent(path: Path | None, text: str | None) -> tuple[ReviewIntent, byte
     if path is not None:
         origin = f"intent file {path}"
         try:
-            raw = path.read_bytes()
+            with path.open("rb") as handle:
+                raw = handle.read(MAX_INTENT_BYTES + 1)
         except OSError as exc:
             raise DeadeyeError(f"cannot read {origin}: {exc}") from exc
     elif text is not None:
@@ -268,6 +271,12 @@ def load_intent(path: Path | None, text: str | None) -> tuple[ReviewIntent, byte
     else:
         raise DeadeyeError(
             "needs exactly one of --intent PATH (the reproducible route) or --intent-text JSON"
+        )
+    if len(raw) > MAX_INTENT_BYTES:
+        raise DeadeyeError(
+            f"{origin} is larger than {MAX_INTENT_BYTES} bytes; the intent is a "
+            "short statement of intended use, not a media payload. Trim it "
+            "before submitting"
         )
     return parse_intent(_decode_json(raw, origin), origin), raw
 

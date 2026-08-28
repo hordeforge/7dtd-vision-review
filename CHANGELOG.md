@@ -37,11 +37,12 @@ open a new one.
   monotonic duration of the provider call, beside the reported token usage.
   `created_utc` is an RFC 3339 UTC instant with an explicit offset, never
   host-local time.
-- Intent documents are bounded locally before anything is submitted: each
-  free-text field is capped at 2,000 characters, `avoid`/`questions` at 32
-  entries of 500 characters each, and `references` at 8 files. Every field
-  lands verbatim in the billable prompt, so a runaway intent is refused with
-  a named limit instead of being priced at the provider.
+- Intent documents are bounded locally before anything is submitted: the
+  file is refused above 64 KiB at the read, each free-text field is capped
+  at 2,000 characters, `avoid`/`questions` at 32 entries of 500 characters
+  each, and `references` at 8 files. Every field lands verbatim in the
+  billable prompt, so a runaway intent is refused with a named limit
+  instead of being priced at the provider.
 - The gemini adapter sends a `maxOutputTokens` cap on every generation
   (default: the model's published ceiling; override via
   `providers.gemini.max_output_tokens`), so a looping generation cannot bill
@@ -122,6 +123,22 @@ open a new one.
 
 ### Fixed
 
+- Hosted adapters now cap an HTTP error body the same way they already cap
+  a success envelope: only the 300-character fault slice is read, then the
+  socket is closed. `HTTPError.read()` with no size previously pulled the
+  whole 4xx/5xx payload into memory on the long-lived MCP server before
+  slicing it.
+- The MCP stdio loop refuses a JSON-RPC frame larger than 1 MiB as a parse
+  error and discards through the next newline so the session stays aligned.
+  A client (or a missing delimiter) can no longer grow the process with one
+  unbounded line.
+- An evidence write that fails for any reason, not only `OSError`, deletes
+  its unique temporary file, and the payload is flushed and `fsync`'d before
+  the atomic replace so a crash cannot leave a partial sibling beside the
+  destination.
+- Intent documents are refused above 64 KiB at the read, before parse, so a
+  huge file on the review path cannot fill the process; the existing
+  per-field caps still apply to anything that fits.
 - `scripts/e2e.sh` names each run directory `<utc-stamp>-<pid>` instead of
   a second-resolution UTC stamp alone, so two invocations started in the
   same second no longer share a capture directory, playtest session name,

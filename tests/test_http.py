@@ -155,6 +155,33 @@ def test_an_oversized_success_response_is_refused_with_a_bounded_read(
         _post()
 
 
+def test_an_oversized_error_body_is_read_only_up_to_the_fault_cap(http_opener, monkeypatch) -> None:
+    """A 4xx/5xx body is sliced into the refusal line, so the read that
+    feeds that slice must stop at the character budget. `HTTPError.read()`
+    with no size would retain a whole media payload on a misconfigured
+    endpoint for the lifetime of the exception chain."""
+    from deadeye.providers import _http
+
+    monkeypatch.setattr(_http, "_MAX_FAULT_BODY_CHARS", 8)
+
+    class RecordingBody(io.BytesIO):
+        def read(self, size=-1):  # type: ignore[override]
+            assert size != -1
+            assert 0 < size <= 8
+            return super().read(size)
+
+    body = RecordingBody(b"x" * 10_000)
+
+    def refusing_open(request, timeout):
+        raise urllib.error.HTTPError(request.full_url, 500, "Server Error", {}, body)
+
+    http_opener(refusing_open)
+    with pytest.raises(DeadeyeError, match="HTTP 500") as excinfo:
+        _post()
+    assert "xxxxxxxx" in str(excinfo.value)
+    assert body.closed
+
+
 class _CharsetResponse(io.BytesIO):
     """A BytesIO carrying a Content-Type header, like a real HTTPResponse."""
 
