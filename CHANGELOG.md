@@ -111,6 +111,13 @@ open a new one.
   `parse_model_json`/`validate_result`, and intent documents through
   `load_intent` plus the `redact` credentials backstop.
 
+### Changed
+
+- Dev-group pins for pytest, coverage, and hypothesis are now exact
+  (`pytest==9.1.1`, `coverage==7.15.4`, `hypothesis==6.165.10`), matching
+  ruff, mypy, and setuptools, so a lock-less install cannot pick a newer
+  major than the committed `uv.lock`.
+
 ### Fixed
 
 - Per-request byte budgets now count the size media reaches the wire as:
