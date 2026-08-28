@@ -123,10 +123,12 @@ accepted.
 `--output` writes (and `--json` prints) one hash-addressed envelope: SHA-256
 of every submitted frame/clip file and the intent file, the sampling record
 (exactly which frames went, and what was dropped to fit a provider limit), the
-provider and model with the submission's wall-clock time, rubric and prompt
-versions, the validated result, the disclosure confirmation, usage metadata
-when reported, and tool/parameter information with credentials removed. A
-later review never overwrites an earlier envelope by default.
+provider and model, `created_utc` (RFC 3339 UTC instant with an explicit
+offset, never host-local time), `elapsed_seconds` (monotonic duration of the
+provider call, not a wall-clock delta), rubric and prompt versions, the
+validated result, the disclosure confirmation, usage metadata when reported,
+and tool/parameter information with credentials removed. A later review never
+overwrites an earlier envelope by default.
 
 The envelope is written through a unique private temporary file in its
 destination directory and atomically replaced into place; a stale predictable

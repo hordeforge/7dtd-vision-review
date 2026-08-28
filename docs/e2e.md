@@ -61,8 +61,10 @@ Everything lands under `.local/` in this repository (gitignored):
 
 - the fixture modlet `.local/vision-e2e-mod` — created by the script,
   never committed;
-- one timestamped run dir per execution, `.local/e2e/<stamp>/`, holding the
+- one run dir per execution, `.local/e2e/<utc-stamp>-<pid>/`, holding the
   muxed clip, the client log, the raw review stdout, and `evidence.json`.
+  The pid suffix keeps two invocations started in the same UTC second from
+  sharing a directory.
 
 Re-running the script creates a new stamp dir; an existing evidence envelope
 is never overwritten. `--fresh` rebuilds the fixture modlet from scratch.

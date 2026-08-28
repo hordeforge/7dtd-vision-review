@@ -133,8 +133,10 @@ def run_review(
         model=resolved_model,
         timeout_seconds=timeout_seconds,
     )
-    # Wall-clock latency of the provider call, recorded in the envelope beside
+    # Monotonic latency of the provider call, recorded in the envelope beside
     # usage: token counts alone say nothing about how long the model thought.
+    # `perf_counter` is the elapsed-time clock; `time.time()` would include
+    # NTP steps and a manual clock change as if they were model latency.
     submitted_at = time.perf_counter()
     try:
         response = provider.review(request)

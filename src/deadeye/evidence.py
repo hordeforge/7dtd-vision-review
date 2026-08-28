@@ -84,6 +84,11 @@ def build_envelope(
         "kind": "deadeye-review",
         "schema_version": EVIDENCE_SCHEMA_VERSION,
         "tool_version": __version__,
+        # Instant, not local wall time: a zone-less stamp would be read in
+        # the consumer's TZ (a late-evening run becoming the previous day
+        # in US zones) and a host-local offset would change meaning on
+        # another machine. `datetime.now(UTC)` is TZ-independent; isoformat
+        # on that aware value always carries `+00:00`.
         "created_utc": datetime.now(UTC).isoformat(timespec="seconds"),
         "review_id": uuid.uuid4().hex,
         "advisory_only": True,
@@ -105,9 +110,10 @@ def build_envelope(
             "endpoint_mode": endpoint_mode,
             "model_requested": model_requested,
             "model_reported": model_reported,
-            # Wall-clock seconds the submission took, measured around the
-            # provider call in review.py; latency is part of a call's record
-            # just like token counts, and neither is estimated when absent.
+            # Monotonic seconds the submission took (`time.perf_counter` in
+            # review.py). A wall-clock delta would go negative or jump on an
+            # NTP step mid-call; latency is part of a call's record just
+            # like token counts, and neither is estimated when absent.
             "elapsed_seconds": round(elapsed_seconds, 3),
         },
         "rubric_version": RUBRIC_VERSION,

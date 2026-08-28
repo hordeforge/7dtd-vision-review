@@ -61,9 +61,11 @@ the real context decides that, in the consuming repository's gates.
 
 **Traceable, never deterministic.** Every envelope names the exact bytes
 submitted (SHA-256), the sampling that chose them, the rubric and prompt
-versions, and the provider. Two runs may disagree; disagreement is preserved,
-never averaged. A later review never overwrites an earlier evidence envelope by
-default.
+versions, and the provider. `created_utc` is the envelope's UTC instant
+(RFC 3339 with an explicit offset); `elapsed_seconds` is the monotonic
+duration of the provider call, so an NTP step is not recorded as model
+latency. Two runs may disagree; disagreement is preserved, never averaged. A
+later review never overwrites an earlier evidence envelope by default.
 
 ## Sampling honesty
 
