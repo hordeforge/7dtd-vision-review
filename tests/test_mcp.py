@@ -45,6 +45,49 @@ def test_review_refuses_without_explicit_consent(tmp_path) -> None:
     assert "allow_network=true" in response["result"]["content"][0]["text"]
 
 
+def test_review_refuses_a_truthy_string_as_network_consent(tmp_path) -> None:
+    clip = tmp_path / "clip"
+    clip.mkdir()
+    (clip / "frame-0000.png").write_bytes(b"x")
+    response = _call(
+        "tools/call",
+        {
+            "name": "review",
+            "arguments": {"clip": str(clip), "allow_network": "true"},
+        },
+    )
+    assert response["result"]["isError"] is True
+    assert "JSON boolean" in response["result"]["content"][0]["text"]
+
+
+def test_review_refuses_a_truthy_string_as_force(tmp_path) -> None:
+    clip = tmp_path / "clip"
+    clip.mkdir()
+    (clip / "frame-0000.png").write_bytes(b"x")
+    intent = tmp_path / "i.json"
+    intent.write_text(json.dumps({"purpose": "p"}), encoding="utf-8")
+    output = tmp_path / "evidence.json"
+    output.write_text("earlier evidence", encoding="utf-8")
+
+    response = _call(
+        "tools/call",
+        {
+            "name": "review",
+            "arguments": {
+                "clip": str(clip),
+                "intent": str(intent),
+                "provider": "fake",
+                "allow_network": True,
+                "output": str(output),
+                "force": "false",
+            },
+        },
+    )
+    assert response["result"]["isError"] is True
+    assert "force' must be a boolean" in response["result"]["content"][0]["text"]
+    assert output.read_text(encoding="utf-8") == "earlier evidence"
+
+
 def test_review_with_a_fake_provider_returns_the_envelope(tmp_path) -> None:
     clip = tmp_path / "clip"
     clip.mkdir()
@@ -75,7 +118,7 @@ def test_a_failed_evidence_write_returns_the_envelope_as_an_error_result(
     """The billed verdict rides the failure over MCP too: isError stays true
     (nothing was persisted), and the tool result text carries the full
     envelope so an agent recovers it without resubmitting the media."""
-    from pathlib import Path
+    from deadeye import evidence
 
     clip = tmp_path / "clip"
     clip.mkdir()
@@ -84,10 +127,10 @@ def test_a_failed_evidence_write_returns_the_envelope_as_an_error_result(
     intent.write_text(json.dumps({"purpose": "p"}), encoding="utf-8")
     output = tmp_path / "evidence.json"
 
-    def no_space(self, *args, **kwargs):
+    def no_space(*args, **kwargs):
         raise OSError(28, "No space left on device")
 
-    monkeypatch.setattr(Path, "write_bytes", no_space)
+    monkeypatch.setattr(evidence, "_atomic_write", no_space)
     response = _call(
         "tools/call",
         {

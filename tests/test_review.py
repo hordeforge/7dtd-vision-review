@@ -142,16 +142,15 @@ def test_a_failed_evidence_write_still_delivers_the_billed_verdict(
     """A write fault after a completed submission must not discard the
     verdict: the refusal carries the full envelope, so recovering it never
     means resubmitting (and re-billing) the same media."""
-    from pathlib import Path
-
+    from deadeye import evidence
     from deadeye.errors import EvidenceWriteError
 
     output = tmp_path / "evidence.json"
 
-    def no_space(self, *args, **kwargs):
+    def no_space(*args, **kwargs):
         raise OSError(28, "No space left on device")
 
-    monkeypatch.setattr(Path, "write_bytes", no_space)
+    monkeypatch.setattr(evidence, "_atomic_write", no_space)
     with pytest.raises(EvidenceWriteError) as exc_info:
         run_review(
             clip_dir,
@@ -332,23 +331,36 @@ def test_a_failed_evidence_write_strands_no_partial_temp_file(
     """A write that dies midway (disk full, permissions) must not leave a
     corrupt `.tmp` beside the evidence directory; the original fault surfaces,
     wrapped in the one-refusal contract with the path named."""
-    from pathlib import Path
-
-    from deadeye.evidence import write_evidence
+    from deadeye import evidence
 
     output = tmp_path / "evidence.json"
 
-    def no_space(self, *args, **kwargs):
+    def no_space(*args, **kwargs):
         raise OSError(28, "No space left on device")
 
-    monkeypatch.setattr(Path, "write_bytes", no_space)
+    monkeypatch.setattr(evidence, "_atomic_write", no_space)
     with pytest.raises(
         DeadeyeError, match=r"cannot write evidence file .*No space left"
     ) as exc_info:
-        write_evidence(output, {"kind": "deadeye-review"}, force=False)
+        evidence.write_evidence(output, {"kind": "deadeye-review"}, force=False)
     # The OS fault is preserved as the cause, never swallowed by the wrap.
     assert isinstance(exc_info.value.__cause__, OSError)
     assert list(tmp_path.glob("*.tmp")) == []
+
+
+def test_evidence_write_does_not_follow_a_precreated_temp_symlink(tmp_path) -> None:
+    """A stale predictable temp name must not redirect an evidence write."""
+    from deadeye.evidence import write_evidence
+
+    output = tmp_path / "evidence.json"
+    protected = tmp_path / "protected.txt"
+    protected.write_text("do not overwrite", encoding="utf-8")
+    output.with_name(output.name + ".tmp").symlink_to(protected)
+
+    write_evidence(output, {"kind": "deadeye-review"}, force=False)
+
+    assert protected.read_text(encoding="utf-8") == "do not overwrite"
+    assert json.loads(output.read_text(encoding="utf-8"))["kind"] == "deadeye-review"
 
 
 def test_a_timeout_refusal_warns_that_resubmitting_bills_again(

@@ -16,9 +16,11 @@ calls, spec error codes, and the review consent boundary.
   tool rendering the injected reviewer instruction. No new authority model,
   no second result format.
 - **Consent and credentials do not weaken.** `--allow-network` becomes an
-  explicit per-call parameter that refuses the upload when unset; credentials
-  still come from the environment or loaded configuration (normally the
-  gitignored `config.local.toml`); disclosure lines still precede submission.
+  explicit per-call JSON boolean that refuses the upload unless it is exactly
+  `true`; the optional `force` and `keep_raw_response` controls are likewise
+  JSON booleans, never truthy strings. Credentials still come from the
+  environment or loaded configuration (normally the gitignored
+  `config.local.toml`); disclosure lines still precede submission.
 - **Duplicate calls are duplicate submissions.** The server keeps no state
   between frames, so a client that resends a `review` call (lost response,
   timeout, replay) triggers a second billable submission rather than
