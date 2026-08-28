@@ -83,8 +83,9 @@ provider API ──B4 TLS response──> validation ──> B5 outputs (stdout/
   run the CLI spends the configured keys.
 - **B2 → process**: clip files, intent documents, and both config files are
   read from disk without confinement. Discovery order makes **cwd config
-  shadow the home config** (`config.py:59-66`), so a checked-out tree's
-  `config.toml` wins over `~/.config/deadeye/`.
+  shadow the home config** (`config.py` `_discover`), so a checked-out tree's
+  `config.toml` wins over `$XDG_CONFIG_HOME/deadeye` (or `~/.config/deadeye`
+  when that variable is unset).
 - **B3 egress**: exactly one gate — `allow_network` checked first of all in
   `run_review` (`review.py:66-71`), pinned by
   `tests/test_review.py:20-24`. Disclosure lines name provider, file count,

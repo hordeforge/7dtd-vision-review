@@ -377,6 +377,24 @@ def test_serve_round_trips_frames_over_pipes() -> None:
     assert lines[2]["error"]["code"] == -32700
 
 
+def test_crlf_delimited_frames_are_parsed_like_lf_frames() -> None:
+    """A Windows MCP client may write JSON-RPC frames with CRLF; the trailing
+    CR must not become part of the JSON, and the next frame stays aligned."""
+    import io
+
+    from deadeye.mcp import serve
+
+    stdin = io.BytesIO(
+        b'{"jsonrpc":"2.0","id":1,"method":"ping","params":{}}\r\n'
+        b'{"jsonrpc":"2.0","id":2,"method":"ping","params":{}}\r\n'
+    )
+    stdout = io.StringIO()
+    assert serve(stdin, stdout) == 0
+    lines = [json.loads(line) for line in stdout.getvalue().splitlines()]
+    assert lines[0]["id"] == 1 and lines[0]["result"] == {}
+    assert lines[1]["id"] == 2 and lines[1]["result"] == {}
+
+
 def test_an_undecodable_frame_answers_parse_error_and_keeps_serving() -> None:
     """One invalid byte in a frame must not kill the transport inside the
     reader: it gets the same -32700 any malformed frame gets, and the next

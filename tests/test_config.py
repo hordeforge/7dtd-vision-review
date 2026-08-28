@@ -189,6 +189,41 @@ def test_endpoint_override_refuses_remote_plaintext_before_any_submission(_isola
         config.endpoint(("providers", "nvidia", "endpoint"), "https://fallback")
 
 
+def test_xdg_config_home_is_the_home_fallback_when_set(tmp_path, monkeypatch) -> None:
+    """Installed-tool discovery follows XDG_CONFIG_HOME instead of hardcoding
+    ~/.config, so a Linux host that relocated its config dir is still found."""
+    config.reset()
+    monkeypatch.delenv("DEADEYE_CONFIG_DIR", raising=False)
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    monkeypatch.chdir(cwd)
+    xdg = tmp_path / "xdg"
+    dest = xdg / "deadeye"
+    dest.mkdir(parents=True)
+    (dest / "config.toml").write_text('default_provider = "fake"\n', encoding="utf-8")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg))
+    loaded = config.load()
+    assert loaded.directory == dest
+    assert config.value(("default_provider",)) == "fake"
+
+
+def test_home_dot_config_is_the_fallback_when_xdg_is_unset(tmp_path, monkeypatch) -> None:
+    config.reset()
+    monkeypatch.delenv("DEADEYE_CONFIG_DIR", raising=False)
+    monkeypatch.setenv("XDG_CONFIG_HOME", "")
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    monkeypatch.chdir(cwd)
+    home = tmp_path / "home"
+    dest = home / ".config" / "deadeye"
+    dest.mkdir(parents=True)
+    (dest / "config.toml").write_text("timeout_seconds = 9\n", encoding="utf-8")
+    monkeypatch.setattr(config.Path, "home", lambda *args: home)
+    loaded = config.load()
+    assert loaded.directory == dest
+    assert config.value(("timeout_seconds",)) == 9
+
+
 def test_explicit_config_dir_without_files_is_reported_not_silent(
     _isolated_config, monkeypatch
 ) -> None:

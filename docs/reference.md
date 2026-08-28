@@ -192,7 +192,8 @@ the environment, then the merged configuration; all other settings come from
 the merged configuration. In that merge, `config.local.toml` wins over
 `config.toml`, and built-in defaults apply when no value is configured.
 Discovery (first directory holding any config file wins): `DEADEYE_CONFIG_DIR`,
-then the current directory, then `~/.config/deadeye/`. A key may be top-level
+then the current directory, then `$XDG_CONFIG_HOME/deadeye/` when
+`XDG_CONFIG_HOME` is set, otherwise `~/.config/deadeye/`. A key may be top-level
 (`api_key = "nvapi-..."`, like llm-proxy) or per provider
 (`[providers.nvidia] api_key = "..."`), with the per-provider one winning.
 `deadeye doctor` prints which files were loaded and whether a credential came

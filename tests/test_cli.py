@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -350,7 +351,7 @@ def test_prompt_requires_an_intent(capsys) -> None:
     assert "exactly one of --intent" in err
 
 
-def test_python_dash_m_honors_the_exit_contract() -> None:
+def test_python_dash_m_honors_the_exit_contract(tmp_path: Path) -> None:
     """`python -m deadeye` must propagate main()'s exit code, not swallow it:
     a script driving the module form reads the same contract as the console
     script (0 success, 1 refusal with one ERROR line on stderr)."""
@@ -362,13 +363,14 @@ def test_python_dash_m_honors_the_exit_contract() -> None:
     )
     assert ok.returncode == 0
 
+    missing = tmp_path / "no-such-clip"
     failed = subprocess.run(
         [
             sys.executable,
             "-m",
             "deadeye",
             "review",
-            "/nonexistent-clip",
+            str(missing),
             "--provider",
             "fake",
             "--allow-network",

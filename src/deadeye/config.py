@@ -16,7 +16,8 @@ that carries one shadows the home one):
 
 1. `DEADEYE_CONFIG_DIR` — an explicit directory.
 2. The current working directory (`./config.toml`, `./config.local.toml`).
-3. `~/.config/deadeye/` — the home fallback for an installed tool.
+3. `$XDG_CONFIG_HOME/deadeye/` when `XDG_CONFIG_HOME` is set, otherwise
+   `~/.config/deadeye/` — the home fallback for an installed tool.
 
 Only the files that exist are loaded; a local file without a base file (or
 vice versa) is fine. Values are read through `value(keys)` so a caller never
@@ -67,10 +68,24 @@ def _load_file(path: Path) -> dict[str, Any]:
     return data
 
 
+def _user_config_dir() -> Path:
+    """The installed-tool config directory: XDG when set, else ~/.config/deadeye.
+
+    `XDG_CONFIG_HOME` is the capability the spec names. Probing the variable
+    is correct on any host that sets it, including a Linux box whose config
+    lives outside `~/.config`. An empty value is treated as unset, per the
+    spec; `~` in the value is expanded.
+    """
+    xdg = os.environ.get("XDG_CONFIG_HOME", "").strip()
+    if xdg:
+        return Path(xdg).expanduser() / "deadeye"
+    return Path.home() / ".config" / "deadeye"
+
+
 def _discover() -> Path | None:
     """The config directory to use, or None when no config file exists anywhere."""
     explicit = os.environ.get(CONFIG_ENV, "").strip()
-    candidates = [Path(explicit)] if explicit else [Path.cwd(), Path.home() / ".config" / "deadeye"]
+    candidates = [Path(explicit)] if explicit else [Path.cwd(), _user_config_dir()]
     for directory in candidates:
         if (directory / BASE_NAME).is_file() or (directory / LOCAL_NAME).is_file():
             return directory

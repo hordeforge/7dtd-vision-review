@@ -146,6 +146,11 @@ make check test
 `make all` is everything CI's offline job runs; `make coverage` measures the
 suite. The suite is fully offline: no network, no credentials, no model.
 
+CI runs that suite on Ubuntu with Python 3.11–3.13. The CLI itself is pure
+Python (the published wheel is `py3-none-any`). `scripts/bootstrap` and
+`make` are Unix. The in-game e2e path (`scripts/e2e.sh`) is Linux-only: it
+drives a Proton-prefixed client and a Linux dedicated server.
+
 ## Security
 
 Credential handling and the network-consent boundary are in

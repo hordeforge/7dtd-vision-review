@@ -43,6 +43,8 @@ The script exits non-zero on any failure, so it can run as a gate.
 
 ## Prerequisites
 
+- Linux: the capture path uses a Proton prefix for the client and the
+  dedicated server's `7DaysToDieServer.x86_64` binary;
 - sibling checkouts of `7dtd-asset-pipeline`, `7dtd-playtest`, and
   `7dtd-fastconnect` (discovered relative to this repository; override with
   `ASSET_PIPELINE_ROOT`, `PLAYTEST_ROOT`, `CONNECT_ROOT`);
