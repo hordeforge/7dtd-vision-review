@@ -133,9 +133,13 @@ overwrites an earlier envelope by default.
 
 The envelope is written through a unique private temporary file in its
 destination directory, flushed and `fsync`'d, then atomically replaced into
-place; a stale predictable temporary filename cannot redirect the write
-through a symlink, and a failed or interrupted write deletes the temporary
-file so it cannot accumulate beside the destination.
+place. Without `--force` the destination name is occupied with
+`O_CREAT|O_EXCL` before that replace, so two concurrent writers cannot both
+land on the same path: the first envelope stays, the second is refused. A
+stale predictable temporary filename cannot redirect the write through a
+symlink, and a failed or interrupted write deletes the temporary file (and
+an unused exclusive placeholder) so they cannot accumulate beside the
+destination.
 
 ## Running a review twice
 

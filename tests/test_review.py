@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from datetime import datetime, timedelta
 
 import pytest
@@ -381,6 +382,68 @@ def test_an_interrupted_evidence_replace_does_not_strand_a_temp_file(tmp_path, m
         write_evidence(tmp_path / "evidence.json", {"kind": "deadeye-review"}, force=False)
     assert list(tmp_path.glob("*.tmp")) == []
     assert not (tmp_path / "evidence.json").exists()
+
+
+def test_exclusive_reserve_refuses_a_name_another_writer_already_holds(tmp_path) -> None:
+    """O_CREAT|O_EXCL is the no-overwrite lock: a second reserve of the same
+    path must fail even when the occupant is only the empty placeholder the
+    first writer has not yet replaced."""
+    from deadeye.evidence import _reserve_exclusive
+
+    output = tmp_path / "evidence.json"
+    _reserve_exclusive(output)
+    assert output.is_file()
+    assert output.stat().st_size == 0
+    with pytest.raises(DeadeyeError, match="already holds an earlier review"):
+        _reserve_exclusive(output)
+
+
+def test_two_concurrent_writes_without_force_keep_exactly_one_envelope(
+    tmp_path, monkeypatch
+) -> None:
+    """Two writers that both pass the preflight must not both replace: the
+    first envelope to occupy the name stays, the second is refused. A
+    barrier after `ensure_writable` is what makes the race deterministic
+    instead of timing-dependent."""
+    from deadeye import evidence
+
+    output = tmp_path / "evidence.json"
+    barrier = threading.Barrier(2, timeout=5)
+    original = evidence._atomic_write
+
+    def gated(path, payload, *, force):
+        barrier.wait()
+        return original(path, payload, force=force)
+
+    monkeypatch.setattr(evidence, "_atomic_write", gated)
+    outcomes: list[str] = []
+    lock = threading.Lock()
+
+    def worker(tag: str) -> None:
+        try:
+            evidence.write_evidence(output, {"kind": tag}, force=False)
+            result = "ok"
+        except DeadeyeError as exc:
+            result = str(exc)
+        with lock:
+            outcomes.append(result)
+
+    threads = [
+        threading.Thread(target=worker, args=("first",)),
+        threading.Thread(target=worker, args=("second",)),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    ok = [item for item in outcomes if item == "ok"]
+    refused = [item for item in outcomes if item != "ok"]
+    assert len(ok) == 1, outcomes
+    assert len(refused) == 1, outcomes
+    assert "already holds an earlier review" in refused[0]
+    assert json.loads(output.read_text(encoding="utf-8"))["kind"] in {"first", "second"}
+    assert list(tmp_path.glob("*.tmp")) == []
 
 
 def test_evidence_write_does_not_follow_a_precreated_temp_symlink(tmp_path) -> None:

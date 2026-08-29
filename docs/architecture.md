@@ -65,7 +65,10 @@ versions, and the provider. `created_utc` is the envelope's UTC instant
 (RFC 3339 with an explicit offset); `elapsed_seconds` is the monotonic
 duration of the provider call, so an NTP step is not recorded as model
 latency. Two runs may disagree; disagreement is preserved, never averaged. A
-later review never overwrites an earlier evidence envelope by default.
+later review never overwrites an earlier evidence envelope by default. The
+write occupies the destination name with `O_CREAT|O_EXCL` before the atomic
+replace, so two concurrent reviews of the same `--output` path cannot both
+publish: the first envelope stays, the second is refused.
 
 ## Sampling honesty
 

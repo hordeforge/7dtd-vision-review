@@ -160,7 +160,7 @@ permissions.
 | Bounded HTTP success (8 MiB) and error-body (300-character) reads; socket closed on the fault path | unbounded provider payload retained in the MCP process (D) | `providers/_http.py` `_read_response_body` / `_read_fault_body` |
 | MCP stdio frames capped at 1 MiB, discarded through the next newline | unbounded JSON-RPC line on the long-lived server (D) | `mcp.py` `_MAX_FRAME_BYTES` |
 | Intent document capped at 64 KiB at the read, then per-field caps | huge intent file filling the process (D) | `intent.py` `MAX_INTENT_BYTES` |
-| Evidence no-overwrite by default, atomic write with fsync, temp unlink on every failed path, SHA-256 addressing | history rewriting (T/R); stranded `.tmp` files | `evidence.py` `_atomic_write` |
+| Evidence no-overwrite by default, exclusive `O_CREAT|O_EXCL` publish then atomic replace with fsync, temp unlink on every failed path, SHA-256 addressing | history rewriting (T/R), including two writers racing the same `--output`; stranded `.tmp` files | `evidence.py` `_atomic_write` / `_reserve_exclusive` |
 | Endpoint override validated: https only, plain http loopback-only, refused before submission | cleartext credential egress via config (part of T1) | `config.py` `endpoint()`; pinned by `tests/test_config.py` endpoint tests |
 | Config values validated at resolution: unknown `default_provider` and unusable timeout refused with named errors | silent wrong-provider / wrong-timeout operation (misconfiguration) | `surface.py` `_resolve_provider`/`_resolve_timeout`; pinned by `tests/test_config.py`, `tests/test_mcp.py` |
 | Doctor reports presence only, never contacts a provider | capability probing used as an oracle (I) | `base.py:82-88`; `cli.py:179-209` |
