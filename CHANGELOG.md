@@ -127,6 +127,11 @@ open a new one.
 
 ### Fixed
 
+- Two concurrent `deadeye review --output` writers can no longer both pass
+  the exists-check and `replace` onto the same path, silently dropping the
+  first billed envelope. Without `--force` the destination name is occupied
+  with `O_CREAT|O_EXCL` before the atomic replace, so the second writer is
+  refused and the first envelope stays.
 - Hosted adapters now cap an HTTP error body the same way they already cap
   a success envelope: only the 300-character fault slice is read, then the
   socket is closed. `HTTPError.read()` with no size previously pulled the

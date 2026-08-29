@@ -139,21 +139,28 @@ def build_envelope(
     }
 
 
+def _occupied_evidence_message(path: Path) -> str:
+    return (
+        f"{path} already holds an earlier review and a later review never "
+        "overwrites one by default; compare the documents, or pass --force"
+    )
+
+
 def ensure_writable(path: Path, *, force: bool) -> None:
     """Refuse an occupied evidence path before anything is contacted.
 
-    The one home for the overwrite predicate and its wording: `run_review`
-    calls it as a pre-flight check (a rerun into an existing path is refused
-    before credentials are read or any byte leaves the machine, so the guard
-    never has to be paid for), and `write_evidence` re-checks at write time.
+    The wording lives with the exclusive publish in `_reserve_exclusive`:
+    `run_review` calls this as a pre-flight check (a rerun into an existing
+    path is refused before credentials are read or any byte leaves the
+    machine, so the guard never has to be paid for), and `write_evidence`
+    re-checks at write time. The preflight is not the lock; two writers can
+    both see a free path, so the write itself occupies the name with
+    `O_CREAT|O_EXCL` before replace.
     """
     if path.exists() and not path.is_file():
         raise DeadeyeError(f"{path} is not a regular file and cannot hold review evidence")
     if (path.is_file() or path.is_symlink()) and not force:
-        raise DeadeyeError(
-            f"{path} already holds an earlier review and a later review never "
-            "overwrites one by default; compare the documents, or pass --force"
-        )
+        raise DeadeyeError(_occupied_evidence_message(path))
 
 
 def write_evidence(path: Path, document: dict[str, Any], *, force: bool) -> tuple[Path, str]:
@@ -162,7 +169,7 @@ def write_evidence(path: Path, document: dict[str, Any], *, force: bool) -> tupl
     payload = json.dumps(document, indent=2, sort_keys=True)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        _atomic_write(path, payload)
+        _atomic_write(path, payload, force=force)
     except OSError as exc:
         # A bare errno would leave the caller guessing which argument failed;
         # name the evidence path the way every other refusal names its cause.
@@ -170,8 +177,27 @@ def write_evidence(path: Path, document: dict[str, Any], *, force: bool) -> tupl
     return path, sha256_bytes(payload.encode("utf-8"))
 
 
-def _atomic_write(path: Path, payload: str) -> None:
+def _reserve_exclusive(path: Path) -> None:
+    """Occupy `path` only if the name is free; the no-overwrite publish lock.
+
+    `ensure_writable` is a cheap preflight. Two processes can both see a
+    missing file, both submit, then both `replace` onto the same path and
+    the first envelope is gone. `O_CREAT|O_EXCL` is the atomic that makes
+    the second writer fail instead of clobbering the first.
+    """
+    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
+    if hasattr(os, "O_BINARY"):
+        flags |= os.O_BINARY
+    try:
+        fd = os.open(path, flags, 0o600)
+    except FileExistsError:
+        raise DeadeyeError(_occupied_evidence_message(path)) from None
+    os.close(fd)
+
+
+def _atomic_write(path: Path, payload: str, *, force: bool) -> None:
     temporary: Path | None = None
+    placeholder: Path | None = None
     try:
         # `NamedTemporaryFile` creates a unique file with private permissions
         # in the destination directory. A predictable `path + ".tmp"` name
@@ -189,8 +215,15 @@ def _atomic_write(path: Path, payload: str) -> None:
             handle.write(payload.encode("utf-8"))
             handle.flush()
             os.fsync(handle.fileno())
+        if not force:
+            # Reserve the destination name before replace so a concurrent
+            # writer cannot publish onto the same path. `--force` skips
+            # this: overwrite is then the caller's stated intent.
+            _reserve_exclusive(path)
+            placeholder = path
         temporary.replace(path)
         temporary = None
+        placeholder = None
     finally:
         # Any exit except a successful replace (OSError, KeyboardInterrupt,
         # a failed flush) must not strand a partial file that looks like
@@ -199,3 +232,12 @@ def _atomic_write(path: Path, payload: str) -> None:
         if temporary is not None:
             with contextlib.suppress(OSError):
                 temporary.unlink(missing_ok=True)
+        # A 0-byte exclusive placeholder occupies the name between reserve
+        # and replace. Drop it only while it is still empty: after a
+        # successful replace the destination holds the envelope, and an
+        # interrupt between replace and clearing `placeholder` must not
+        # unlink real evidence.
+        if placeholder is not None:
+            with contextlib.suppress(OSError):
+                if placeholder.stat().st_size == 0:
+                    placeholder.unlink()
