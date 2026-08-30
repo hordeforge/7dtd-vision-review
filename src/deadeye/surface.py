@@ -75,6 +75,18 @@ def _resolve_timeout(raw: Any) -> float:
     return seconds
 
 
+def _config_origin(keys: tuple[str, ...], qualifier: str = "") -> str:
+    """`key from configuration`, naming the file that holds it when known.
+
+    The file matters: a key in the committed `config.toml` is a leak, while
+    `config.local.toml` is the gitignored place it belongs. Doctor names it
+    so a misplacement is visible at diagnosis time — never the value.
+    """
+    source = config.provenance(keys)
+    parts = [part for part in (qualifier, source) if part]
+    return f"key from configuration ({', '.join(parts)})" if parts else "key from configuration"
+
+
 def _credential_detail(provider: VideoReviewProvider) -> str:
     """Where the provider's credential came from, for doctor; never the value."""
     if not provider.requires_credential:
@@ -84,9 +96,9 @@ def _credential_detail(provider: VideoReviewProvider) -> str:
     if any(os.environ.get(name) for name in provider.credential_env_names):
         return "key from environment"
     if config.text(("providers", provider.name, "api_key")):
-        return "key from configuration"
+        return _config_origin(("providers", provider.name, "api_key"))
     if config.text(("api_key",)):
-        return "key from configuration (top-level api_key)"
+        return _config_origin(("api_key",), qualifier="top-level api_key")
     return provider.configuration_hint()
 
 

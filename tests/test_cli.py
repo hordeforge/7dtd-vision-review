@@ -296,9 +296,46 @@ def test_doctor_never_attributes_a_key_to_the_keyless_provider(
             "fake: configured (the fake provider needs no credentials; "
             "it exists for offline plumbing checks)"
         )
-        # The real providers do report where their key came from.
+        # The real providers do report where their key came from, naming the
+        # file that holds it (a key in the committed config.toml would be a
+        # leak; config.local.toml is where it belongs).
         gemini_line = next(line for line in out.splitlines() if line.startswith("gemini:"))
-        assert "key from configuration" in gemini_line
+        assert "key from configuration (top-level api_key, config.local.toml)" in gemini_line
+    finally:
+        config.reset()
+
+
+def test_doctor_names_the_file_a_per_provider_key_came_from(tmp_path, monkeypatch, capsys) -> None:
+    """A per-provider key in the gitignored local file is reported with the
+    file named, and the same key placed in the committed base file is
+    reported as config.toml — a misplacement doctor must surface."""
+    from deadeye import config
+
+    cfg = tmp_path / "cfg"
+    cfg.mkdir()
+    (cfg / "config.local.toml").write_text(
+        '[providers.gemini]\napi_key = "k-local"\n', encoding="utf-8"
+    )
+    monkeypatch.setenv("DEADEYE_CONFIG_DIR", str(cfg))
+    config.reset()
+    try:
+        code, out, _ = _run(["doctor"], capsys)
+        assert code == 0
+        gemini_line = next(line for line in out.splitlines() if line.startswith("gemini:"))
+        assert "key from configuration (config.local.toml)" in gemini_line
+    finally:
+        config.reset()
+
+    (cfg / "config.local.toml").unlink()
+    (cfg / "config.toml").write_text(
+        '[providers.gemini]\napi_key = "k-committed"\n', encoding="utf-8"
+    )
+    config.reset()
+    try:
+        code, out, _ = _run(["doctor"], capsys)
+        assert code == 0
+        gemini_line = next(line for line in out.splitlines() if line.startswith("gemini:"))
+        assert "key from configuration (config.toml)" in gemini_line
     finally:
         config.reset()
 

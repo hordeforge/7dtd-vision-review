@@ -12,7 +12,8 @@ release and `main` is the only surface.
 - **Credentials never travel through the command line.** An API key comes
   from the environment or from `config.local.toml`, never from a flag, and is
   never printed, logged, or written into an evidence envelope. `deadeye
-  doctor` reports which file a key came from and never its value. Tool and
+  doctor` reports where a key came from — the environment, or which config
+  file holds it — and never its value. Tool and
   parameter information stored in evidence has credentials removed
   (`src/deadeye/evidence.py`).
 - **`config.local.toml` is gitignored and must stay that way.** It is the only
