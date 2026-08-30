@@ -173,8 +173,8 @@ it never means submitting the media twice.
 Credentials come from the environment or the loaded configuration (normally
 the gitignored `config.local.toml`; see Configuration), never as a command
 argument, printed output, or stored evidence. `deadeye doctor` reports state
-without contacting a provider and names whether a key came from the
-environment or configuration. The provider protocol and adapter details live
+without contacting a provider and names where a key came from — the
+environment, or which of the loaded files holds it. The provider protocol and adapter details live
 in [docs/providers.md](providers.md).
 
 ## Configuration
@@ -200,8 +200,9 @@ then the current directory, then `$XDG_CONFIG_HOME/deadeye/` when
 `XDG_CONFIG_HOME` is set, otherwise `~/.config/deadeye/`. A key may be top-level
 (`api_key = "nvapi-..."`, like llm-proxy) or per provider
 (`[providers.nvidia] api_key = "..."`), with the per-provider one winning.
-`deadeye doctor` prints which files were loaded and whether a credential came
-from the environment or configuration — never its value.
+`deadeye doctor` prints which files were loaded and where a credential came
+from — the environment, or which of the loaded files holds the key — never
+its value.
 
 Values are validated before use, not deep inside a submission:
 `default_provider` must name a known provider (an unknown name is refused,

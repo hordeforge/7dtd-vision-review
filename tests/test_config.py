@@ -60,6 +60,28 @@ def test_base_and_local_merge_with_local_winning(_isolated_config, monkeypatch) 
     assert config.value(("providers", "nvidia", "max_tokens")) == 2000
 
 
+def test_each_value_remembers_which_file_supplied_it(_isolated_config) -> None:
+    _write(
+        _isolated_config,
+        "config.toml",
+        '[providers.nvidia]\nmodel = "a-model"\nmax_tokens = 1000\n',
+    )
+    _write(
+        _isolated_config,
+        "config.local.toml",
+        '[providers.nvidia]\napi_key = "nvapi-local"\nmax_tokens = 2000\n',
+    )
+    loaded = config.load()
+    # A leaf only the committed file sets is attributed to config.toml; a
+    # leaf the gitignored file supplies or overrides is attributed to
+    # config.local.toml; an unset key has no origin.
+    assert loaded.provenance(("providers", "nvidia", "model")) == "config.toml"
+    assert loaded.provenance(("providers", "nvidia", "api_key")) == "config.local.toml"
+    assert loaded.provenance(("providers", "nvidia", "max_tokens")) == "config.local.toml"
+    assert loaded.provenance(("providers", "nvidia", "temperature")) is None
+    assert config.provenance(("providers", "nvidia", "api_key")) == "config.local.toml"
+
+
 def test_local_without_base_is_fine(_isolated_config) -> None:
     _write(_isolated_config, "config.local.toml", 'api_key = "nvapi-top"\n')
     assert config.value(("api_key",)) == "nvapi-top"

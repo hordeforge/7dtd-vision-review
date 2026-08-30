@@ -21,10 +21,12 @@ that carries one shadows the home one):
 
 Only the files that exist are loaded; a local file without a base file (or
 vice versa) is fine. Values are read through `value(keys)` so a caller never
-handles the merge itself. Values with safety constraints get validated
-readers: `endpoint()` refuses an API-root override that would send the
-provider credential anywhere but https or a loopback proxy, and
-`endpoint_problem()` reports the same fault for `deadeye doctor`.
+handles the merge itself, and every leaf remembers which file supplied it,
+so `deadeye doctor` can name the file a credential came from. Values with
+safety constraints get validated readers: `endpoint()` refuses an API-root
+override that would send the provider credential anywhere but https or a
+loopback proxy, and `endpoint_problem()` reports the same fault for
+`deadeye doctor`.
 """
 
 from __future__ import annotations
@@ -56,6 +58,27 @@ def _merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
         else:
             merged[key] = value
     return merged
+
+
+def _record_origins(
+    data: dict[str, Any], origins: dict[tuple[str, ...], str], filename: str
+) -> None:
+    """Record the source file for every leaf of a loaded TOML table.
+
+    Runs for each file in the same order as the merge, so the leaf's final
+    entry names the file that won the merge (the gitignored local file when
+    it touches the key, the committed file otherwise).
+    """
+
+    def walk(node: dict[str, Any], path: tuple[str, ...]) -> None:
+        for key, value in node.items():
+            child = (*path, key)
+            if isinstance(value, dict):
+                walk(value, child)
+            else:
+                origins[child] = filename
+
+    walk(data, ())
 
 
 def _load_file(path: Path) -> dict[str, Any]:
@@ -99,14 +122,23 @@ class Config:
     def __init__(self, directory: Path | None) -> None:
         self.directory = directory
         self.data: dict[str, Any] = {}
+        # Which file supplied each leaf value. Doctor names the file a
+        # credential came from, so a key sitting in the committed
+        # `config.toml` is distinguishable from one in the gitignored
+        # `config.local.toml`.
+        self._origins: dict[tuple[str, ...], str] = {}
         if directory is None:
             return
         base = directory / BASE_NAME
         local = directory / LOCAL_NAME
         if base.is_file():
-            self.data = _merge(self.data, _load_file(base))
+            base_data = _load_file(base)
+            _record_origins(base_data, self._origins, BASE_NAME)
+            self.data = _merge(self.data, base_data)
         if local.is_file():
-            self.data = _merge(self.data, _load_file(local))
+            local_data = _load_file(local)
+            _record_origins(local_data, self._origins, LOCAL_NAME)
+            self.data = _merge(self.data, local_data)
 
     def value(self, keys: tuple[str, ...]) -> Any:
         """A value by key path (e.g. `("providers", "nvidia", "api_key")`), or None."""
@@ -116,6 +148,11 @@ class Config:
                 return None
             current = current[key]
         return current
+
+    def provenance(self, keys: tuple[str, ...]) -> str | None:
+        """The file that supplied the leaf at `keys` (`config.toml` or
+        `config.local.toml`), or None when the key is unset."""
+        return self._origins.get(keys)
 
     def sources(self) -> list[Path]:
         """The files actually loaded, base first, for `doctor`."""
@@ -192,6 +229,16 @@ def text(keys: tuple[str, ...]) -> str | None:
     configured-string idiom (`default_model`, an api_key) every reader shares."""
     found = value(keys)
     return found if isinstance(found, str) and found else None
+
+
+def provenance(keys: tuple[str, ...]) -> str | None:
+    """Fail-soft convenience mirroring `value`: the file that supplied the
+    leaf at `keys`, or None when the key is unset or the config failed to
+    load."""
+    try:
+        return load().provenance(keys)
+    except ValueError:
+        return None
 
 
 def credential_for(provider: str, env_names: tuple[str, ...]) -> str | None:
