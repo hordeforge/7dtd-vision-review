@@ -2,8 +2,10 @@
 """Render the line-coverage badge SVG from the local .coverage file.
 
 Must be run by an interpreter that has coverage importable: the Makefile
-`coverage` target arranges that (`--with coverage` under uv, the dev
-dependency group otherwise). Usage: coverage_badge.py OUTPUT.svg
+`coverage` target arranges that by running it under `$(PYTHON)` (`uv run
+--frozen python3`), and `scripts/bootstrap` syncs the dev dependency group
+from the committed lockfile, so `coverage` is present in the project venv.
+Usage: coverage_badge.py OUTPUT.svg
 """
 
 from __future__ import annotations
