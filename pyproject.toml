@@ -34,7 +34,7 @@ classifiers = [
 # which `uv sync --locked` verifies on every install. Ranges would let a
 # lock-less `uv sync` (or an isolated extra install) pick a newer major.
 dev = [
-    "ruff==0.16.4",
+    "ruff==0.16.5",
     "mypy==2.3.1",
     # Exact pin, mirrored in [build-system]: the artifact-contract suite
     # builds real sdists and wheels, and an isolated `uv build` installs this
@@ -42,7 +42,7 @@ dev = [
     # bump both pins together.
     "setuptools==84.0.0",
     "pytest==9.1.1",
-    "coverage==7.15.4",
+    "coverage==7.16.0",
     "hypothesis==6.165.10",
 ]
 
