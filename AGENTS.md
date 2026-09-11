@@ -4,6 +4,15 @@ This repository is **deadeye**, the shared vision-model review gateway for the
 hordeforge workspace. Read this before inspecting, planning, editing, or
 testing anything here.
 
+## Owns
+
+| Owns | Does not own |
+|---|---|
+| Vision-model review gateway (`deadeye` CLI / MCP) and provider boundary | Clip authorship, intent, or acceptance sign-off |
+| Stable advisory result shape for consumers | Playtest harness, stock suites, sandbox lifecycle |
+| Consent/network gates and credential handling for providers | Declaring gameplay pass/fail for `7dtd-playtest` cases |
+| Unit/integration tests for deadeye itself | Mod-local `IScenarioProvider` scenarios |
+
 ## What this repository is
 
 `deadeye` is the one place a hordeforge tool goes to have a clip looked at by
