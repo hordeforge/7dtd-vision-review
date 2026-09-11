@@ -9,6 +9,7 @@ heading shape and the not-found exit are pinned here.
 from __future__ import annotations
 
 import importlib.util
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -64,9 +65,23 @@ def test_missing_version_returns_none() -> None:
     assert release_notes.extract("## Unreleased\n\n- pending\n", "9.9.9") is None
 
 
+def _first_released_section() -> str:
+    """The newest changelog heading with a body, as the CLI would be asked for it.
+
+    Naming a fixed section here (it used to be "Unreleased") made the test fail
+    the moment a release renamed it.
+    """
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    headings = re.findall(r"^##\s+(.+?)\s*$", changelog, flags=re.MULTILINE)
+    for heading in headings:
+        if release_notes.extract(changelog, heading):
+            return heading
+    raise AssertionError("CHANGELOG.md has no section with a body")
+
+
 def test_cli_finds_a_present_section_and_exits_zero() -> None:
     result = subprocess.run(
-        [sys.executable, str(ROOT / "scripts" / "release_notes.py"), "Unreleased"],
+        [sys.executable, str(ROOT / "scripts" / "release_notes.py"), _first_released_section()],
         capture_output=True,
         text=True,
         check=False,
