@@ -15,9 +15,9 @@ left to be discovered by a failing parse downstream.
 
 ## Unreleased
 
-`pyproject.toml` reads `0.1.0`, but no `v0.1.0` tag exists yet: everything
-below is unreleased, and the first tag will close this section rather than
-open a new one.
+## [0.1.0] - 2026-09-11
+
+First tagged release: everything below shipped under `v0.1.0`.
 
 ### Added
 
