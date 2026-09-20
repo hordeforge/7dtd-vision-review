@@ -87,7 +87,9 @@ def test_cli_finds_a_present_section_and_exits_zero() -> None:
         check=False,
     )
     assert result.returncode == 0
-    assert "### Added" in result.stdout
+    # A released section may carry only Changed entries (upkeep releases), so
+    # pin the subsection shape, not one specific heading.
+    assert re.search(r"^### ", result.stdout, flags=re.MULTILINE)
 
 
 def test_cli_exits_three_when_no_section_carries_the_version() -> None:
