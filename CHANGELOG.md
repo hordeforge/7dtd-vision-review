@@ -15,6 +15,15 @@ left to be discovered by a failing parse downstream.
 
 ## Unreleased
 
+## [0.1.1] - 2026-09-20
+
+### Changed
+
+- Dev tooling upkeep only, via dependabot: ruff 0.16.4 to 0.16.6, coverage
+  7.x to 7.x (minor), and hypothesis to its next minor in the dev group. No
+  CLI, schema, result, or evidence envelope changes, so no consumer impact.
+  Patch bump; `make check test smoke` is green unchanged.
+
 ## [0.1.0] - 2026-09-11
 
 First tagged release: everything below shipped under `v0.1.0`.

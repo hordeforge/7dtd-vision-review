@@ -8,7 +8,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "7dtd-vision-review"
-version = "0.1.0"
+version = "0.1.1"
 description = "deadeye: shared vision-model review gateway for hordeforge — forward frames or a muxed clip plus recorded intent to a vision model and get structured, advisory feedback"
 readme = "README.md"
 requires-python = ">=3.11"
