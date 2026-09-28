@@ -81,8 +81,8 @@ not a network one.
 | Intent JSON file / inline text | `src/deadeye/intent.py:199-252` | JSON validated against the intent schema |
 | Intent `references[].path` | `src/deadeye/intent.py:150-195` | arbitrary filesystem paths → read and uploaded by `review.py:391-398,436` |
 | Provider HTTP responses | `providers/gemini.py:130-190`, `providers/nvidia.py:83-127` | untrusted vendor payload over TLS |
-| Outputs | `cli.py:298-308`; `evidence.py:270-292`; `review.py:138-148` | stdout JSON, evidence file, stderr disclosure lines |
-| Evidence destination path | `cli.py:102,120`; `mcp.py:350,359`; written at `evidence.py:309-323` | `--output` / `output`, `--force` / `force`; arbitrary path, parent directories created on demand, `--force` skips the exclusive publish (T7) |
+| Outputs | `cli.py:298-308`; `evidence.py:300-323`; `review.py:138-148` | stdout JSON, evidence file, stderr disclosure lines |
+| Evidence destination path | `cli.py:102,120`; `mcp.py:350,359`; written at `evidence.py:343-357` | `--output` / `output`, `--force` / `force`; arbitrary path, parent directories created on demand, `--force` skips the exclusive publish (T7) |
 | `scripts/e2e.sh` | `e2e.sh:63,105,125-133,308,314` | sibling checkout roots and tool paths, `E2E_OUT`/`E2E_MOD_DIR` write roots, and the one shell path that submits to a real provider (T9) |
 | CI badge job | `.github/workflows/ci.yml:50-88` | the pipeline's only write-scoped `GITHUB_TOKEN`; publishes a generated SVG to a served branch (T9) |
 
@@ -177,9 +177,9 @@ compromise. No caller authentication exists on B1 by design (local tool).
 **Tampering.** cwd config shadowing lets repository-supplied TOML alter
 provider, model, and endpoint (`config.py:216-241`, `config.toml` ships an
 `endpoint` value) — T1. Evidence overwrite is refused without `--force` and
-written atomically (`evidence.py:270-292`, the atomic path at `372-416`), but
+written atomically (`evidence.py:300-323`, the atomic path at `408-476`), but
 `--force` skips both the refusal and the exclusive publish
-(`evidence.py:391-396`) — T7 — and envelopes carry no signature either way, so
+(`evidence.py:427-450`) — T7 — and envelopes carry no signature either way, so
 post-write tampering is undetectable here — T8.
 
 **Repudiation.** A run leaves no trace unless `--output` was given; the only
@@ -235,11 +235,11 @@ influence over the verdict rather than over the process.
 | Intent document capped at 64 KiB at the read, then per-field caps | huge intent file filling the process (D) | `intent.py` `MAX_INTENT_BYTES` (`49`), `MAX_FIELD_CHARS`, `MAX_LIST_ITEMS`, `MAX_REFERENCES` |
 | Intent JSON recursion refused, not a `RecursionError` escaping as a fault on a billed submission | a hostile nesting crashing the parse after the upload (D) | `intent.py:295-298`; `redaction.py:51,66-78` depth bound |
 | Redaction walk depth-bounded; a container past the limit becomes `null` rather than passing unexamined | a deeply nested provider document walking off the stack and escaping the refusal contract (D/R) | `redaction.py` `MAX_REDACT_DEPTH`; pinned by `tests/test_redaction.py` |
-| Evidence write uses an unpredictable private temporary file, not a predictable `path + ".tmp"` | a local user pre-creating a symlink at the temporary name to redirect the write (T) | `evidence.py:376-390` |
+| Evidence write uses an unpredictable private temporary file, not a predictable `path + ".tmp"` | a local user pre-creating a symlink at the temporary name to redirect the write (T) | `evidence.py:412-426` |
 | JSON-RPC frames are capped by measured UTF-8 bytes, not code points, and an oversized one is discarded through its newline | a four-byte-character frame measuring under the cap in code points, or a missing delimiter retaining input (D) | `mcp.py` `_frame_size` (`670-683`), `_split_stdio_frames` (`637-667`) |
 | One faulty frame is answered with the spec's internal-error code and the transport keeps serving | a single malformed request tearing down a long-lived server (D) | `mcp.py:762-770` |
 | `idempotency_key` bounded to 200 characters and must be a non-empty string | a client naming a megabyte key and pinning it in the process-local ledger (D) | `mcp.py` `_MAX_IDEMPOTENCY_KEY_CHARS`, `_idempotency_key` (`423-435`) |
-| Evidence no-overwrite by default: pre-flight `ensure_writable` before credentials are read, exclusive `O_CREAT|O_EXCL` publish then atomic replace with fsync, temp unlink on every failed path, placeholder and reclaim unlinks fenced by file identity, SHA-256 addressing | history rewriting (T/R), including two writers racing the same `--output` **without `--force`**, and a placeholder unlink deleting a review another writer published into the name; stranded `.tmp` files. `--force` skips the exclusive publish, so the race guarantee does not hold there — see T7 | `evidence.py` `ensure_writable` (`270-292`) / `_atomic_write` (`372-416`) / `_reserve_exclusive` (`326-369`) |
+| Evidence no-overwrite by default: pre-flight `ensure_writable` before credentials are read, exclusive `O_CREAT|O_EXCL` publish then atomic replace with fsync, temp unlink on every failed path, publish, placeholder unlink, and reclaim unlink fenced by file identity, SHA-256 addressing | history rewriting (T/R), including two writers racing the same `--output` **without `--force`**, and a placeholder unlink or a publish deleting a review another writer published into the name; stranded `.tmp` files. `--force` skips the exclusive publish, so it destroys a default run's reservation but is not overwritten in turn — see T7 | `evidence.py` `ensure_writable` (`300-323`) / `_atomic_write` (`408-476`) / `_reserve_exclusive` (`356-402`) |
 | Endpoint override validated: https only, plain http loopback-only, refused before submission | cleartext credential egress via config (part of T1) | `config.py` `endpoint()`; pinned by `tests/test_config.py` endpoint tests |
 | Config values validated at resolution: unknown `default_provider` and unusable timeout refused with named errors | silent wrong-provider / wrong-timeout operation (misconfiguration) | `surface.py` `resolve_provider`/`resolve_timeout`; pinned by `tests/test_config.py`, `tests/test_mcp.py` |
 | Doctor reports presence only, never contacts a provider | capability probing used as an oracle (I) | `base.py:103-110`; `cli.py:330-341` |
@@ -346,12 +346,17 @@ principal reads.
 The sharper half is `--force`. The no-overwrite guarantee the mitigation table
 claims is real only without it: `ensure_writable` is skipped for the
 pre-flight refusal and `_atomic_write` skips `_reserve_exclusive`, so
-`Path.replace` clobbers whatever holds the name (`evidence.py:391-396`) and
+`Path.replace` clobbers whatever holds the name (`evidence.py:450`) and
 two writers racing the same `output` are no longer prevented from destroying
-the first envelope. The code says so itself — "overwrite is then the caller's
-stated intent" (`evidence.py:393-394`) — so the table's race claim must be
-read as scoped to the default. `ensure_writable` refuses a non-regular file
-(`evidence.py:286-287`), but a symlink to a regular file satisfies
+the first envelope. The damage is one-directional. A default run that
+reserved the name fences its publish by the reserved inode, so a force run
+that replaced the placeholder mid-write is not overwritten in turn: the
+default run refuses and the force run's envelope stands. What a force run
+destroys is a default run's reservation, never a published review. The code
+says so itself — "overwrite is then the caller's stated intent"
+(`evidence.py:428-429`) — so the table's race claim must be read as scoped to
+the default. `ensure_writable` refuses a non-regular file
+(`evidence.py:316-317`), but a symlink to a regular file satisfies
 `is_file()`, and `replace` then swaps the link itself rather than its target,
 so this is file destruction at the named path, not an arbitrary-target write.
 

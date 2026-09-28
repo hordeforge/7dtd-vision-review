@@ -592,9 +592,48 @@ def test_a_failed_write_never_unlinks_another_writers_review_from_its_placeholde
     name there deletes a review nobody chose to overwrite, and this write's own
     outcome cannot report it. The identity reserved here says which file is
     still ours to clear.
+
+    The publication lands at the instant of this write's own replace, which is
+    after the fence that refuses an earlier one read the placeholder it still
+    held, so this exercises the cleanup and not that earlier refusal.
     """
     from pathlib import Path
 
+    from deadeye import evidence
+
+    output = tmp_path / "evidence.json"
+    real_replace = Path.replace
+
+    def publish_then_fail(self, target):
+        # Another process replaces the placeholder this call is holding, at
+        # the moment this call publishes, and this write fails there.
+        theirs = tmp_path / "theirs.tmp"
+        theirs.write_bytes(_payload({"kind": "theirs"}))
+        real_replace(theirs, output)
+        assert json.loads(output.read_text(encoding="utf-8"))["kind"] == "theirs"
+        raise RuntimeError("interrupted")
+
+    monkeypatch.setattr(Path, "replace", publish_then_fail)
+    with pytest.raises(RuntimeError, match="interrupted"):
+        evidence.write_evidence(output, {"kind": "deadeye-review"}, force=False)
+
+    assert json.loads(output.read_text(encoding="utf-8"))["kind"] == "theirs"
+    assert list(tmp_path.glob("*.tmp")) == []
+
+
+def test_a_force_run_publishing_into_a_reserved_name_is_never_overwritten(
+    tmp_path, monkeypatch
+) -> None:
+    """A default run refuses rather than clobbering what a force run published.
+
+    `--force` takes no reserve, so a force run's replace can land on the
+    placeholder a default run is holding, between that run's reserve and its
+    own publish. An unfenced publish would then overwrite an envelope nobody
+    chose to replace and leave the force run holding a digest for bytes the
+    file no longer has. The publish is fenced by the same identity the
+    reclaim and the cleanup use, so the default run refuses and the force
+    run's envelope stays, with no temp file stranded beside it.
+    """
     from deadeye import evidence
 
     output = tmp_path / "evidence.json"
@@ -602,20 +641,14 @@ def test_a_failed_write_never_unlinks_another_writers_review_from_its_placeholde
 
     def reserve_then_publish(path):
         identity = real_reserve(path)
-        # Another process publishes into the name we still hold, then this
-        # write fails before its own replace.
+        # A --force run replaces our placeholder in the window between the
+        # reserve and the publish.
         evidence._atomic_write(path, _payload({"kind": "theirs"}), force=True)
-        assert json.loads(output.read_text(encoding="utf-8"))["kind"] == "theirs"
-
-        def boom(self, target):
-            raise RuntimeError("interrupted")
-
-        monkeypatch.setattr(Path, "replace", boom)
         return identity
 
     monkeypatch.setattr(evidence, "_reserve_exclusive", reserve_then_publish)
-    with pytest.raises(RuntimeError, match="interrupted"):
-        evidence.write_evidence(output, {"kind": "deadeye-review"}, force=False)
+    with pytest.raises(DeadeyeError, match="published into by another writer"):
+        evidence.write_evidence(output, {"kind": "ours"}, force=False)
 
     assert json.loads(output.read_text(encoding="utf-8"))["kind"] == "theirs"
     assert list(tmp_path.glob("*.tmp")) == []

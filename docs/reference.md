@@ -189,8 +189,11 @@ envelope is never reclaimed however old it is. Age is not proof of death, so
 every unlink of a placeholder is fenced by the identity (device and inode) of
 the file it inspected: a writer that published into that name in the window
 between the check and the unlink keeps its review, and the run that came to
-reclaim the name refuses instead. `--force` remains the only
-way to overwrite a published review.
+reclaim the name refuses instead. The publish is fenced the same way: a
+`--force` run takes no reservation, so it can replace the placeholder a
+default run is holding, and the default run then finds the name holding a
+review it did not write and refuses rather than overwriting it. `--force`
+remains the only way to overwrite a published review.
 
 The age is measured against the smaller of the wall clock and this process's
 own monotonic time. A wall clock that steps forward (NTP, `date -s`, a

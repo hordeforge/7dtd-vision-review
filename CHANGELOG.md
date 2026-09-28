@@ -218,6 +218,18 @@ required (`CONTRIBUTING.md`, "Changing a contract").
 
 ### Fixed
 
+- A default evidence write could overwrite a review a `--force` run published
+  underneath it. The non-force path reserves the destination name with
+  `O_CREAT|O_EXCL` and then replaces onto it, but `--force` takes no
+  reservation, so a force run could replace the reserved placeholder between
+  the reserve and the replace; the reserved writer then published over the
+  force run's envelope and left it holding a digest for bytes the file no
+  longer had. The publish is now fenced by the reserved inode, the same fence
+  the reclaim and the cleanup already used, so the run that no longer holds
+  its reservation refuses instead of overwriting a review nobody asked it to
+  replace. The refusal after a reclaimed name also names the real occupant:
+  a `--force` run that took the name in that window publishes an envelope,
+  and the run was told a write was in progress.
 - The process-wide config cache could be keyed on a file it had not read. The
   signature that decides whether the cached `Config` is still good was taken
   after the parse, so a `config.local.toml` rewritten between the parse and the

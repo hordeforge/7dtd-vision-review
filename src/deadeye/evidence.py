@@ -271,6 +271,14 @@ def _open_reserve(path: Path, flags: int) -> _FileIdentity:
         os.close(fd)
 
 
+def _name_holds(path: Path, identity: _FileIdentity) -> bool:
+    """Whether `path` still names the file `identity` describes."""
+    try:
+        return _identity_of(path.stat()) == identity
+    except OSError:
+        return False
+
+
 def _unlink_if_same_file(path: Path, identity: _FileIdentity) -> bool:
     """Unlink `path` only while it still names the file `identity` describes.
 
@@ -280,11 +288,7 @@ def _unlink_if_same_file(path: Path, identity: _FileIdentity) -> bool:
     clearing this writer's own placeholder and destroying a review another
     writer published into the same name.
     """
-    try:
-        current = path.stat()
-    except OSError:
-        return False
-    if _identity_of(current) != identity:
+    if not _name_holds(path, identity):
         return False
     try:
         path.unlink()
@@ -364,7 +368,9 @@ def _reserve_exclusive(path: Path) -> _FileIdentity:
     refused, so the concurrent-duplicate guarantee is unchanged.
 
     Returns the identity of the placeholder created, which the caller uses to
-    clear exactly that file on its way out.
+    confirm the publish and to clear exactly that file on its way out: a
+    `--force` run takes no reservation and can replace this placeholder, so
+    holding one is not by itself proof that the name is still this writer's.
     """
     flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
     if hasattr(os, "O_BINARY"):
@@ -392,7 +398,11 @@ def _reserve_exclusive(path: Path) -> _FileIdentity:
     try:
         return _open_reserve(path, flags)
     except FileExistsError:
-        raise DeadeyeError(_pending_write_message(path)) from None
+        # Whoever took the name in the window above may be another writer's
+        # fresh placeholder or a `--force` run that published an envelope
+        # there, so the refusal names what actually holds the name instead of
+        # assuming a write in flight.
+        raise DeadeyeError(_refusal_for_occupant(path)) from None
 
 
 def _atomic_write(path: Path, payload: bytes, *, force: bool) -> None:
@@ -419,6 +429,24 @@ def _atomic_write(path: Path, payload: bytes, *, force: bool) -> None:
             # writer cannot publish onto the same path. `--force` skips
             # this: overwrite is then the caller's stated intent.
             placeholder = _reserve_exclusive(path)
+            # The reserve is not a lock a `--force` writer observes: that
+            # writer takes no reserve at all, so its replace can land on the
+            # name this call is holding, between the reserve above and the
+            # publish below. Publishing then overwrites an envelope nobody
+            # chose to replace, and the force run is left holding a digest for
+            # bytes the file no longer has. The publish is fenced by the same
+            # identity the reclaim and the cleanup use, so this run refuses
+            # instead. The window between the check and the replace is one
+            # syscall wide, as `_unlink_if_same_file` already is: POSIX has no
+            # compare-and-swap rename, so this narrows the race rather than
+            # closing it, and it closes the whole schedule where the force
+            # writer published before this one reached its own publish.
+            if not _name_holds(path, placeholder):
+                raise DeadeyeError(
+                    f"{path} was published into by another writer between this "
+                    "run's reservation and its write; this run refuses rather "
+                    "than overwrite a review nobody asked it to replace"
+                )
         temporary.replace(path)
         temporary = None
         placeholder = None

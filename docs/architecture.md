@@ -102,6 +102,9 @@ publish: the first envelope stays, the second is refused. The placeholder
 that reservation creates, and the stranded one a crash-recovery run
 reclaims, are cleared by identity rather than by name, so neither unlink can
 delete an envelope another process published into that path in between. The
+publish itself is fenced by that same identity, so a `--force` run, which
+takes no reservation and can replace the placeholder in hand, cannot be
+overwritten in turn by the run holding it: the default run refuses instead. The
 rename that ends the reservation, and the unlink that drops a reserve, are
 both followed by an `fsync` of the destination directory: the payload sync
 fixes the bytes, and only the directory sync makes the name durable.
