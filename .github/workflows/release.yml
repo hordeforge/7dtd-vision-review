@@ -47,27 +47,12 @@ jobs:
       # The published artifact version must equal the tag, so a wheel can
       # never claim a version nobody tagged. src/deadeye/_version.py is a
       # mirror and is checked against the same tag rather than trusted.
+      # A script under scripts/ so `make lint-shell` covers it, and so the
+      # check can be rehearsed on a local tag before it is pushed.
       - name: Check the tag matches pyproject.toml and _version.py
-        shell: bash
-        run: |
-          set -euo pipefail
-          TAG="${GITHUB_REF_NAME}"
-          case "$TAG" in v*) ;; *) echo "ERROR: tag '$TAG' does not start with 'v'" >&2; exit 1;; esac
-          PYPROJECT="$(sed -n 's/^version = "\(.*\)"$/\1/p' pyproject.toml | head -1)"
-          MIRROR="$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' src/deadeye/_version.py | head -1)"
-          if [ -z "$PYPROJECT" ]; then
-            echo "ERROR: no version = \"...\" line found in pyproject.toml" >&2
-            exit 1
-          fi
-          if [ "$PYPROJECT" != "${TAG#v}" ]; then
-            echo "ERROR: tag $TAG but pyproject.toml says version $PYPROJECT; make them match before tagging" >&2
-            exit 1
-          fi
-          if [ "$MIRROR" != "$PYPROJECT" ]; then
-            echo "ERROR: pyproject.toml says $PYPROJECT but src/deadeye/_version.py says $MIRROR" >&2
-            exit 1
-          fi
-          echo "ok: tag $TAG matches pyproject.toml and _version.py ($PYPROJECT)"
+        env:
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+        run: scripts/check_release_tag.sh
 
       # `make dist` is the one build command, shared with contributors: the
       # tagged commit's SOURCE_DATE_EPOCH and the pinned LC_ALL, TZ, and
@@ -95,65 +80,12 @@ jobs:
       # file they can check with a single `sha256sum -c`.
       - run: (cd dist && sha256sum sbom.cdx.json >> SHA256SUMS)
 
-      # The release notes are the changelog section for this version, so
-      # consumers read what changed in the release itself and a version with
-      # no changelog entry is visible instead of silently generic.
+      # Create the release, or converge onto the one an earlier attempt left,
+      # and upload the assets. The logic lives in scripts/publish_release.sh
+      # so `make lint-shell` covers the token path and the asset-comparison
+      # loop rather than a here-doc no analyzer can read.
       - name: Create the GitHub Release
-        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          TAG="${GITHUB_REF_NAME}"
-          VERSION="${TAG#v}"
-          DEFAULT_NOTES="HordeForge Release ${TAG}: shared vision-model review gateway returning structured, hash-addressed, advisory evidence on a clip under its recorded intent.
-
-          See CHANGELOG.md in the tagged tree for the consumer-visible changes."
-          if python3 scripts/release_notes.py "$VERSION" > "$RUNNER_TEMP/release-notes.md"; then
-            echo "release notes: from the CHANGELOG.md ${VERSION} section"
-          else
-            code=$?
-            if [ "$code" -ne 3 ]; then
-              exit "$code"
-            fi
-            echo "WARNING: no CHANGELOG.md section for ${VERSION}; using the default note. Rename '## Unreleased' to '## ${VERSION}' before tagging." >&2
-            printf '%s\n' "$DEFAULT_NOTES" > "$RUNNER_TEMP/release-notes.md"
-          fi
-          # Convergent on re-run: a failed attempt that already created the
-          # release (assets missing or partial) must not wedge the next run
-          # on "already exists". Create only when absent, then always upload
-          # with --clobber so both paths end with the same complete set.
-          #
-          # Convergent is not the same as silent. An asset the release already
-          # carries must be byte-identical to the file about to replace it, so
-          # a re-run after a partial failure still finishes while a re-pushed
-          # tag that would swap the published bytes for a different build
-          # stops here instead (THREAT_MODEL T10). The build is reproducible,
-          # so the same tag and tree can only disagree for a real reason.
-          if gh release view "$TAG" --json id -q .id >/dev/null 2>&1; then
-            echo "release $TAG already exists; replacing its assets"
-            published="$RUNNER_TEMP/published"
-            mkdir -p "$published"
-            differs=0
-            for asset in dist/*.whl dist/*.tar.gz dist/sbom.cdx.json dist/SHA256SUMS; do
-              name="$(basename "$asset")"
-              # A pattern that matches nothing exits non-zero: the asset was
-              # never published, which is the partial-release case this step
-              # exists to finish, not a conflict.
-              if gh release download "$TAG" --pattern "$name" --dir "$published" >/dev/null 2>&1 \
-                && ! cmp -s "$asset" "$published/$name"; then
-                echo "ERROR: published asset $name differs from what this tag builds." >&2
-                echo "       Consumers have already downloaded it; delete the" >&2
-                echo "       release and re-tag to publish the new bytes." >&2
-                differs=1
-              fi
-            done
-            if [ "$differs" -ne 0 ]; then
-              exit 1
-            fi
-          else
-            gh release create "$TAG" \
-              --title "Deadeye / Vision Review ${VERSION}" \
-              --notes-file "$RUNNER_TEMP/release-notes.md"
-          fi
-          gh release upload "$TAG" dist/*.whl dist/*.tar.gz dist/sbom.cdx.json dist/SHA256SUMS --clobber
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+        run: scripts/publish_release.sh

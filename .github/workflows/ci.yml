@@ -60,44 +60,11 @@ jobs:
       - run: echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
       - run: make badge BADGE="$RUNNER_TEMP/coverage.svg"
       - name: Publish the badge to the badges branch
+        # scripts/publish_badge.sh owns the askpass helper and the push, so
+        # `make lint-shell` analyzes the credential path instead of a here-doc
+        # in this file. It reads GITHUB_TOKEN from the environment, never from
+        # argv (THREAT_MODEL T9).
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          # The write-scoped token reaches git through an askpass helper that
-          # reads it out of the environment, never through a remote URL: a
-          # URL form persists into badge-repo/.git/config and puts the token
-          # in argv of every git process (THREAT_MODEL T9). The helper lives
-          # in RUNNER_TEMP and the trap removes it, so nothing about it
-          # outlives the job.
-          askpass="$RUNNER_TEMP/badge-askpass.sh"
-          # The single quotes are deliberate: $1 and $GITHUB_TOKEN belong to
-          # the helper git runs, not to this step.
-          # shellcheck disable=SC2016
-          printf '%s\n' \
-            '#!/bin/sh' \
-            'case "$1" in' \
-            '  *[Uu]sername*) echo x-access-token ;;' \
-            '  *) printf "%s\n" "$GITHUB_TOKEN" ;;' \
-            'esac' > "$askpass"
-          chmod +x "$askpass"
-          trap 'rm -f "$askpass"' EXIT
-          export GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0
-          url="https://github.com/${GITHUB_REPOSITORY}.git"
-          if git ls-remote --exit-code --heads origin badges >/dev/null 2>&1; then
-            git clone --depth 1 --branch badges "$url" badge-repo
-          else
-            git init -q -b badges badge-repo
-            git -C badge-repo remote add origin "$url"
-          fi
-          cp "$RUNNER_TEMP/coverage.svg" badge-repo/
-          cd badge-repo
-          # The clone carries its own origin, and it is already the
-          # credential-free URL; the fresh repo has just been given the same
-          # one. Neither needs rewriting, so the token never reaches a remote
-          # entry on disk.
-          git config user.name "hordeforge-ci"
-          git config user.email "ci@hordeforge.noreply.github.com"
-          git add coverage.svg
-          git diff --cached --quiet || git commit -m "update coverage badge"
-          git push origin badges
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: scripts/publish_badge.sh "$RUNNER_TEMP/coverage.svg"

@@ -34,19 +34,9 @@ runs:
     # with 3.11 and 3.12 never executed.
     - name: Resolve the interpreter under test
       shell: bash
-      env:
-        REQUESTED: ${{ inputs.python-version }}
-      run: |
-        set -euo pipefail
-        version="$REQUESTED"
-        if [ -z "$version" ]; then
-          version="$(tr -d '[:space:]' < .python-version)"
-        fi
-        if [ -z "$version" ]; then
-          echo "ERROR: no interpreter given and .python-version is empty" >&2
-          exit 1
-        fi
-        echo "UV_PYTHON=$version" >> "$GITHUB_ENV"
+      # A script under scripts/, not inline shell: the logic `make lint-shell`
+      # analyzes, and runnable on its own.
+      run: echo "UV_PYTHON=$(scripts/resolve_test_python.sh '${{ inputs.python-version }}')" >> "$GITHUB_ENV"
 
     - run: uv python install "$UV_PYTHON"
       shell: bash
@@ -63,11 +53,7 @@ runs:
     - name: shellcheck on macOS
       if: runner.os == 'macOS'
       shell: bash
-      run: |
-        set -euo pipefail
-        if ! command -v shellcheck >/dev/null 2>&1; then
-          brew install shellcheck
-        fi
+      run: scripts/ensure_shellcheck.sh
     # Exercise the installed console script, not only the source tree, so a
     # broken entry point fails here rather than in a consumer's checkout.
     # The Makefile owns these two invocations; CI and locals share them.

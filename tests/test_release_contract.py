@@ -130,6 +130,70 @@ def test_ci_installs_the_uv_version_the_manifest_names() -> None:
         )
 
 
+def _makefile_shell_sources() -> set[str]:
+    """The scripts `make lint-shell` actually hands to shellcheck.
+
+    SHELL_SOURCES is a continued assignment, so the list is recovered by
+    reading to the end of that logical line rather than by matching one.
+    """
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    entry = makefile[makefile.index("SHELL_SOURCES :=") :].splitlines()
+    sources: set[str] = set()
+    for line in entry:
+        parts = line.replace("\\", " ").split()
+        if len(parts) > 2:
+            sources.update(parts[2:])
+            continue
+        if not line.startswith((" ", "\t")):
+            break
+        sources.update(parts)
+    return sources
+
+
+def test_every_shell_script_is_handed_to_shellcheck() -> None:
+    # `make lint-shell` reads a named list, so a shell script added under
+    # scripts/ is unanalyzed until someone remembers to add it. The badge
+    # publish and the release publish shipped for months as here-docs in the
+    # workflows, with the write-token handling among them, because nothing
+    # made them reachable from the gate. Deriving the list from the tree means
+    # a new script is a failing test, not a silent gap.
+    sources = _makefile_shell_sources()
+    assert sources, "SHELL_SOURCES is empty; `make lint-shell` would analyze nothing"
+
+    scripts = ROOT / "scripts"
+    on_disk = {
+        str(path.relative_to(ROOT))
+        for path in sorted(scripts.iterdir())
+        if path.is_file() and path.read_bytes()[:20].startswith(b"#!/usr/bin/env bash")
+    }
+    assert on_disk, "no bash script found under scripts/; the ratchet is looking at the wrong path"
+
+    missing = sorted(on_disk - sources)
+    assert not missing, (
+        f"shell script(s) {missing} are not in SHELL_SOURCES, so `make lint-shell` "
+        "never analyzes them; add each to the Makefile list in the same commit"
+    )
+
+
+def test_workflows_hold_no_inline_shell() -> None:
+    # Every step in a workflow ran as a here-doc in the workflow file itself,
+    # where no linter reaches it. The logic now lives in a script under
+    # scripts/, which `make lint-shell` covers and a contributor can run. A
+    # multi-line `run: |` block is shell outside the gate, so its return here
+    # is a failure with the script to move it into.
+    inline: list[tuple[Path, int]] = []
+    for path in sorted((ROOT / ".github").rglob("*.yml")):
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if re.match(r"^\s*run:\s*\|\s*$", line):
+                inline.append((path, number))
+    assert not inline, (
+        "multi-line `run: |` at "
+        + ", ".join(f"{path.relative_to(ROOT)}:{number}" for path, number in inline)
+        + " is shell no linter reads; move the logic into a script under scripts/"
+        " and call it, so `make lint-shell` covers it"
+    )
+
+
 def test_result_key_set_is_pinned() -> None:
     assert tuple(RESULT_KEYS) == (
         "summary",
@@ -441,7 +505,16 @@ def test_release_publishes_a_checksum_manifest() -> None:
         "a local build and a release build produce the same manifest"
     )
     workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
-    assert "dist/SHA256SUMS" in workflow, (
+    # The asset list is named by scripts/publish_release.sh, which the
+    # workflow calls: an inline `gh release upload` in the workflow was shell
+    # no linter reads, and the list is exactly what has to stay in step with
+    # what `make dist` writes.
+    publish = (ROOT / "scripts" / "publish_release.sh").read_text(encoding="utf-8")
+    assert "scripts/publish_release.sh" in workflow, (
+        "the release must call the script that uploads the assets, so the upload "
+        "is shellcheck-covered rather than a here-doc in the workflow"
+    )
+    assert "dist/SHA256SUMS" in publish, (
         "the release must upload dist/SHA256SUMS beside the wheel and the sdist"
     )
     assert "sha256sum sbom.cdx.json >> SHA256SUMS" in workflow, (

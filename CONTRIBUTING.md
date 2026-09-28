@@ -44,10 +44,16 @@ that reads this lock and exports the release SBOM, and every CI use of
 newest uv by default. Raise the floor and the three `version:` inputs together,
 or `tests/test_release_contract.py` fails.
 
-`make check` also runs shellcheck over `scripts/bootstrap` and
-`scripts/e2e.sh`. Shellcheck is a host tool, not a Python dependency, so it
-comes from the system package manager (it ships in the GitHub runner image);
-CI fails loudly when it is missing rather than skipping the gate.
+`make check` also runs shellcheck over every shell script under `scripts/`,
+which includes the five the CI and release workflows call: the interpreter
+resolver, the shellcheck bootstrap, the badge publish, the tag check, and the
+release publish. A workflow step that needs more than a single command belongs
+in a script under `scripts/`, not in a `run:` here-doc, so `make lint-shell`
+reaches it; `tests/test_release_contract.py` fails when a workflow grows an
+inline block or a new script misses the list. Shellcheck is a host tool, not a
+Python dependency, so it comes from the system package manager (it ships in
+the GitHub runner image); CI fails loudly when it is missing rather than
+skipping the gate.
 
 Agent-facing rules live in [AGENTS.md](AGENTS.md) and apply to human
 contributors too. The organization-wide rules are in
