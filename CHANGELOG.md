@@ -306,6 +306,14 @@ required (`CONTRIBUTING.md`, "Changing a contract").
 
 ### Fixed
 
+- The e2e's fixture modlet is no longer left half-built by a run that dies
+  partway. Before: `.suite`, the marker the next run tests to decide whether
+  to reuse the fixture, was written before the intent file it names, so a run
+  killed between the two writes left a marker with no intent behind it, and
+  every later run reused the half-built modlet and died on the missing file
+  without rebuilding. After: the intent file lands first and both it and the
+  marker are renamed into place, so a partial scaffold leaves no marker, the
+  next run re-scaffolds, and a complete one is still reused.
 - A provider connection that dropped after the request reached the socket is
   now reported as a `NoVerdictError`, the spent-submission refusal, rather than
   raising `TypeError` out of the fault path. Before: the adapter called

@@ -92,7 +92,7 @@ not a network one.
 | Provider HTTP responses | `providers/gemini.py:148-245`, `providers/nvidia.py:101-159` | untrusted vendor payload over TLS |
 | Outputs | `cli.py:346-359`; `evidence.py:310-340`; `review.py:101-111` | stdout JSON, evidence file, stderr disclosure lines |
 | Evidence destination path | `cli.py:132-134,150-154`; `mcp.py:363,372`; written at `evidence.py:378-392` | `--output` / `output`, `--force` / `force`; arbitrary path, parent directories created on demand, `--force` skips the exclusive publish (T7) |
-| `scripts/e2e.sh` | `e2e.sh:63,105,125-133,205,266-272,308,314` | sibling checkout roots and tool paths, `E2E_OUT`/`E2E_MOD_DIR` write roots, and the one shell path that submits to a real provider (T9) |
+| `scripts/e2e.sh` | `e2e.sh:63,105,125-133,205,275-284,321,326` | sibling checkout roots and tool paths, `E2E_OUT`/`E2E_MOD_DIR` write roots, and the one shell path that submits to a real provider (T9) |
 | `scripts/playtest_detect.py` | `playtest_detect.py:59-62` | puts `$PLAYTEST_ROOT/scripts` on `sys.path` and imports the sibling's module: a fourth environment-named code-execution path (T9) |
 | `scripts/bootstrap` | `bootstrap:16` | `uv sync --locked` from the committed lockfile (T9) |
 | `Makefile` build and verify targets | `Makefile:174-178,195,234,236,254,264` | `DIST`, `VERIFY_DIST`, and `VERIFY_PATH` are overridable from the environment and two targets `rm -rf` them (T9) |
@@ -449,7 +449,7 @@ carry their own entry points and had no entry here.
 
 - **`scripts/e2e.sh`** is the only shell path that reaches the network, and it
   reaches it deliberately: it runs `deadeye review --allow-network` against a
-  real provider (`e2e.sh:308,314`) and exports `DEADEYE_CONFIG_DIR` to the
+  real provider (`e2e.sh:321,326`) and exports `DEADEYE_CONFIG_DIR` to the
   repository root (`e2e.sh:63`), so the committed `config.toml` shadows any
   home config for the whole run. It also executes code from three sibling
   checkouts whose paths come from the environment — `capture_video.sh`,
@@ -460,7 +460,7 @@ carry their own entry points and had no entry here.
   "$PLAYTEST_ROOT" build GAME="$GAME"` runs a sibling's build
   (`e2e.sh:205`), and the mod deploy step shells out to `bash -c 'rm -rf
   "${2:?}/$1" && cp -a "$0" "$2/$1"'` under the game client's Mods folder
-  (`e2e.sh:266-272`), a recursive delete whose roots are all
+  (`e2e.sh:275-284`), a recursive delete whose roots are all
   environment-named. `E2E_OUT` and `E2E_MOD_DIR` are unconfined write roots.
   This is a developer tool run by its own author against their own machine, so
   the exposure is a hostile checkout being run as the e2e, which is the same

@@ -69,7 +69,12 @@ Everything lands under `.local/` in this repository (gitignored):
   sharing a directory.
 
 Re-running the script creates a new stamp dir; an existing evidence envelope
-is never overwritten. `--fresh` rebuilds the fixture modlet from scratch.
+is never overwritten. A second run reuses the fixture modlet and scaffolds it
+again only when it is incomplete: the `.suite` marker and the intent file it
+names are both renamed into place after the last step that produces them, so
+a run killed partway through the scaffold leaves no marker, and the next run
+rebuilds rather than reusing a modlet whose intent file was never written.
+`--fresh` rebuilds the fixture modlet from scratch.
 
 ## Helper scripts
 

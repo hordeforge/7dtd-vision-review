@@ -206,10 +206,12 @@ if [[ -z "$CLIP" ]]; then
     fi
     [[ -f "$HARNESS_DLL" ]] || die "no harness at $HARNESS_DLL even after build"
 
-    # The completion marker is .suite (written after the provider generated):
-    # a modlet that only got partway (init/generate/build but no provider)
-    # falls through to a fresh scaffold instead of dying on a missing suite.
-    if [[ -f "$MOD_DIR/.suite" && "$FRESH" -eq 0 ]]; then
+    # The completion marker is .suite, renamed into place after the provider
+    # generated and after the intent file it names: a modlet that only got
+    # partway (init/generate/build but no provider, or a run killed before the
+    # last rename) falls through to a fresh scaffold instead of being reused
+    # half-built or dying on a file no run finished writing.
+    if [[ -f "$MOD_DIR/.suite" && -f "$MOD_DIR/thing.review.json" && "$FRESH" -eq 0 ]]; then
         say "reusing fixture modlet at $MOD_DIR (--fresh to rebuild it)"
     else
         say "scaffolding fixture modlet at $MOD_DIR"
@@ -250,10 +252,20 @@ EOF
         )
         SUITE="$(e2e_report.py suite "$MOD_DIR/.provider.json")"
         [[ -n "$SUITE" ]] || die "shamway acceptance-provider reported no suite id"
-        printf '%s\n' "$SUITE" > "$MOD_DIR/.suite"
-        cat > "$MOD_DIR/thing.review.json" <<EOF
+        # The intent file lands before the marker that says the fixture is
+        # complete, and both land by rename. `.suite` is the only record the
+        # reuse branch above has, so a marker published before the last
+        # artifact it claims makes every later run reuse a half-built modlet
+        # and die on a file no run ever wrote; a marker written in place can
+        # also be read back torn, naming a suite that was never generated. A
+        # run killed between the two renames finds no marker and
+        # re-scaffolds from scratch, which is the re-run that converges.
+        cat > "$MOD_DIR/thing.review.json.in" <<EOF
 {"schema_version": 1, "purpose": "verify the box reads as a solid, well-proportioned prop through a full turntable turn", "subject": "thing (synthesized box mesh)", "camera_path": "turntable", "desired_qualities": "proportions hold, silhouette reads from every side, no distortion during rotation", "avoid": ["clipping", "popping", "jitter", "scale errors"], "questions": ["does any face warp or pop during the turn?"], "suite": "$SUITE", "case": "$CLIP_ID"}
 EOF
+        mv "$MOD_DIR/thing.review.json.in" "$MOD_DIR/thing.review.json"
+        printf '%s\n' "$SUITE" > "$MOD_DIR/.suite.in"
+        mv "$MOD_DIR/.suite.in" "$MOD_DIR/.suite"
     fi
     SUITE="$(cat "$MOD_DIR/.suite")"
     [[ -n "$SUITE" ]] || die "fixture modlet at $MOD_DIR has no recorded suite (remove it or pass --fresh)"
