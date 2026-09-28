@@ -78,7 +78,8 @@ already defined in `base.py`. An undocumented capability is one the next
 session will rebuild from scratch.
 
 - `scripts/bootstrap` — `uv sync` from the committed lockfile with the dev group
-- `make check test` — lint, typecheck, compileall, and the unit suite
+- `make check test` — lint, shellcheck, typecheck, compileall, and the unit
+  suite
 
 ```bash
 scripts/bootstrap

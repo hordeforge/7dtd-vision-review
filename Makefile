@@ -1,4 +1,4 @@
-.PHONY: help all check lint typecheck test smoke coverage
+.PHONY: help all check lint lint-shell typecheck test smoke coverage
 
 .DEFAULT_GOAL := help
 
@@ -9,6 +9,14 @@
 # Without uv on PATH, bare tools still work: the core has no dependencies,
 # but ruff/mypy/pytest must then come from the host.
 UV_PRESENT := $(shell command -v uv >/dev/null 2>&1 && echo yes || echo no)
+
+# The shell scripts under scripts/ are a second language in the tree and
+# carry the same weight as the Python: e2e.sh is the release gate, bootstrap
+# is the environment every contributor runs. shellcheck is not a Python tool,
+# so it comes from the host (it ships in the GitHub runner image) rather than
+# from the uv project environment.
+SHELLCHECK := $(shell command -v shellcheck >/dev/null 2>&1 && echo shellcheck)
+SHELL_SOURCES := scripts/bootstrap scripts/e2e.sh
 
 ifeq ($(UV_PRESENT),yes)
 PYTHON := uv run --frozen python3
@@ -23,7 +31,7 @@ DEADEYE := env PYTHONPATH=src $(PYTHON) -m deadeye
 endif
 
 help:
-	@echo "check     lint + typecheck + compile"
+	@echo "check     lint + shell lint + typecheck + compile"
 	@echo "test      offline test suite"
 	@echo "smoke     exercise the CLI entry points CI exercises"
 	@echo "coverage  test suite with a line-coverage report"
@@ -34,7 +42,7 @@ help:
 
 all: check test smoke
 
-check: lint typecheck
+check: lint lint-shell typecheck
 	$(PYTHON) -m compileall -q src tests
 
 lint:
@@ -47,6 +55,18 @@ else
 		exit 1; \
 	else \
 		echo "note: ruff not installed; skipped python linting"; \
+	fi
+endif
+
+lint-shell:
+ifdef SHELLCHECK
+	$(SHELLCHECK) -x $(SHELL_SOURCES)
+else
+	@if [ -n "$${CI:-}" ]; then \
+		echo "ERROR: CI requires shellcheck for the shell scripts under scripts/" >&2; \
+		exit 1; \
+	else \
+		echo "note: shellcheck not installed; skipped shell linting"; \
 	fi
 endif
 
