@@ -30,9 +30,10 @@ from typing import TYPE_CHECKING, Any
 from . import config, sampling
 from .errors import DeadeyeError, EvidenceWriteError, NoVerdictError, did_not_answer
 from .evidence import build_envelope, ensure_writable, sha256_file, write_evidence
-from .intent import ReviewIntent, load_intent, redact_json_text
+from .intent import ReviewIntent, load_intent
 from .prompt import FRAME_TIMING_NOTE, PromptParts, build_prompt_parts
 from .providers import MediaPayload, ProviderLimits, ReviewRequest
+from .redaction import redact_json_text
 from .result import parse_model_json, validate_result
 from .sampling import base64_wire_bytes, mime_for_suffix
 

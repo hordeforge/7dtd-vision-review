@@ -22,7 +22,8 @@ import pytest
 from deadeye._version import __version__
 from deadeye.evidence import EVIDENCE_SCHEMA_VERSION, build_envelope
 from deadeye.intent import INTENT_SCHEMA_VERSION, ReviewIntent, parse_intent
-from deadeye.result import ADVISORY_NOTE, PROMPT_VERSION, RESULT_KEYS, RUBRIC_VERSION
+from deadeye.prompt import PROMPT_VERSION
+from deadeye.result import ADVISORY_NOTE, RESULT_KEYS, RUBRIC_VERSION
 from deadeye.sampling import SamplingRecord
 
 ROOT = Path(__file__).resolve().parent.parent

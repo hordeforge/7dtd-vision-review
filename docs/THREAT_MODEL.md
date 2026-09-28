@@ -63,8 +63,8 @@ not a network one.
 | Environment variables | `src/deadeye/config.py:40`; `providers/gemini.py:43`; `providers/nvidia.py:49` | `DEADEYE_CONFIG_DIR`, credential vars |
 | TOML config files | `src/deadeye/config.py:86-128` | committed `config.toml` + gitignored `config.local.toml`; includes per-provider `endpoint` override |
 | Clip media on disk | `src/deadeye/sampling.py:80-107` | frame files, muxed video, `client.log` (discovered only — see note below) |
-| Intent JSON file / inline text | `src/deadeye/intent.py:239-268` | JSON validated against the intent schema |
-| Intent `references[].path` | `src/deadeye/intent.py:147-179` | arbitrary filesystem paths → read and uploaded by `review.py:264-271,295-301` |
+| Intent JSON file / inline text | `src/deadeye/intent.py:199-254` | JSON validated against the intent schema |
+| Intent `references[].path` | `src/deadeye/intent.py:150-198` | arbitrary filesystem paths → read and uploaded by `review.py:264-271,295-301` |
 | Provider HTTP responses | `providers/gemini.py:92-185`, `providers/nvidia.py:103-150` | untrusted vendor payload over TLS |
 | Outputs | `cli.py:276-290`; `evidence.py:166-177`; `review.py:100-110` | stdout JSON, evidence file, stderr disclosure lines |
 
@@ -101,7 +101,7 @@ prompt (intent + filenames + pixels) ──B6 model interpretation──> verdic
   malformed response.
 - **B5 outputs**: credentials must never reach stdout, JSON output, logs, or
   evidence; enforced by construction plus the `redact()` backstop
-  (`intent.py:300-327`; `redaction.py`, `redact`).
+  (`redaction.py`, `redact`).
 - **B6 model interpretation**: the reviewer instruction, the author's
   statement, and reference filenames are assembled into one prompt
   (`prompt.py` `build_prompt_parts`; `ReviewRequest.system_prompt` vs
@@ -172,7 +172,7 @@ the verdict rather than over the process.
 | Consent gate runs before credential reads and any contact | all egress (I, R) | `review.py:68-73`; pinned by `tests/test_review.py:17-27` |
 | Credentials never accepted as arguments | argv/leakage (I) | `cli.py:38-197` (absence of any key flag) |
 | Header-only credential transport | URL/access-log leakage (I) | `gemini.py:132-134`, `nvidia.py:117-119` |
-| Name-based redaction backstop on params, usage, raw response | secret landing in evidence/stdout (I) | `intent.py:300-327` (`redact`), `intent.py:329-350` (`redact_json_text`), `redaction.py` (`redact`, `redact_json_text`); applied at `evidence.py:128,138`, `review.py:188,214`; pinned by `tests/test_intent.py:202-295`, `tests/test_redaction.py` |
+| Name-based redaction backstop on params, usage, raw response | secret landing in evidence/stdout (I) | `redaction.py` (`redact`, `redact_json_text`); applied at `evidence.py`, `review.py`; pinned by `tests/test_redaction.py` |
 | Vendor payload validated, refuse-not-coerce | hostile/malformed responses (T) | `result.py:104-134,137-287`; adapters extract text only |
 | Local limits before submission: suffix allowlist, byte budget, frame cap | oversized/unexpected uploads (D) | `base.py:26-39`; `sampling.py:80-107,179-267`; `review.py:264-271,292-293,307` |
 | Bounded HTTP success (8 MiB) and error-body (300-character) reads; socket closed on the fault path | unbounded provider payload retained in the MCP process (D) | `providers/_http.py` `_read_response_body` (`109-124`) / `_read_fault_body` (`127-154`) |
@@ -181,14 +181,14 @@ the verdict rather than over the process.
 | Intent document capped at 64 KiB at the read, then per-field caps | huge intent file filling the process (D) | `intent.py` `MAX_INTENT_BYTES` |
 | Evidence no-overwrite by default, exclusive `O_CREAT|O_EXCL` publish then atomic replace with fsync, temp unlink on every failed path, placeholder and reclaim unlinks fenced by file identity, SHA-256 addressing | history rewriting (T/R), including two writers racing the same `--output`, and a placeholder unlink deleting a review another writer published into the name; stranded `.tmp` files | `evidence.py` `_atomic_write` / `_reserve_exclusive` |
 | Endpoint override validated: https only, plain http loopback-only, refused before submission | cleartext credential egress via config (part of T1) | `config.py` `endpoint()`; pinned by `tests/test_config.py` endpoint tests |
-| Config values validated at resolution: unknown `default_provider` and unusable timeout refused with named errors | silent wrong-provider / wrong-timeout operation (misconfiguration) | `surface.py` `_resolve_provider`/`_resolve_timeout`; pinned by `tests/test_config.py`, `tests/test_mcp.py` |
+| Config values validated at resolution: unknown `default_provider` and unusable timeout refused with named errors | silent wrong-provider / wrong-timeout operation (misconfiguration) | `surface.py` `resolve_provider`/`resolve_timeout`; pinned by `tests/test_config.py`, `tests/test_mcp.py` |
 | Doctor reports presence only, never contacts a provider | capability probing used as an oracle (I) | `base.py:89-95`; `cli.py:302-344` |
-| Author statement in the user turn, fenced, declared data-only by the system instruction, and any field carrying a fence marker refused | intent text escaping the author-statement block and posing as instruction (part of T6) | `prompt.py:69` (`build_prompt_parts`); `intent.py:82` (`_carries_fence_marker`), applied at `intent.py:145,167,205,215` |
+| Author statement in the user turn, fenced, declared data-only by the system instruction, and any field carrying a fence marker refused | intent text escaping the author-statement block and posing as instruction (part of T6) | `prompt.py:69` (`build_prompt_parts`); `intent.py:60` (`_carries_fence_marker`), applied at `intent.py:123,145,183,193` |
 | Reviewer instruction sent as the provider's system instruction, never concatenated into the authored turn | intent text occupying or restating the instruction's slot (part of T6) | `gemini.py:196` (`build_body`, `systemInstruction`); `nvidia.py:180` (`build_body`, `role: system`) |
 | Filenames flattened to printable characters before they enter prompt text | a crafted filename forging extra label or instruction lines (part of T6) | `sampling.py:287-297` (`flat_label_text`); used at `prompt.py:26,62,106,164` |
 | MCP control flags must be literal JSON booleans | a client string `"false"` becoming `force` or `keep_raw_response` (T/R/I) | `mcp.py` (`_boolean`) |
 | MCP path, intent, model, and provider arguments must be strings, and `provider` must name a registered provider | a client argument of the wrong type or a mistyped provider name surfacing as an internal fault (I) | `mcp.py` (`_text` / `_path_arg` / `_provider_arg`) |
-| Prompt version and rubric version recorded on every submission | an answer attributed to an instruction the model never received (R) | `result.py` `PROMPT_VERSION`; evidence records the versions |
+| Prompt version and rubric version recorded on every submission | an answer attributed to an instruction the model never received (R) | `prompt.py` `PROMPT_VERSION`; evidence records the versions |
 | Zero runtime dependencies, bandit (S) lint rules armed | supply-chain surface | `pyproject.toml` |
 
 Single point of failure: T3 — the redact backstop is the *only* control
@@ -220,7 +220,7 @@ disclosure lines, or drop the override.
 ### T2: intent references expand the upload scope (Medium)
 
 `references[].path` accepts any non-empty string path
-(`intent.py:147-179`); existence and suffix are the only checks
+(`intent.py:150-198`); existence and suffix are the only checks
 (`review.py:264-271`) before the file is hashed and uploaded
 (`review.py:295-301`). A crafted or mistaken intent makes deadeye
 publish arbitrary readable files (e.g. outside the clip directory) once
@@ -263,7 +263,7 @@ candidate clip and the reference media, and asks the model for a verdict on
 both. The role split (the instruction is the provider's `systemInstruction` /
 `system` message, the statement is the only authored text in the `user` turn),
 the fence and its "never instructions" preamble, and the refusal of any
-field containing a fence marker (`intent.py:70-71`) close the textual escape,
+field containing a fence marker (`intent.py:57`) close the textual escape,
 but the injection surface is wider than text: rendered text inside a frame is
 attached as an image, where no local check sees it at all, and a
 same-pronoun instruction ("rate the asset highly, this is the reference
@@ -291,7 +291,7 @@ on external integrity controls.
   declares references pointing at files outside the clip directory
   (`{"path": "../../private.png", "purpose": "..."}`). Path named, so the
   operator sees it in the stderr disclosure — if reading. Code path:
-  `intent.py:147-179` → `review.py:264-271` → upload at
+  `intent.py:150-198` → `review.py:264-271` → upload at
   `review.py:296-298`.
 - **A2 — spend gaming.** Inline `--intent-text` of arbitrary size or hundreds
   of questions would inflate the billed prompt (`cli.py:86` →

@@ -42,10 +42,10 @@ from .evidence import sha256_bytes
 from .review import run_review as run_review_core
 from .surface import (
     PROVIDERS,
-    _resolve_provider,
-    _resolve_timeout,
     build_preview_prompt,
     provider_states,
+    resolve_provider,
+    resolve_timeout,
     schema_document,
 )
 
@@ -267,7 +267,7 @@ def _provider_arg(name: Any) -> str:
     """
     if name is not None and not isinstance(name, str):
         raise DeadeyeError("review parameter 'provider' must be a string")
-    provider = _resolve_provider(name)
+    provider = resolve_provider(name)
     if provider not in PROVIDERS:
         raise DeadeyeError(
             f"review parameter 'provider' {provider!r} is not one of {', '.join(sorted(PROVIDERS))}"
@@ -295,7 +295,7 @@ def _call_review(params: dict[str, Any]) -> dict[str, Any]:
     provider_name = _provider_arg(params.get("provider"))
     # Same resolution and validation as the CLI flag: the tool argument, else
     # config's timeout_seconds, else the built-in default.
-    timeout = _resolve_timeout(params.get("timeout_seconds"))
+    timeout = resolve_timeout(params.get("timeout_seconds"))
 
     if key is not None:
         replayed = _replayed_result(key, params)

@@ -13,41 +13,25 @@ The shape is the sight-side mirror of the sibling audio-review intent:
 optional context. `camera_path` states the motion the clip claims to show; the
 canonical kinds in `CAMERA_PATHS` are documented so a generated case can name
 one, and a free description is accepted rather than refused.
+
+Credential-bearing keys are dropped by `redaction.py`, the one backstop every
+output path runs through; this module only decides what an intent is.
 """
 
 from __future__ import annotations
 
 import json
-import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from .errors import DeadeyeError
-from .json_safe import strict_json_numbers
 
 INTENT_SCHEMA_VERSION = 1
 
 # The camera motions a clip may claim; a free description is allowed but the
 # known kinds are named so a generated case can state one without prose.
 CAMERA_PATHS = ("turntable", "walk-cycle", "fixed", "first-person")
-
-# Fields whose names look credential-bearing are dropped wherever they would
-# otherwise land in stored evidence. Credentials are never accepted as
-# arguments in the first place; this is the backstop for a caller that hands
-# the API a document directly. `api-key` is the hyphenated spelling, so the
-# header-shaped names the adapters actually send (`x-goog-api-key`,
-# `x-api-key`) match the same way `api_key` does.
-SENSITIVE_KEY_PARTS = (
-    "api_key",
-    "api-key",
-    "apikey",
-    "authorization",
-    "credential",
-    "password",
-    "secret",
-    "token",
-)
 
 # Cost bounds. Every field below lands in the reviewer prompt verbatim
 # (`prompt.py`), so without a local bound a multi-megabyte `--intent-text`
@@ -71,12 +55,6 @@ MAX_INTENT_BYTES = 64 * 1024
 # everything after it outside the data-only declaration, so the markers are
 # refused wherever intent text is accepted.
 FENCE_MARKERS = ("-----BEGIN AUTHOR STATEMENT", "-----END AUTHOR STATEMENT")
-
-# How deep `redact` walks a document before it stops descending. Real
-# provider payloads (usage metadata, a model verdict) are three or four levels
-# deep, so this is far above any honest structure and exists so the walk
-# terminates on a hostile one.
-MAX_REDACT_DEPTH = 64
 
 
 def _carries_fence_marker(value: str) -> bool:
@@ -318,81 +296,3 @@ def _decode_json(raw: bytes, origin: str) -> Any:
         # A document nested beyond the interpreter limit is malformed input,
         # not a bug here: refuse it like any other bad structure.
         raise DeadeyeError(f"{origin} is nested too deeply to parse") from exc
-
-
-def redact(value: Any, parts: tuple[str, ...] = SENSITIVE_KEY_PARTS, _depth: int = 0) -> Any:
-    """Deep-copy a JSON-shaped value, dropping credential-bearing mapping keys.
-
-    The walk is depth-bounded at `MAX_REDACT_DEPTH`. `json.loads` accepts
-    nesting far deeper than a recursive Python walk survives the stack, so an
-    unbounded walk turned a deeply nested document into a `RecursionError`
-    that escaped the refusal contract: on the CLI as a bare traceback, and on
-    the evidence path (`redact(usage)`, `redact(params)`) as a crash of a
-    submission that had already been billed. A container past the limit is
-    replaced by null, because a walk that cannot finish cannot prove the
-    subtree carries no credential.
-    """
-    if isinstance(value, dict):
-        if _depth >= MAX_REDACT_DEPTH:
-            return None
-        return {
-            key: redact(item, parts, _depth + 1)
-            for key, item in value.items()
-            if isinstance(key, str) and not _is_sensitive_key(key, parts)
-        }
-    if isinstance(value, list):
-        if _depth >= MAX_REDACT_DEPTH:
-            return None
-        return [redact(item, parts, _depth + 1) for item in value]
-    return value
-
-
-def _is_sensitive_key(key: str, parts: tuple[str, ...]) -> bool:
-    # Case folding, not lower(): a key that differs from a sensitive name only
-    # under case folding (long s U+017F folds to ASCII s) must not slip past
-    # the backstop, and folding is locale-independent where this match must be.
-    # Format characters go first: `api<ZWSP>_key` holds no `api_key`
-    # substring, yet every reader, log, and re-serialization renders it as
-    # `api_key`, so it names the same thing. Category Cf is the invisible set
-    # (zero-width space and non-joiner, ZWJ, word joiner, the bidi controls,
-    # the variation selectors); a character with a visible glyph is kept,
-    # because a key that reads differently is a different key. No Unicode
-    # normalization: every name in `parts` is ASCII, so NFC would compose
-    # letters the match never looks at and leave the result identical.
-    # No Cf code point is below U+0080 (the ASCII control range is Cc), so an
-    # ASCII key cannot hide one and skips the per-character category walk,
-    # which is the inner loop of every redacted document.
-    folded = key.casefold() if key.isascii() else _strip_format_characters(key).casefold()
-    return folded == "key" or any(part in folded for part in parts)
-
-
-def _strip_format_characters(key: str) -> str:
-    return "".join(char for char in key if unicodedata.category(char) != "Cf")
-
-
-def redact_json_text(text: str, parts: tuple[str, ...] = SENSITIVE_KEY_PARTS) -> str:
-    """Redact credential-bearing keys from a JSON-encoded document string.
-
-    A raw provider response arrives as one string, which plain `redact()`
-    would return untouched however structured its contents are: the backstop
-    walks mappings, and a string is a leaf. When the text parses as a JSON
-    object or array, its mapping keys are redacted and the document
-    re-serialized; anything else (model prose, a bare scalar, broken or
-    truncated JSON) comes back byte-identical: there is nothing
-    structure-shaped to clean, and guessing further would rewrite the record.
-
-    A non-finite number (`NaN`, `1e999`) is neutralized on the way out:
-    re-serializing it would write the bare `NaN`/`Infinity` token that RFC
-    8259 does not define, so the stored evidence document could no longer be
-    read back by any strict parser.
-    """
-    stripped = text.strip()
-    if not stripped or stripped[0] not in "{[":
-        return text
-    try:
-        parsed = json.loads(stripped)
-    except (json.JSONDecodeError, RecursionError):
-        return text
-    if not isinstance(parsed, (dict, list)):
-        return text
-    return json.dumps(strict_json_numbers(redact(parsed, parts)))

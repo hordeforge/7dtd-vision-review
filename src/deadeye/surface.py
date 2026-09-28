@@ -35,7 +35,7 @@ PROVIDERS: dict[str, Callable[[], VideoReviewProvider]] = {
 }
 
 
-def _resolve_provider(name: str | None) -> str:
+def resolve_provider(name: str | None) -> str:
     """The provider to use: the flag, else config's default_provider, else gemini.
 
     A configured but unknown name is refused, never silently swapped for the
@@ -55,7 +55,7 @@ def _resolve_provider(name: str | None) -> str:
     )
 
 
-def _resolve_timeout(raw: Any) -> float:
+def resolve_timeout(raw: Any) -> float:
     """The seconds to wait for a provider: the flag, else config's
     timeout_seconds, else the built-in default.
 

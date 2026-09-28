@@ -11,19 +11,27 @@ review pipeline runs `redact_json_text` over a raw provider response, the
 evidence envelope runs `redact` over request parameters and usage, and the
 intent parser refuses fence markers. Colocating it with any of those would
 have the other two import a parsing module to reach a security primitive.
+Every consumer takes the backstop from here; a second copy in a parsing
+module would be a control that answers to whichever path reached it.
 """
 
 from __future__ import annotations
 
 import json
+import unicodedata
 from typing import Any
 
 from .json_safe import strict_json_numbers
 
 # Fields whose names look credential-bearing are dropped wherever they would
-# otherwise land in stored evidence.
+# otherwise land in stored evidence. Credentials are never accepted as
+# arguments in the first place; this is the backstop for a caller that hands
+# the API a document directly. `api-key` is the hyphenated spelling, so the
+# header-shaped names the adapters actually send (`x-goog-api-key`,
+# `x-api-key`) match the same way `api_key` does.
 SENSITIVE_KEY_PARTS = (
     "api_key",
+    "api-key",
     "apikey",
     "authorization",
     "credential",
@@ -32,17 +40,37 @@ SENSITIVE_KEY_PARTS = (
     "token",
 )
 
+# How deep `redact` walks a document before it stops descending. Real
+# provider payloads (usage metadata, a model verdict) are three or four levels
+# deep, so this is far above any honest structure and exists so the walk
+# terminates on a hostile one.
+MAX_REDACT_DEPTH = 64
 
-def redact(value: Any, parts: tuple[str, ...] = SENSITIVE_KEY_PARTS) -> Any:
-    """Deep-copy a JSON-shaped value, dropping credential-bearing mapping keys."""
+
+def redact(value: Any, parts: tuple[str, ...] = SENSITIVE_KEY_PARTS, _depth: int = 0) -> Any:
+    """Deep-copy a JSON-shaped value, dropping credential-bearing mapping keys.
+
+    The walk is depth-bounded at `MAX_REDACT_DEPTH`. `json.loads` accepts
+    nesting far deeper than a recursive Python walk survives the stack, so an
+    unbounded walk turned a deeply nested document into a `RecursionError`
+    that escaped the refusal contract: on the CLI as a bare traceback, and on
+    the evidence path (`redact(usage)`, `redact(params)`) as a crash of a
+    submission that had already been billed. A container past the limit is
+    replaced by null, because a walk that cannot finish cannot prove the
+    subtree carries no credential.
+    """
     if isinstance(value, dict):
+        if _depth >= MAX_REDACT_DEPTH:
+            return None
         return {
-            key: redact(item, parts)
+            key: redact(item, parts, _depth + 1)
             for key, item in value.items()
             if isinstance(key, str) and not _is_sensitive_key(key, parts)
         }
     if isinstance(value, list):
-        return [redact(item, parts) for item in value]
+        if _depth >= MAX_REDACT_DEPTH:
+            return None
+        return [redact(item, parts, _depth + 1) for item in value]
     return value
 
 
@@ -50,8 +78,23 @@ def _is_sensitive_key(key: str, parts: tuple[str, ...]) -> bool:
     # Case folding, not lower(): a key that differs from a sensitive name only
     # under case folding (long s U+017F folds to ASCII s) must not slip past
     # the backstop, and folding is locale-independent where this match must be.
-    folded = key.casefold()
+    # Format characters go first: `api<ZWSP>_key` holds no `api_key`
+    # substring, yet every reader, log, and re-serialization renders it as
+    # `api_key`, so it names the same thing. Category Cf is the invisible set
+    # (zero-width space and non-joiner, ZWJ, word joiner, the bidi controls,
+    # the variation selectors); a character with a visible glyph is kept,
+    # because a key that reads differently is a different key. No Unicode
+    # normalization: every name in `parts` is ASCII, so NFC would compose
+    # letters the match never looks at and leave the result identical.
+    # No Cf code point is below U+0080 (the ASCII control range is Cc), so an
+    # ASCII key cannot hide one and skips the per-character category walk,
+    # which is the inner loop of every redacted document.
+    folded = key.casefold() if key.isascii() else _strip_format_characters(key).casefold()
     return folded == "key" or any(part in folded for part in parts)
+
+
+def _strip_format_characters(key: str) -> str:
+    return "".join(char for char in key if unicodedata.category(char) != "Cf")
 
 
 def redact_json_text(text: str, parts: tuple[str, ...] = SENSITIVE_KEY_PARTS) -> str:

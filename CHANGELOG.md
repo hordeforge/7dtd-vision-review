@@ -165,6 +165,11 @@ required (`CONTRIBUTING.md`, "Changing a contract").
   provider now records its outcome, and a repeat replays the first refusal;
   a refusal raised before anything was sent still leaves the key free, so a
   corrected retry is unchanged.
+- Three evidence-race tests passed a `str` to `_atomic_write`, which takes
+  bytes, so they raised `TypeError` inside the write instead of asserting
+  anything: the concurrent-writer and stale-placeholder guarantees were
+  untested while the suite reported green around them. They now pass the
+  bytes the real caller passes.
 - The MCP idempotency ledger is now bounded by retained bytes as well as by
   entry count: at most 32 MiB of envelopes, oldest evicted, whichever bound
   the next entry crosses first. An entry's size is the client's to choose
@@ -326,6 +331,17 @@ required (`CONTRIBUTING.md`, "Changing a contract").
   kept, because a key that reads differently is a different key, and no
   normalization is applied: every sensitive name the backstop looks for is
   ASCII. Refusal and redaction text are unchanged.
+
+### Security
+
+- The credential redaction backstop existed in two copies with different
+  rules, so which control ran depended on the output path. The envelope
+  (`redaction.py`) matched a smaller set of key names, ignored Unicode
+  format characters, and walked an unbounded depth; the raw-response path
+  carried a second copy under `intent.py` with the full rule and the depth
+  bound. `redaction.py` is now the one implementation, taken by every
+  consumer, and a key that only the response path dropped
+  (`x-goog-api-key`) is dropped on the evidence path too.
 
 ## [0.1.1] - 2026-09-20
 

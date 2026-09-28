@@ -22,6 +22,12 @@ from .intent import ReviewIntent
 from .result import BASE_RUBRIC
 from .sampling import ClipMedia, flat_label_text
 
+PROMPT_VERSION = "3"
+# 2: the author statement became a fenced, data-only block.
+# 3: the instruction and the author statement moved to separate roles
+# (`build_prompt_parts`); a submission carries `system_prompt` alongside
+# `prompt` instead of one concatenated turn.
+
 FRAME_TIMING_NOTE = (
     "Frames arrive in the order listed; an issue's at_frame index refers to "
     "that order (0 = the first submitted frame), while at_seconds refers to "

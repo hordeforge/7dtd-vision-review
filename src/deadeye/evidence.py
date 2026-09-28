@@ -30,8 +30,9 @@ from typing import Any
 from ._version import __version__
 from .errors import DeadeyeError
 from .intent import INTENT_SCHEMA_VERSION, ReviewIntent
+from .prompt import PROMPT_VERSION
 from .redaction import SENSITIVE_KEY_PARTS, redact
-from .result import ADVISORY_NOTE, PROMPT_VERSION, RUBRIC_VERSION
+from .result import ADVISORY_NOTE, RUBRIC_VERSION
 from .sampling import SamplingRecord
 
 EVIDENCE_SCHEMA_VERSION = 1

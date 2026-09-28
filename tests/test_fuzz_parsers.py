@@ -48,9 +48,10 @@ except ImportError:
     )
 
 from deadeye.errors import DeadeyeError
-from deadeye.intent import SENSITIVE_KEY_PARTS, load_intent, parse_intent, redact
+from deadeye.intent import load_intent, parse_intent
 from deadeye.json_safe import strict_json_numbers
 from deadeye.providers._http import _decode_envelope
+from deadeye.redaction import SENSITIVE_KEY_PARTS, redact
 from deadeye.result import BASE_RUBRIC, RESULT_KEYS, parse_model_json, validate_result
 from deadeye.sampling import flat_label_text
 
@@ -181,7 +182,7 @@ def test_fuzz_validate_result_accepts_only_pipeline_shapes(data: object) -> None
 
 
 def _looks_sensitive(key: str) -> bool:
-    # Mirrors intent._is_sensitive_key: case folding, not lower(), so the
+    # Mirrors redaction._is_sensitive_key: case folding, not lower(), so the
     # oracle and the backstop agree on fold-only spellings (U+017F vs 's').
     folded = key.casefold()
     return folded == "key" or any(part in folded for part in SENSITIVE_KEY_PARTS)

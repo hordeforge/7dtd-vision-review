@@ -28,10 +28,10 @@ from .errors import DeadeyeError, EvidenceWriteError
 from .review import run_review
 from .surface import (
     PROVIDERS,
-    _resolve_provider,
-    _resolve_timeout,
     build_preview_prompt,
     provider_states,
+    resolve_provider,
+    resolve_timeout,
     schema_document,
 )
 
@@ -272,8 +272,8 @@ def _handle_review(args: argparse.Namespace) -> int:
     def notify(line: str) -> None:
         print(line, file=sys.stderr)
 
-    provider_name = _resolve_provider(args.provider)
-    timeout = _resolve_timeout(args.timeout)
+    provider_name = resolve_provider(args.provider)
+    timeout = resolve_timeout(args.timeout)
     try:
         envelope = run_review(
             args.clip,
@@ -360,14 +360,14 @@ def _handle_doctor(args: argparse.Namespace) -> int:
         # The effective top-level knobs, so a misconfiguration is visible
         # without reading the files; never any credential material here.
         try:
-            print(f"default_provider: {_resolve_provider(None)}")
+            print(f"default_provider: {resolve_provider(None)}")
         except DeadeyeError as exc:
             print(f"default_provider: not usable ({exc})")
         default_model = config.text(("default_model",))
         if default_model:
             print(f"default_model: {default_model}")
         try:
-            print(f"timeout_seconds: {_resolve_timeout(None):g}")
+            print(f"timeout_seconds: {resolve_timeout(None):g}")
         except DeadeyeError as exc:
             print(f"timeout_seconds: not usable ({exc})")
         # Per-provider endpoint overrides, validated here so a bad one is
