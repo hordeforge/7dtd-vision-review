@@ -10,6 +10,8 @@ lands a changelog entry in the same commit.
 from __future__ import annotations
 
 import re
+import shutil
+import subprocess
 import tarfile
 import tomllib
 import zipfile
@@ -451,6 +453,57 @@ def test_release_publishes_a_checksum_manifest() -> None:
             f"{document} describes what a release publishes and how to install "
             "it; the checksum manifest is part of both"
         )
+
+
+def test_the_checksum_manifest_runs_on_every_claimed_platform() -> None:
+    """`make dist` is documented for macOS, where GNU `sha256sum` does not exist.
+
+    The manifest is the only verification path a consumer has, and `make dist`
+    is the command a contributor runs to see what a release will produce. A
+    literal `sha256sum` died on that host at the manifest line, after the
+    redirect had already truncated SHA256SUMS to an empty file.
+    """
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    dist_recipe = makefile.split("dist:", 1)[1].split("\nelse:", 1)[0]
+    assert "sha256sum $$(" not in dist_recipe, (
+        "the dist recipe must hash through the probed $(SHA256), not GNU "
+        "sha256sum by name: macOS is a claimed platform and ships no coreutils"
+    )
+    assert "$(SHA256) $$(" in dist_recipe, (
+        "the dist recipe must hash the artifacts through $(SHA256)"
+    )
+
+
+@pytest.mark.skipif(
+    shutil.which("shasum") is None or shutil.which("sha256sum") is None,
+    reason="needs both digest tools to compare their output",
+)
+def test_both_digest_tools_emit_the_same_manifest_line(tmp_path: Path) -> None:
+    """The probed fallback has to produce a manifest `sha256sum -c` accepts.
+
+    A contributor on macOS and the release job on Ubuntu write the same file
+    from the same tree, and `sha256sum -c` is what a consumer runs, so the two
+    tools have to agree on the `<hex>  <name>` line rather than merely both
+    hashing.
+    """
+    artifact = tmp_path / "7dtd_vision_review-0.0.0-py3-none-any.whl"
+    artifact.write_bytes(b"portable manifest")
+    names = [artifact.name]
+    # The resolved paths, not the bare names: the test then hashes the same two
+    # programs the Makefile probe selects, whatever PATH holds.
+    gnu_tool = shutil.which("sha256sum")
+    bsd_tool = shutil.which("shasum")
+    assert gnu_tool is not None and bsd_tool is not None
+    gnu = subprocess.run(
+        [gnu_tool, *names], cwd=tmp_path, check=True, capture_output=True, text=True
+    )
+    bsd = subprocess.run(
+        [bsd_tool, "-a", "256", *names], cwd=tmp_path, check=True, capture_output=True, text=True
+    )
+    assert bsd.stdout == gnu.stdout, (
+        "the macOS digest path must write the same line sha256sum does, or a "
+        "manifest built there fails sha256sum -c"
+    )
 
 
 # Keep a Changelog's subsection order, with the breaking heading this repo

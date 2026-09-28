@@ -28,6 +28,14 @@ UV_PRESENT := $(shell command -v uv >/dev/null 2>&1 && echo yes || echo no)
 SHELLCHECK := $(shell command -v shellcheck >/dev/null 2>&1 && echo shellcheck)
 SHELL_SOURCES := scripts/bootstrap scripts/e2e.sh
 
+# The SHA-256 tool for the dist manifest, probed rather than named. `sha256sum`
+# is GNU coreutils and macOS ships none; the BSD answer is `shasum -a 256`, and
+# the two print the same `<hex>  <name>` line, so the manifest bytes do not
+# depend on which host built it and `sha256sum -c` still verifies it on Linux.
+# Named directly, the recipe died at that line on a claimed platform, after the
+# redirect had already truncated SHA256SUMS to nothing.
+SHA256 := $(shell command -v sha256sum >/dev/null 2>&1 && echo "sha256sum" || echo "shasum -a 256")
+
 # uv picks the project interpreter from .python-version, and silently rebuilds
 # .venv with it when the existing one disagrees. A CI job that synced a
 # specific version (uv sync --python 3.11) would then have that venv replaced
@@ -205,7 +213,7 @@ ifeq ($(UV_PRESENT),yes)
 	# bytes, and sorted under LC_ALL=C so the manifest itself is reproducible:
 	# dist-verify diffs the artifact set, and a manifest that reordered itself
 	# per host would fail that comparison for no reason.
-	@cd "$(DIST)" && LC_ALL=C sha256sum $$(LC_ALL=C ls -1 *.whl *.tar.gz) > SHA256SUMS
+	@cd "$(DIST)" && LC_ALL=C $(SHA256) $$(LC_ALL=C ls -1 *.whl *.tar.gz) > SHA256SUMS
 	@cat "$(DIST)/SHA256SUMS"
 else
 	@echo "ERROR: uv is required to build the distribution (scripts/bootstrap); this host has none" >&2
