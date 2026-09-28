@@ -30,6 +30,13 @@ release and `main` is the only surface.
 - **A provider response is untrusted input.** It is parsed and validated into
   the result shape before use (`src/deadeye/result.py`); a malformed or
   hostile response is a refusal, never a partially applied verdict.
+- **The author's statement is data, not instruction.** Intent text and
+  reference filenames reach the model inside a declared data-only fence
+  (`src/deadeye/prompt.py`), and a field carrying a fence marker is refused
+  (`src/deadeye/intent.py`). That bounds the textual escape only: a clip
+  carrying rendered instructions is pixels the model reads, so a hostile
+  intent or hostile frame can still shape the critique. Nothing in the result
+  is a gate.
 - **A verdict is advisory, never an acceptance.** `ADVISORY_NOTE` rides every
   result. A consuming repository that gates on a deadeye verdict alone has
   moved a human sign-off into a model, which is a security decision, not a
