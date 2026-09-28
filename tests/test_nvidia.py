@@ -139,16 +139,15 @@ def test_a_non_media_payload_is_refused_at_body_build_time() -> None:
         build_body(ReviewRequest(prompt="p", media=(audio,), model="m", timeout_seconds=1.0))
 
 
-def test_a_non_positive_output_cap_is_refused_before_submission(monkeypatch, tmp_path) -> None:
+def test_a_non_positive_output_cap_is_refused_before_submission(isolated_config) -> None:
     """A cap is the only thing between a looping generation and unbounded
     spend, and a provider that reads zero or a negative cap as 'no limit'
     turns a botched key into exactly that. The refusal names the key."""
-    from pathlib import Path
-
-    directory = Path(str(tmp_path / "cfg"))
-    (directory / "config.local.toml").write_text(
+    (isolated_config / "config.local.toml").write_text(
         "[providers.nvidia]\nmax_tokens = -1\n", encoding="utf-8"
     )
+    from deadeye import config
+
     config.reset()
     with pytest.raises(DeadeyeError, match="at least 1"):
         build_body(ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0))
