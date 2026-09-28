@@ -125,7 +125,11 @@ only authored text in the user turn, between the
 `-----BEGIN AUTHOR STATEMENT-----` and `-----END AUTHOR STATEMENT-----`
 markers. Intent text or a reference path containing one of those markers is
 refused at parse time: a marker inside the intent could close the fence early
-and let the rest of the statement speak as gateway instructions.
+and let the rest of the statement speak as gateway instructions. A media
+filename is never parsed, only rendered, so the same rule is applied where the
+prompt names it: a clip file, frame, or reference whose name carries a marker
+(in any dash spelling a model reads as the ASCII one) is refused while the
+request body is built, before any byte is sent.
 `deadeye prompt` prints both halves as one block, and the evidence envelope
 records that same block.
 
@@ -148,7 +152,11 @@ accepted.
 of every submitted frame/clip file and the intent file, the sampling record
 (exactly which frames went, each one's position in the clip's frame order, and
 what was dropped to fit a provider limit), the
-provider and model, `created_utc` (RFC 3339 UTC instant with an explicit
+provider and model, `provider.generation` (the generation parameters the
+request actually carried: the output cap, the sampling temperature, and the
+rest, read from the same place the adapter built the body from, so two
+envelopes recorded identically are two generations this tool could not tell
+apart), `created_utc` (RFC 3339 UTC instant with an explicit
 offset, never host-local time), `elapsed_seconds` (monotonic duration of the
 provider call, not a wall-clock delta), rubric and prompt versions, the
 validated result, the disclosure confirmation, usage metadata when reported,

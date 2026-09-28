@@ -117,6 +117,34 @@ _RESPONSE_SCHEMA: dict[str, object] = {
 }
 
 
+def generation_settings() -> dict[str, object]:
+    """The `generationConfig` one submission sends, resolved from configuration.
+
+    The one home for these values, read by `build_body` when it builds the
+    request and by the evidence envelope when it records the run, so the
+    parameters a review is attributed to are the parameters it was sent with
+    rather than a second reading of the same configuration that could differ
+    from the request between the two.
+    """
+    return {
+        "response_mime_type": "application/json",
+        "responseSchema": _RESPONSE_SCHEMA,
+        # A cap, not a tuning knob: an uncapped generation is unbounded
+        # spend when the model loops. Override with
+        # providers.gemini.max_output_tokens.
+        "maxOutputTokens": int_setting(
+            "gemini", "max_output_tokens", DEFAULT_MAX_OUTPUT_TOKENS, minimum=1
+        ),
+        "temperature": float_setting(
+            "gemini",
+            "temperature",
+            DEFAULT_TEMPERATURE,
+            minimum=MIN_TEMPERATURE,
+            maximum=MAX_TEMPERATURE,
+        ),
+    }
+
+
 class GeminiProvider(CredentialedProvider):
     name = "gemini"
     endpoint_mode = "hosted-api:inline-base64"
@@ -130,6 +158,9 @@ class GeminiProvider(CredentialedProvider):
             f"set {CREDENTIAL_ENV_VARS[0]} or put api_key under [providers.gemini] "
             "in config.local.toml; create a key at https://aistudio.google.com/apikey"
         )
+
+    def generation_settings(self) -> dict[str, object]:
+        return generation_settings()
 
     def review(self, request: ReviewRequest) -> ReviewResponse:
         credential = self.credential()
@@ -238,23 +269,7 @@ def build_body(request: ReviewRequest) -> dict[str, object]:
         )
     body: dict[str, object] = {
         "contents": [{"role": "user", "parts": parts}],
-        "generationConfig": {
-            "response_mime_type": "application/json",
-            "responseSchema": _RESPONSE_SCHEMA,
-            # A cap, not a tuning knob: an uncapped generation is unbounded
-            # spend when the model loops. Override with
-            # providers.gemini.max_output_tokens.
-            "maxOutputTokens": int_setting(
-                "gemini", "max_output_tokens", DEFAULT_MAX_OUTPUT_TOKENS, minimum=1
-            ),
-            "temperature": float_setting(
-                "gemini",
-                "temperature",
-                DEFAULT_TEMPERATURE,
-                minimum=MIN_TEMPERATURE,
-                maximum=MAX_TEMPERATURE,
-            ),
-        },
+        "generationConfig": generation_settings(),
     }
     if request.system_prompt:
         body["systemInstruction"] = {"parts": [{"text": request.system_prompt}]}

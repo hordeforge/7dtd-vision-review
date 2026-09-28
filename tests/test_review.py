@@ -102,6 +102,24 @@ def test_review_envelope_records_utc_instant_and_monotonic_elapsed(clip_dir, int
     assert elapsed >= 0
 
 
+def test_the_envelope_records_the_generation_settings_the_submission_carried(
+    clip_dir, intent_path
+) -> None:
+    """A verdict is attributed to the parameters it was generated at.
+
+    The fake adapter generates nothing, so its record is empty; what matters
+    is that the envelope carries the answer the provider reported at all,
+    which is what a hosted adapter fills with the temperature and output cap
+    its request actually carried."""
+    envelope = run_review(
+        clip_dir,
+        provider=FakeProvider(),
+        intent_path=intent_path,
+        allow_network=True,
+    )
+    assert envelope["provider"]["generation"] == FakeProvider().generation_settings()
+
+
 def test_a_rerun_into_an_occupied_output_refuses_before_any_submission(
     clip_dir, intent_path, tmp_path, monkeypatch
 ) -> None:

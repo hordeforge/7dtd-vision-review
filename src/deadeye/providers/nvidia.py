@@ -73,6 +73,31 @@ MIN_TOP_P = 0.0
 MAX_TOP_P = 1.0
 
 
+def generation_settings() -> dict[str, object]:
+    """The generation parameters one submission sends, resolved from configuration.
+
+    The one home for these four values, read by `build_body` when it builds
+    the request and by the evidence envelope when it records the run, so the
+    parameters a review is attributed to are the parameters it was sent with
+    rather than a second reading of the same configuration that could differ
+    from the request between the two.
+    """
+    return {
+        "max_tokens": int_setting("nvidia", "max_tokens", DEFAULT_MAX_TOKENS, minimum=1),
+        "reasoning_budget": int_setting("nvidia", "reasoning_budget", DEFAULT_REASONING_BUDGET),
+        "temperature": float_setting(
+            "nvidia",
+            "temperature",
+            DEFAULT_TEMPERATURE,
+            minimum=MIN_TEMPERATURE,
+            maximum=MAX_TEMPERATURE,
+        ),
+        "top_p": float_setting(
+            "nvidia", "top_p", DEFAULT_TOP_P, minimum=MIN_TOP_P, maximum=MAX_TOP_P
+        ),
+    }
+
+
 class NvidiaProvider(CredentialedProvider):
     name = "nvidia"
     endpoint_mode = "hosted-api:openai-compatible-chat"
@@ -86,6 +111,9 @@ class NvidiaProvider(CredentialedProvider):
             f"set {CREDENTIAL_ENV_VARS[0]} or put api_key under [providers.nvidia] "
             "in config.local.toml; create a key at https://build.nvidia.com"
         )
+
+    def generation_settings(self) -> dict[str, object]:
+        return generation_settings()
 
     def review(self, request: ReviewRequest) -> ReviewResponse:
         credential = self.credential()
@@ -162,17 +190,6 @@ def build_body(request: ReviewRequest) -> dict[str, object]:
     return {
         "messages": messages,
         "model": request.model,
-        "max_tokens": int_setting("nvidia", "max_tokens", DEFAULT_MAX_TOKENS, minimum=1),
-        "reasoning_budget": int_setting("nvidia", "reasoning_budget", DEFAULT_REASONING_BUDGET),
-        "temperature": float_setting(
-            "nvidia",
-            "temperature",
-            DEFAULT_TEMPERATURE,
-            minimum=MIN_TEMPERATURE,
-            maximum=MAX_TEMPERATURE,
-        ),
-        "top_p": float_setting(
-            "nvidia", "top_p", DEFAULT_TOP_P, minimum=MIN_TOP_P, maximum=MAX_TOP_P
-        ),
+        **generation_settings(),
         "stream": False,
     }

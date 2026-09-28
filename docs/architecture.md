@@ -3,8 +3,10 @@
 deadeye is deliberately narrow: it owns the provider boundary for vision-model
 review and nothing else. The consumers (`7dtd-asset-pipeline`, `7dtd-playtest`)
 own the operations, the intent files, the evidence documents that carry fields
-only they know (generation parameters, suite and case), and the gates that
-decide what a review may and may not do.
+only they know (suite and case), and the gates that decide what a review may
+and may not do. The evidence envelope itself names the submitted bytes, the
+sampling, the provider, the model, the prompt and rubric versions, and the
+generation parameters the request carried.
 
 ## The flow
 

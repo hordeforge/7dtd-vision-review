@@ -26,13 +26,16 @@ space rather than forging a line the pipeline did not write.
 from __future__ import annotations
 
 import json
-import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from .errors import DeadeyeError, UsageError
-from .prompt_text import flat_label_text
+from .prompt_text import (
+    carries_fence_marker,
+    fence_marker_error,
+    flat_label_text,
+)
 
 INTENT_SCHEMA_VERSION = 1
 
@@ -55,41 +58,6 @@ MAX_REFERENCES = 8
 """Maximum comparison assets; each one is read, hashed, and uploaded."""
 MAX_INTENT_BYTES = 64 * 1024
 """Whole-document cap before parse, so a huge file cannot fill the process."""
-
-# The reviewer prompt fences every intent field between the BEGIN/END AUTHOR
-# STATEMENT markers and declares that block data-only (`prompt.py`). A field
-# carrying a marker line of its own could close that fence early and move
-# everything after it outside the data-only declaration, so the markers are
-# refused wherever intent text is accepted.
-FENCE_MARKERS = ("-----BEGIN AUTHOR STATEMENT", "-----END AUTHOR STATEMENT")
-
-# Code points a model reads as the ASCII HYPHEN-MINUS the fence markers are
-# built from. A marker spelled with any of them holds no ASCII substring and
-# would pass a raw test while rendering as the real fence line to the model
-# that has to decide where the data-only block ends. Some have a compatibility
-# decomposition NFKC resolves (FULLWIDTH HYPHEN-MINUS, SMALL EM DASH) and
-# some have none (HYPHEN, NON-BREAKING HYPHEN, MINUS SIGN), so the check folds
-# in both directions rather than trusting normalization to have reached a
-# particular one. Spelled as code points: this inventory is by definition the
-# set of look-alikes the project's own confusable lint rule flags, so writing
-# the characters literally would make the constant unreadable.
-#
-# Folding happens only inside `_carries_fence_marker`; the value that reaches
-# the prompt is the author's own text, unmodified.
-DASH_LOOKALIKES = frozenset(
-    {
-        chr(0x2010),  # HYPHEN
-        chr(0x2011),  # NON-BREAKING HYPHEN
-        chr(0x2012),  # FIGURE DASH
-        chr(0x2212),  # MINUS SIGN
-        chr(0xFE58),  # SMALL EM DASH (NFKC decomposes this to EM DASH)
-        chr(0xFE63),  # SMALL HYPHEN-MINUS
-        chr(0x30FC),  # KATAKANA-HIRAGANA PROLONGED SOUND MARK
-    }
-)
-"""Characters a reviewer model renders as a short dash, mapped to HYPHEN-MINUS."""
-
-DASH_FOLD = str.maketrans(dict.fromkeys(DASH_LOOKALIKES, "-"))
 
 
 def _line_safe(value: str) -> str:
@@ -120,42 +88,8 @@ def _line_safe(value: str) -> str:
     return flat_label_text(value)
 
 
-def _carries_fence_marker(value: str) -> bool:
-    """Whether `value` carries an author-statement fence marker in any spelling.
-
-    The raw substring test is not enough on its own. The marker is judged by a
-    language model reading the rendered prompt, not by this module, and a model
-    reads U+2010 HYPHEN, U+2011 NON-BREAKING HYPHEN, and U+FF0D FULLWIDTH
-    HYPHEN-MINUS as the dashes the fence is built from. A value carrying
-    `-----\uff0dBEGIN AUTHOR STATEMENT` therefore holds no ASCII marker and
-    passes the raw test, yet reads at the model as the fence opening, and
-    everything after it sits outside the data-only block the instruction
-    declares.
-
-    Compatibility decomposition closes the width class, and `DASH_LOOKALIKES`
-    closes the ones normalization preserves: together they fold every spelling
-    of the marker's dashes onto ASCII, so the match sees the characters a
-    reader sees. Every marker is pure ASCII, so this leaves an honest ASCII
-    string identical. Only the check widens: nothing that parses today is
-    rejected, and no parsed value is rewritten.
-
-    It does not fold cross-script letter lookalikes (a Cyrillic A for the Latin
-    one), which would need a per-character confusable table. The marker is a
-    control the author of a local intent file would have to work to reach, and
-    the structural defence is the two-role split in `prompt.py`, which keeps
-    authored text out of the instruction's slot whatever the text says.
-    """
-    normalized = value.translate(DASH_FOLD)
-    normalized = unicodedata.normalize("NFKC", normalized).translate(DASH_FOLD)
-    return any(marker in normalized for marker in FENCE_MARKERS)
-
-
 def _refuse_fence_marker(key: str, origin: str) -> DeadeyeError:
-    return DeadeyeError(
-        f"{origin}: {key} contains an author-statement fence marker "
-        f"({' or '.join(FENCE_MARKERS)}); reword it without that line so the "
-        "reviewer prompt's data-only fence cannot be escaped"
-    )
+    return fence_marker_error(f"{origin}: {key}")
 
 
 @dataclass(frozen=True)
@@ -209,7 +143,7 @@ def _string_field(data: dict[str, Any], key: str, origin: str) -> str:
             f"{MAX_FIELD_CHARS}. State the intent concisely: every character is "
             "billed as prompt tokens on every review"
         )
-    if _carries_fence_marker(stripped):
+    if carries_fence_marker(stripped):
         raise _refuse_fence_marker(f"field {key!r}", origin)
     return stripped
 
@@ -235,7 +169,7 @@ def _string_list(data: dict[str, Any], key: str, origin: str) -> tuple[str, ...]
                 f"{origin}: an entry in {key!r} is {len(item)} characters; the "
                 f"per-entry limit is {MAX_ITEM_CHARS}"
             )
-        if _carries_fence_marker(item):
+        if carries_fence_marker(item):
             raise _refuse_fence_marker(f"an entry in {key!r}", origin)
     return items
 
@@ -273,7 +207,7 @@ def _references_field(data: dict[str, Any], origin: str) -> tuple[ReferenceMedia
             )
         # The file's name renders inside the fence beside its purpose, so a
         # marker hidden in a filename would escape the same way.
-        if _carries_fence_marker(reference_path):
+        if carries_fence_marker(reference_path):
             raise _refuse_fence_marker(f"{label}: 'path'", origin)
         if not isinstance(reference_purpose, str):
             raise DeadeyeError(f"{label}: 'purpose' must state what the comparison is for")
@@ -289,7 +223,7 @@ def _references_field(data: dict[str, Any], origin: str) -> tuple[ReferenceMedia
                 f"{label}: 'purpose' is {len(stripped_purpose)} characters; the "
                 f"per-entry limit is {MAX_ITEM_CHARS}"
             )
-        if _carries_fence_marker(stripped_purpose):
+        if carries_fence_marker(stripped_purpose):
             raise _refuse_fence_marker(f"{label}: 'purpose'", origin)
         references.append(ReferenceMedia(path=Path(reference_path), purpose=stripped_purpose))
     return tuple(references)

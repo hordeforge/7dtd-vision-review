@@ -32,7 +32,7 @@ from .errors import DeadeyeError, EvidenceWriteError, NoVerdictError, did_not_an
 from .evidence import build_envelope, ensure_writable, sha256_file, write_evidence
 from .intent import ReviewIntent, load_intent
 from .prompt import FRAME_TIMING_NOTE, PromptParts, build_prompt_parts
-from .prompt_text import flat_label_text
+from .prompt_text import flat_prompt_text
 from .providers import MediaPayload, ProviderLimits, ReviewRequest
 from .redaction import redact_json_text
 from .result import parse_model_json, validate_result
@@ -126,6 +126,11 @@ def run_review(
         _payload(path, kind, data)
         for (path, kind), data in zip(submission.files, submission.file_bytes, strict=True)
     )
+    # Read once here, before anything is sent: the adapter reads the same
+    # knobs again while it builds the body, and this is the copy the envelope
+    # records. A configuration that cannot produce them is refused here,
+    # before the upload, rather than after it.
+    generation = provider.generation_settings()
     request = ReviewRequest(
         prompt=parts.user,
         system_prompt=parts.system,
@@ -163,6 +168,7 @@ def run_review(
             endpoint_mode=provider.endpoint_mode,
             model_requested=resolved_model,
             model_reported=response.model_reported,
+            generation=generation,
             prompt=request.rendered,
             usage=response.usage,
             total_bytes=submission.total_bytes,
@@ -326,7 +332,7 @@ def _video_over_request_budget(media: sampling.ClipMedia, plan: _Plan) -> str:
     if video is None:  # unreachable: only called for a plan that took the video
         raise DeadeyeError(f"{media.source} holds no muxed video to replace")
     return (
-        f"muxed video {flat_label_text(video.name)} is "
+        f"muxed video {flat_prompt_text(video.name)} is "
         f"{plan.sizes[0]} bytes, over the provider's whole-request "
         "budget once the prompt rides with it; sampled frames instead"
     )

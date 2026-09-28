@@ -2,12 +2,12 @@
 
 The envelope is the machine contract of a `deadeye review`: it names every
 file actually submitted (by SHA-256), the sampling that decided the set, the
-provider and model, the rubric and prompt versions, the validated result, and
-the disclosure that preceded the upload — with credentials absent by
-construction and vendor payload redacted. Consuming tools (`shamway
-review-video`, `review_video.py`) embed this envelope in their own evidence
-documents, which add the fields only they know (generation parameters, suite
-and case).
+provider and model, the generation parameters the request carried, the rubric
+and prompt versions, the validated result, and the disclosure that preceded
+the upload — with credentials absent by construction and vendor payload
+redacted. Consuming tools (`shamway review-video`, `review_video.py`) embed
+this envelope in their own evidence documents, which add the fields only they
+know (suite and case).
 
 A later review never overwrites an earlier envelope by default: both remain,
 hash-addressed, so revisions stay comparable.
@@ -77,6 +77,7 @@ def build_envelope(
     endpoint_mode: str,
     model_requested: str,
     model_reported: str | None,
+    generation: dict[str, Any],
     prompt: str,
     result: dict[str, Any] | None,
     error: str | None,
@@ -121,6 +122,13 @@ def build_envelope(
             "endpoint_mode": endpoint_mode,
             "model_requested": model_requested,
             "model_reported": model_reported,
+            # The sampling parameters the submission actually carried, read
+            # from the same home the request body was built from. A review is
+            # traceable to its prompt, its bytes, and its model; the
+            # temperature and output cap it was generated at are the fourth
+            # thing that decides what came back, and an envelope that named
+            # three of them left two runs of the same clip indistinguishable.
+            "generation": generation,
             # Monotonic seconds the submission took (`time.perf_counter` in
             # review.py). A wall-clock delta would go negative or jump on an
             # NTP step mid-call; latency is part of a call's record just

@@ -62,6 +62,15 @@ class FakeProvider:
     def configuration_hint(self) -> str:
         return "the fake provider needs no credentials; it exists for offline plumbing checks"
 
+    def generation_settings(self) -> dict[str, object]:
+        """Nothing: the fake synthesizes its verdict from the request metadata.
+
+        An empty object rather than the knobs a hosted adapter reports, so an
+        envelope recorded from a fake run cannot be mistaken for one whose
+        verdict came from a model at a named temperature.
+        """
+        return {}
+
     def review(self, request: ReviewRequest) -> ReviewResponse:
         self.requests.append(request)
         # Bounded here, not in a `finally`: the newest request is always

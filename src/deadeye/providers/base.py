@@ -20,7 +20,7 @@ from typing import Any, Protocol
 from .. import config
 from ..errors import DeadeyeError, no_verdict
 from ..json_safe import finite_float
-from ..prompt_text import flat_label_text
+from ..prompt_text import flat_prompt_text
 from ..sampling import IMAGE_SUFFIXES, VIDEO_SUFFIXES, MediaKind
 
 
@@ -113,6 +113,19 @@ class VideoReviewProvider(Protocol):
         """How to configure it, naming the route and never any secret value."""
         ...
 
+    def generation_settings(self) -> dict[str, Any]:
+        """The generation parameters a submission to this provider sends.
+
+        Sampling temperature, the output-token cap, and whatever else shapes
+        the answer. Recorded in the evidence envelope under `provider.generation`,
+        because two runs of the same clip, intent, and model differ in their
+        verdicts for reasons the envelope has to name: without these, two
+        envelopes recorded identically are two generations this tool cannot
+        tell apart. An adapter with nothing to send (the fake) returns an
+        empty object.
+        """
+        ...
+
     def review(self, request: ReviewRequest) -> ReviewResponse:
         """Submit media plus prompt; raise DeadeyeError on refusal or fault."""
         ...
@@ -167,11 +180,16 @@ class CredentialedProvider:
 def attachment_label(payload: MediaPayload) -> str:
     """How every adapter's prompt text addresses one attachment, by role.
 
-    The filename is authored-local text interpolated outside the author
-    statement's data-only fence, so control characters are flattened: a name
-    carrying a newline cannot forge extra label-shaped lines beside it.
+    The filename is authored-local text, discovered from a clip directory or
+    named by the author's own reference list, and it reaches the model inside
+    the same user turn the author statement occupies. It is held to the full
+    prompt-text rule: control characters are flattened so a name cannot forge
+    extra label-shaped lines, and a name carrying an author-statement fence
+    marker is refused rather than rendered, so it cannot close the data-only
+    block the instruction declares. The refusal happens while the body is
+    built, before any byte is sent.
     """
-    name = flat_label_text(payload.name)
+    name = flat_prompt_text(payload.name)
     if payload.kind == "video":
         return f"video attachment: {name}"
     if payload.kind == "reference":

@@ -496,3 +496,17 @@ def test_live_gemini_reviews_a_frame_sequence(tmp_path, solid_png) -> None:
     response = provider.review(request)
     assert response.raw_text.strip()
     assert response.model_reported
+
+
+def test_the_recorded_generation_settings_are_the_ones_sent() -> None:
+    # The envelope attributes a verdict to the parameters it was generated
+    # at. A second reading of the same configuration would be a second answer
+    # to the same question, and the two could differ from the request the
+    # adapter actually built.
+    from deadeye.providers.base import ReviewRequest
+    from deadeye.providers.gemini import build_body
+
+    body = build_body(ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0))
+    recorded = GeminiProvider().generation_settings()
+    assert body["generationConfig"] == recorded
+    assert recorded["maxOutputTokens"] == 65536

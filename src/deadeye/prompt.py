@@ -19,7 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .intent import ReviewIntent
-from .prompt_text import flat_label_text
+from .prompt_text import flat_prompt_text
 from .result import BASE_RUBRIC
 from .sampling import ClipMedia
 
@@ -66,7 +66,7 @@ def preview_media(media: ClipMedia | None) -> tuple[str, str]:
     if media is None:
         return "the submitted media (a muxed video or a sampled frame sequence)", ""
     if media.video is not None:
-        return f"a single muxed video file ({flat_label_text(media.video.name)})", ""
+        return f"a single muxed video file ({flat_prompt_text(media.video.name)})", ""
     return (
         f"{len(media.frames)} frame image(s) of the clip's {len(media.frames)} frames",
         FRAME_TIMING_NOTE,
@@ -168,7 +168,7 @@ def build_prompt_parts(
     if intent.references:
         statement.append("  reference media, in attachment order after the candidate:")
         statement.extend(
-            f"    - {reference.purpose} ({flat_label_text(reference.path.name)})"
+            f"    - {reference.purpose} ({flat_prompt_text(reference.path.name)})"
             for reference in intent.references
         )
     statement.append("-----END AUTHOR STATEMENT-----")

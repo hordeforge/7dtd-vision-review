@@ -9,11 +9,11 @@ import pytest
 from deadeye.errors import DeadeyeError
 from deadeye.intent import (
     CAMERA_PATHS,
-    DASH_LOOKALIKES,
     MAX_INTENT_BYTES,
     load_intent,
     parse_intent,
 )
+from deadeye.prompt_text import DASH_LOOKALIKES
 
 
 def test_a_valid_intent_parses(intent_bytes: bytes) -> None:

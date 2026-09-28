@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Literal
 
 from .errors import DeadeyeError
-from .prompt_text import flat_label_text
+from .prompt_text import flat_prompt_text
 
 # The one suffix -> MIME table; the accepted-suffix sets below are derived
 # from it so the two can never drift apart.
@@ -283,7 +283,7 @@ def _video_record(
             sampled=False,
             frame_indices=(),
             submitted_files=((str(media.video), "video"),),
-            note=f"submitted muxed video {flat_label_text(media.video.name)} ({size} bytes)",
+            note=f"submitted muxed video {flat_prompt_text(media.video.name)} ({size} bytes)",
         )
     if not media.frames:
         # The provider ingests video fine; the file is simply over its
@@ -297,7 +297,7 @@ def _video_record(
             "frames to sample instead; shorten or recompress the clip"
         )
     notes.append(
-        f"muxed video {flat_label_text(media.video.name)} is {size} bytes "
+        f"muxed video {flat_prompt_text(media.video.name)} is {size} bytes "
         f"({figures}), over "
         f"the provider's {max_video_bytes}-byte video budget; sampled frames instead"
     )

@@ -167,6 +167,7 @@ def _envelope(*, elapsed_seconds: float = 0.0) -> dict[str, object]:
         endpoint_mode="default",
         model_requested="m",
         model_reported=None,
+        generation={},
         prompt="",
         result=None,
         error=None,
