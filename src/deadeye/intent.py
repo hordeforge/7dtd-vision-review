@@ -15,7 +15,11 @@ canonical kinds in `CAMERA_PATHS` are documented so a generated case can name
 one, and a free description is accepted rather than refused.
 
 Credential-bearing keys are dropped by `redaction.py`, the one backstop every
-output path runs through; this module only decides what an intent is.
+output path runs through. What this module owns is the fence: every field here
+lands verbatim inside the author-statement block `prompt.py` builds, so a field
+carrying a fence marker of its own is refused at parse time rather than
+closing the fence early and moving the rest of the statement outside the
+data-only declaration.
 """
 
 from __future__ import annotations

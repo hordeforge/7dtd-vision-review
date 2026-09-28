@@ -71,8 +71,10 @@ gateway is explicit for that reason: file reads are `rb` plus a named decode
 (including `utf-8-sig`, so an editor's BOM is not a parse error), provider
 bodies take the declared charset and fall back to UTF-8, evidence is written
 as bytes (`_atomic_write`) so the stored SHA-256 matches the file and the
-platform's newline translation cannot rewrite it, and `post_json` sends
-`ensure_ascii` JSON. Filenames and the intent reach the prompt through
+platform's newline translation cannot rewrite it, and `post_json` serializes
+its body with `json.dumps`, whose `ensure_ascii` default holds a request
+carrying a non-ASCII filename to ASCII on the wire. Filenames and the intent
+reach the prompt through
 `flat_label_text`, which replaces every non-printable character (including
 category Cf: bidi controls, zero-width joiners) with a space so a name cannot
 forge a label-shaped line. Both presentation streams are bound to UTF-8 with

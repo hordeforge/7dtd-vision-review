@@ -19,7 +19,7 @@ source checkout, run the same commands through the project venv instead:
 
 | Flag | Meaning |
 |---|---|
-| `CLIP` | a clip directory (frames, optional muxed video, optional `client.log`) or a single video/image file |
+| `CLIP` | a clip directory (frames, optional muxed video, optional single `.log` file) or a single video/image file |
 | `--intent FILE` | the intent JSON committed beside the source (the reproducible route) |
 | `--intent-text JSON` | the same information inline; exactly one of the two |
 | `--provider` | `fake` (offline) or a configured real provider |

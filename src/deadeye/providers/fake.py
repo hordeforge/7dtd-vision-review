@@ -22,12 +22,10 @@ class FakeProvider:
     endpoint_mode = "in-process-fake"
     requires_credential = False
     credential_env_names: tuple[str, ...] = ()
-    # The same format table the clip discovery and both hosted adapters read:
-    # a hand-listed subset made the offline dry run refuse a `.webm` or `.mov`
-    # reference that discovery accepts and a real provider would submit.
-    # The formats discovery accepts, not a hand-kept list: the offline lane
+    # Discovery's own format table, not a hand-kept list: the offline lane
     # must refuse exactly what a hosted adapter refuses, or a plumbing check
-    # against a `.mov` reference passes here and fails on a real submission.
+    # against a `.mov` or `.webm` reference passes here and fails on a real
+    # submission. A hand-listed subset once did exactly that.
     _limits = ProviderLimits(
         suffixes=IMAGE_SUFFIXES + VIDEO_SUFFIXES,
         max_bytes=20 * 1024 * 1024,

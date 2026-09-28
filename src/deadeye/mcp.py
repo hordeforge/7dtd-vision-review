@@ -108,7 +108,6 @@ class _LedgerEntry:
     retained_bytes: int
 
 
-
 def _intent_route_schema() -> dict[str, Any]:
     """The exactly-one intent rule as the tool schemas publish it.
 

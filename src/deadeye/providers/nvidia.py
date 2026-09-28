@@ -13,9 +13,9 @@ change, so the caller can always pass `--model`. The generation defaults
 (`max_tokens`, `reasoning_budget`, `temperature`, `top_p`) mirror the
 verified payload for `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning`; they
 are module constants read through the `int_setting` / `float_setting` readers
-in `base.py`, so a
-deployment overrides any of them under `[providers.nvidia]` and a review is
-never sent parameters its evidence cannot account for.
+in `base.py`, so a deployment overrides any of them under
+`[providers.nvidia]` and a review is never sent parameters its evidence cannot
+account for.
 
 The key arrives from `NVIDIA_API_KEY` (environment) or
 `providers.nvidia.api_key` in the loaded configuration (normally the
