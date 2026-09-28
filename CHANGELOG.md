@@ -257,6 +257,18 @@ required (`CONTRIBUTING.md`, "Changing a contract").
 
 ### Fixed
 
+- A Gemini answer whose first candidate is not an object was reported as a
+  preflight refusal when the submission was already spent. Before: the
+  adapter raised a bare `DeadeyeError`, so a deduplicating caller could not
+  tell a malformed answer that reached Gemini and may already be billed from a
+  refusal that never left the machine, and could record the key as retryable.
+  Every other unusable-answer path in the adapter, and the shared
+  `response_object` helper, already raised `NoVerdictError` for exactly this
+  reason. After: the case raises `no_verdict` like its siblings, so it carries
+  the billing warning and the type a spent submission is identified by. The
+  message keeps the "invalid candidate" wording, now followed by the spent
+  submission warning. `tests/test_gemini.py` pinned the type and the suite was
+  red on it.
 - A default evidence write could overwrite a review a `--force` run published
   underneath it. The non-force path reserves the destination name with
   `O_CREAT|O_EXCL` and then replaces onto it, but `--force` takes no
