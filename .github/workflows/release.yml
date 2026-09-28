@@ -39,6 +39,10 @@ jobs:
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: true
+          # The SBOM export below is a preview feature, so the uv that runs it
+          # is a build input like any other: pinned to the floor
+          # `[tool.uv] required-version` names, and bumped with it.
+          version: "0.12.13"
 
       # The published artifact version must equal the tag, so a wheel can
       # never claim a version nobody tagged. src/deadeye/_version.py is a

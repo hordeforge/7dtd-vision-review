@@ -169,6 +169,16 @@ required (`CONTRIBUTING.md`, "Changing a contract").
   the same three-way check before it uploads.
 - `make clean` removes the verification copy and the `src/*.egg-info` the
   build regenerates in the source tree, not only `dist/`.
+- CI installs the uv it builds and releases with, instead of whatever uv
+  shipped that day. `astral-sh/setup-uv` defaults to the newest release, so
+  pinning the action by commit SHA left the tool it installs free to move: a
+  uv that renamed a preview flag (the release job exports the SBOM through
+  `uv export --preview-features sbom-export`) or wrote a lock revision this
+  tree cannot read would fail the build with nothing in the repository having
+  changed. Every use of the action now names the version, and
+  `[tool.uv] required-version` states the same release as the floor an
+  older uv on a contributor's machine is stopped at. A release-contract test
+  holds the two in step.
 - The Makefile runs every `uv` invocation with `--locked` rather than
   `--frozen`. `--frozen` installs whatever `uv.lock` happens to say even when
   `pyproject.toml` has moved on, so a contributor could lint, test, and build
@@ -272,6 +282,12 @@ required (`CONTRIBUTING.md`, "Changing a contract").
   status the provider refused before running the review (a rejected
   credential, a quota, a bad request) stays a plain `DeadeyeError`, so the key
   stays free for a corrected retry.
+- The MCP stdio loop dropped a frame that held nothing but Unicode whitespace,
+  so a client whose line was a no-break space, or any other code point
+  `str.strip()` calls whitespace, got no answer at all and waited on it. A
+  blank line is the ASCII whitespace a JSON-RPC frame is padded with; anything
+  else is a malformed frame and now takes the spec's parse error. The
+  fuzz target that pins one answer per non-blank line found this.
 - The process-wide config cache could be keyed on a file it had not read. The
   signature that decides whether the cached `Config` is still good was taken
   after the parse, so a `config.local.toml` rewritten between the parse and the

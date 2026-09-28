@@ -38,6 +38,12 @@ installing a different set of versions than the one you pinned. A pin in
 `[build-system]` needs the same treatment: the sdist build resolves it
 separately, and a test builds the artifact to prove the two agree.
 
+The resolver is pinned too. `[tool.uv] required-version` is the oldest uv
+that reads this lock and exports the release SBOM, and every CI use of
+`astral-sh/setup-uv` names that exact version, because the action installs the
+newest uv by default. Raise the floor and the three `version:` inputs together,
+or `tests/test_release_contract.py` fails.
+
 `make check` also runs shellcheck over `scripts/bootstrap` and
 `scripts/e2e.sh`. Shellcheck is a host tool, not a Python dependency, so it
 comes from the system package manager (it ships in the GitHub runner image);

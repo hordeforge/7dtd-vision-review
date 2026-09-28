@@ -21,6 +21,12 @@ runs:
     - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
       with:
         enable-cache: true
+        # The action defaults to the newest uv released, so pinning the action
+        # alone leaves the tool it installs moving: a uv that renames a
+        # preview flag, or writes a lock revision this tree cannot read, breaks
+        # the build with nothing in the repository having changed. The version
+        # is the one `[tool.uv] required-version` names as the floor; bump both.
+        version: "0.12.13"
 
     # UV_PYTHON reaches both `uv sync` and the `uv run` inside the Makefile.
     # Without it, `uv run` would re-read .python-version (3.13) and replace the

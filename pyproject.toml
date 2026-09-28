@@ -46,6 +46,16 @@ dev = [
     "hypothesis==6.167.1",
 ]
 
+[tool.uv]
+# The resolver is a dependency like any other, and this tree leans on it: the
+# lock carries a revision this uv reads, and the release job exports the SBOM
+# through `uv export --preview-features sbom-export`, a preview flag uv is free
+# to rename. CI installs the exact version named in
+# `.github/actions/test-suite`; this floor is what stops an older uv on a
+# contributor's machine from re-resolving the lock into something else, or
+# failing on a flag it never had, halfway through a release.
+required-version = ">=0.12.13"
+
 [project.scripts]
 deadeye = "deadeye.cli:main"
 

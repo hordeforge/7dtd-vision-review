@@ -37,6 +37,9 @@ BREAKING = (
 FINAL_VERSION = re.compile(r"^\d+\.\d+\.\d+$")
 # PEP 508 exact pin: name==version, no extras, no range operators.
 EXACT_PIN = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)==([^,;<>=!~\s]+)$")
+# The uv floor: one release named as the minimum, never an open range.
+EXACT_UV_VERSION = re.compile(r"^>=(\d+\.\d+\.\d+)$")
+UV_VERSION_INPUT = re.compile(r"^\s+version:\s*\"?([^\"\s]+)\"?\s*$", re.MULTILINE)
 
 
 def test_manifest_and_version_mirror_agree() -> None:
@@ -87,6 +90,42 @@ def test_dev_dependencies_are_exact_pins_matching_the_lock() -> None:
         f"dev group must pin {backend_name}=={backend_version} to match "
         "[build-system]; bump both together"
     )
+
+
+def test_ci_installs_the_uv_version_the_manifest_names() -> None:
+    # setup-uv defaults to the newest uv released, so a pinned action still
+    # leaves the tool moving. The release job exports the SBOM through a
+    # preview flag uv can rename, so a drifting uv breaks the build with
+    # nothing in the repository having changed. Every use of the action names
+    # the version `[tool.uv] required-version` sets as the floor.
+    manifest = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    floor = EXACT_UV_VERSION.fullmatch(manifest["tool"]["uv"]["required-version"])
+    assert floor is not None, (
+        "[tool.uv].required-version must name one version as a floor: "
+        f"{manifest['tool']['uv']['required-version']!r}"
+    )
+    pinned = floor.group(1)
+
+    pinned_uses: list[tuple[Path, str]] = []
+    for path in sorted((ROOT / ".github").rglob("*.yml")):
+        lines = path.read_text(encoding="utf-8").splitlines()
+        pinned_uses.extend((path, line) for line in lines if "setup-uv@" in line)
+    assert pinned_uses, "no setup-uv step found; the workflows cannot have changed as expected"
+
+    for path, line in pinned_uses:
+        # The `version:` input sits on the next lines of the same step, so the
+        # window read is the step, not the whole file.
+        body = path.read_text(encoding="utf-8")
+        step = body.split(line, 1)[1].split("\n- ", 1)[0]
+        found = UV_VERSION_INPUT.search(step)
+        assert found is not None, (
+            f"{path.relative_to(ROOT)} uses setup-uv with no version input, so CI "
+            "installs whatever uv shipped that day; pin it to the manifest floor"
+        )
+        assert found.group(1) == pinned, (
+            f"{path.relative_to(ROOT)} installs uv {found.group(1)} but "
+            f"pyproject.toml requires >= {pinned}; bump both together"
+        )
 
 
 def test_result_key_set_is_pinned() -> None:
