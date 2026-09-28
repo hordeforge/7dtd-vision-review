@@ -287,6 +287,17 @@ required (`CONTRIBUTING.md`, "Changing a contract").
   changelog section and bumped both version declarations without moving the
   URL fails `make check test` instead of quietly handing every new reader the
   previous release.
+
+- The shell in the CI and release workflows moved into scripts under
+  `scripts/`, which `make lint-shell` hands to shellcheck. The badge publish
+  (which handles the write token through an askpass helper), the release tag
+  check, the release create and asset upload, the interpreter resolver, and the
+  macOS shellcheck install each ran as a `run:` here-doc that no linter read,
+  so a quoting or unset-variable defect in the steps that touch a token or
+  publish an artifact could not have been caught. The behavior is unchanged;
+  each script is also runnable on its own. A test fails when a workflow grows
+  a multi-line `run:` block or a new script under `scripts/` is missing from
+  the Makefile's shellcheck list.
 - `make dist-verify` builds a third time, from a copy of the tree at a
   different absolute path, and compares the artifacts across all three runs.
   The clock, locale, timezone, and hash-seed rebuilds catch host state leaking

@@ -26,7 +26,10 @@ UV_PRESENT := $(shell command -v uv >/dev/null 2>&1 && echo yes || echo no)
 # so it comes from the host (it ships in the GitHub runner image) rather than
 # from the uv project environment.
 SHELLCHECK := $(shell command -v shellcheck >/dev/null 2>&1 && echo shellcheck)
-SHELL_SOURCES := scripts/bootstrap scripts/e2e.sh
+SHELL_SOURCES := scripts/bootstrap scripts/e2e.sh \
+	scripts/check_release_tag.sh scripts/ensure_shellcheck.sh \
+	scripts/publish_badge.sh scripts/publish_release.sh \
+	scripts/resolve_test_python.sh
 
 # The SHA-256 tool for the dist manifest, probed rather than named. `sha256sum`
 # is GNU coreutils and macOS ships none; the BSD answer is `shasum -a 256`, and
