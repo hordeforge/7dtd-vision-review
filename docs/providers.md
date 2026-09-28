@@ -21,15 +21,16 @@ and rubric sit in.
 Adapters speak HTTP with the standard library. A build tool that already
 carries no SDK has no reason to grow one, and every dependency avoided is a
 supply-chain surface a consuming mod author never has to audit. Generation
-parameters are read through the shared validated readers in `providers/base.py`: an
-absent key falls back to the adapter's built-in default, while a value that
-is present but unusable (a string where a number belongs, a boolean, a
-non-finite float) is refused with the key named before any submission — a
-silently substituted parameter would make the evidence untraceable to its
-configuration. The output caps (`max_output_tokens`, `max_tokens`) additionally
-require a value of at least 1: a provider that reads zero or a negative cap as
-"no limit" would turn a botched key into an unbounded billable generation,
-which is the one outcome those knobs exist to prevent.
+parameters are read through the shared validated readers (`int_setting` and
+`float_setting`) in `providers/base.py`: an absent key falls back to the
+adapter's built-in default, while a value that is present but unusable (a
+string where a number belongs, a boolean, a non-finite float) is refused with
+the key named before any submission — a silently substituted parameter would
+make the evidence untraceable to its configuration. The output caps
+(`max_output_tokens`, `max_tokens`) additionally require a value of at least 1:
+a provider that reads zero or a negative cap as "no limit" would turn a botched
+key into an unbounded billable generation, which is the one outcome those knobs
+exist to prevent.
 
 The shared HTTP layer decodes the response envelope explicitly: the charset
 declared in `Content-Type` when it decodes, UTF-8 (JSON's default) otherwise,

@@ -20,8 +20,9 @@ The boundaries from the CLI do not weaken:
 
 Transport: newline-delimited JSON-RPC 2.0 on stdio, per the MCP spec. No
 third-party SDK; the protocol surface is small enough to keep in the standard
-library. Session handling is deliberately minimal: initialize/ping/tools,
-nothing stateful beyond the protocol handshake.
+library. Session handling is deliberately minimal: initialize/ping/tools, and
+the one piece of session state a client can ask for, the bounded
+`idempotency_key` ledger below.
 """
 
 from __future__ import annotations
