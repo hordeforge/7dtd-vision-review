@@ -291,7 +291,9 @@ Values are validated before use, not deep inside a submission: a file that
 sets a key deadeye does not read (`default_provder`, `providers.geminie`, a
 knob misspelled as `max_token`) is refused at load with the offending name,
 because a silently ignored setting leaves the built-in default in force while
-its author believes the file was honored. The complete key set is
+its author believes the file was honored. A misspelled table is named too
+(`[default_provder]`, `[providers.nvidia.model]`), even when the keys under it
+are spelled like settings elsewhere. The complete key set is
 `default_provider`, `default_model`, `timeout_seconds`, a top-level
 `api_key`, and per provider `api_key`, `model`, `endpoint` plus that
 provider's generation parameters. Beyond that,

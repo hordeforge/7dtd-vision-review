@@ -233,6 +233,36 @@ def test_endpoint_override_refuses_remote_plaintext_before_any_submission(isolat
         config.endpoint(("providers", "nvidia", "endpoint"), "https://fallback")
 
 
+def test_endpoint_override_refuses_a_url_it_cannot_read(isolated_config) -> None:
+    """A bracketed IPv6 literal that is never closed: `urlsplit` raises rather
+    than returning a host, and that refusal is this reader's, named like every
+    other one. A raw ValueError escaped `endpoint_problem`, which `doctor` is
+    built on, so an unusable override took the diagnosis down with it."""
+    _write(isolated_config, "config.toml", '[providers.nvidia]\nendpoint = "http://[::1"\n')
+    with pytest.raises(DeadeyeError, match="not a URL"):
+        config.endpoint(("providers", "nvidia", "endpoint"), "https://fallback")
+    # The question `doctor` asks reports it rather than raising.
+    assert "providers.nvidia.endpoint" in config.endpoint_problem(
+        ("providers", "nvidia", "endpoint")
+    )
+
+
+def test_an_unknown_table_is_refused_even_when_its_keys_look_known(isolated_config) -> None:
+    """`[default_provder]` holding `model` is a misspelled table whose leaves
+    happen to be spelled like settings elsewhere. Judged by its keys alone it
+    loaded silently, so the operator read a file that was never applied as one
+    that was."""
+    _write(isolated_config, "config.toml", '[default_provder]\nmodel = "a-model"\n')
+    with pytest.raises(ValueError, match="default_provder"):
+        config.load()
+
+
+def test_a_provider_key_holding_a_table_is_refused(isolated_config) -> None:
+    _write(isolated_config, "config.toml", '[providers.nvidia.model]\nx = "y"\n')
+    with pytest.raises(ValueError, match=r"providers\.nvidia\.model"):
+        config.load()
+
+
 def test_xdg_config_home_is_the_home_fallback_when_set(tmp_path, monkeypatch) -> None:
     """Installed-tool discovery follows XDG_CONFIG_HOME instead of hardcoding
     ~/.config, so a Linux host that relocated its config dir is still found."""

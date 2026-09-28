@@ -21,7 +21,11 @@ invariants the pipeline depends on:
 - `flat_label_text` leaves no line separator or control character behind, so
   a filename cannot forge an extra label-shaped line in the prompt;
 - an MCP client frame is answered in band or not at all: the id comes back,
-  the answer is one of result/error, and no frame takes the stdio loop down.
+  the answer is one of result/error, and no frame takes the stdio loop down;
+- a config file and an endpoint override refuse by name rather than by
+  traceback, and an accepted override is always https or a loopback http, so
+  the string that decides where a provider credential goes cannot be the one
+  thing an unvalidated reader waves through.
 
 Run with the rest of the suite (`make test`). A failure prints the
 falsifying example: pin it as a regression test next to the parser's unit
@@ -35,9 +39,12 @@ import email.message
 import io
 import json
 import math
+import tempfile
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -50,11 +57,12 @@ except ImportError:
         allow_module_level=True,
     )
 
-from deadeye import mcp
+from deadeye import config, mcp
 from deadeye.errors import DeadeyeError
 from deadeye.intent import load_intent, parse_intent
 from deadeye.json_safe import strict_json_numbers
 from deadeye.providers._http import _decode_envelope
+from deadeye.providers.base import float_setting, int_setting
 from deadeye.redaction import SENSITIVE_KEY_PARTS, redact
 from deadeye.result import BASE_RUBRIC, RESULT_KEYS, parse_model_json, validate_result
 from deadeye.sampling import flat_label_text
@@ -683,3 +691,189 @@ def _expected_answers(lines: list[bytes]) -> int:
         if not (isinstance(frame, dict) and "id" not in frame):
             expected += 1
     return expected
+
+
+# ---------------------------------------------------------------------------
+# Target 6: the configuration file and the endpoint override.
+#
+# `config.toml` and `config.local.toml` are hand-edited, and a proxy root
+# override is the one setting that decides where a provider credential is
+# sent. Both are parsed before anything is submitted, so the invariants are:
+#
+# - a file deadeye cannot parse, or one setting a key path that no adapter
+#   reads, refuses by name as a ValueError; nothing else escapes, so a typo
+#   or a truncated file is a message and not a traceback;
+# - a loaded file yields leaves only at the known key paths, each naming the
+#   file it came from, and a value a reader asks for by a path that does not
+#   exist is None rather than a walk through a non-table;
+# - an accepted endpoint override is https, or plain http to a loopback
+#   host: the value that would carry the bearer key never leaves on
+#   cleartext to anywhere else, whatever the string says;
+# - the generation knobs are absent-or-usable, so a value that reaches a
+#   request body is an integer above its floor or a finite float.
+# ---------------------------------------------------------------------------
+
+_CONFIG_KEYS = (
+    "api_key",
+    "default_model",
+    "default_provider",
+    "providers",
+    "timeout_seconds",
+)
+
+_URL_CHUNKS = (
+    "https://",
+    "http://",
+    "HTTP://",
+    "//",
+    "localhost",
+    "127.0.0.1",
+    "::1",
+    "[::1",
+    "[v1.x]",
+    "@",
+    ":",
+    "/",
+    "?#",
+    "\x00",
+    " ",
+    "%zz",
+    "\\",
+    "provider.example",
+)
+
+_url_overrides = st.lists(st.sampled_from(_URL_CHUNKS), min_size=1, max_size=6).map(
+    "".join
+) | st.text(max_size=32)
+
+_ENDPOINTS = (("providers", "nvidia", "endpoint"), ("providers", "gemini", "endpoint"))
+
+
+@FUZZ
+@given(override=_url_overrides, keys=st.sampled_from(_ENDPOINTS))
+def test_fuzz_endpoint_override_is_https_or_loopback(override: str, keys: tuple[str, ...]) -> None:
+    fallback = "https://fallback.example/v1"
+    with patch.object(config, "value", lambda _keys: override):
+        try:
+            accepted = config.endpoint(keys, fallback)
+        except DeadeyeError:
+            # A refused override names itself through the question `doctor`
+            # asks, and doctor is the one caller that must not raise.
+            assert config.endpoint_problem(keys) is not None
+            return
+        assert config.endpoint_problem(keys) is None
+    # An accepted override is the configured string, stripped: nothing is
+    # rewritten into a different root than the operator wrote down. An unset
+    # or blank override reads as the caller's own fallback.
+    if not override.strip():
+        assert accepted == fallback
+        return
+    assert accepted == override.strip()
+    # The oracle is an independent parse of the value that was accepted, so a
+    # reader that waves through what this rejects, or reads a different host,
+    # fails here rather than in a request the credential has already sent.
+    parts = urlsplit(accepted)
+    assert parts.netloc, "an accepted override names a host"
+    if parts.scheme == "http":
+        # The one plain-http root an operator may name: a self-hosted proxy on
+        # this machine. Anywhere else the credential would travel in clear.
+        assert (parts.hostname or "") in config.LOOPBACK_HOSTS
+    else:
+        assert parts.scheme == "https"
+
+
+@FUZZ
+@given(
+    document=st.one_of(
+        st.text(max_size=256),
+        st.builds(
+            lambda name, value: f"{name} = {value}\n",
+            st.sampled_from((*_CONFIG_KEYS, "default_provder", "providers.geminie.api_key")),
+            st.one_of(
+                st.sampled_from(['"text"', "7", "1.5", "true", "[]", "{ }", "nan", "inf"]),
+                st.text(max_size=16).map(json.dumps),
+            ),
+        ),
+        st.builds(
+            lambda table, key, value: f"[{table}]\n{key} = {value}\n",
+            st.sampled_from(
+                [
+                    "providers.nvidia",
+                    "providers.gemini",
+                    "providers.unknown",
+                    "providers",
+                    "providers.nvidia.endpoint",
+                ]
+            ),
+            st.sampled_from(
+                ["endpoint", "api_key", "model", "max_tokens", "temperature", "timeout_seconds"]
+            ),
+            st.sampled_from(['"x"', "0", "-3", "nan", "inf", "true", "[]"]),
+        ),
+    )
+)
+def test_fuzz_config_file_refuses_by_name_or_loads_known_keys(document: str) -> None:
+    with tempfile.TemporaryDirectory(prefix="deadeye-fuzz-cfg-") as raw:
+        directory = Path(raw)
+        (directory / "config.toml").write_text(document, encoding="utf-8")
+        try:
+            loaded = config.Config(directory)
+        except ValueError:
+            return  # refusal: unreadable or unread, the only allowed failure mode
+    # A file that loads carries only leaves at key paths an adapter reads, and
+    # every leaf names the file it came from.
+    for path, _value in _leaf_paths(loaded.data, ()):
+        assert _is_known_path(path), f"loaded a setting deadeye does not read: {path}"
+        assert loaded.provenance(path) == "config.toml"
+    # A path that does not exist reads as None, whatever the tables hold: a key
+    # path through a leaf or a missing table is a miss, not a walk that hands
+    # the caller something it never configured.
+    assert loaded.value(("providers", "not-a-provider", "api_key")) is None
+    assert loaded.value(("api_key", "deeper")) is None
+
+
+def _leaf_paths(data: object, path: tuple[str, ...]) -> Iterator[tuple[tuple[str, ...], object]]:
+    if not isinstance(data, dict):
+        return
+    for key, value in data.items():
+        child = (*path, key)
+        if isinstance(value, dict):
+            yield from _leaf_paths(value, child)
+        else:
+            yield child, value
+
+
+def _is_known_path(path: tuple[str, ...]) -> bool:
+    """An independent reading of the key tables, not the loader's own check."""
+    if path[:1] == ("providers",) and len(path) == 3:
+        known = config.PROVIDER_KEYS.get(path[1])
+        return known is not None and path[2] in known
+    if len(path) == 1:
+        return path[0] in config.TOP_LEVEL_KEYS
+    return False
+
+
+@FUZZ
+@given(
+    leaf=st.one_of(
+        st.none(),
+        st.sampled_from([0, -1, 1, 1 << 40, 1.0, -0.5, float("nan"), float("inf")]),
+        st.sampled_from(["12", True, [], {}, float("nan"), float("-inf")]),
+    )
+)
+def test_fuzz_generation_knobs_are_absent_or_usable(leaf: object) -> None:
+    with patch.object(config, "value", lambda _keys: leaf):
+        try:
+            cap = int_setting("nvidia", "max_tokens", fallback=1024, minimum=1)
+        except DeadeyeError:
+            return  # refusal: the only allowed failure mode, and a named one
+        # A cap that cleared its floor is a plain int: no bool read as 1 and
+        # no float rounded, so the operator's cap is the cap that is sent.
+        assert isinstance(cap, int) and not isinstance(cap, bool) and cap >= 1
+        try:
+            temperature = float_setting("nvidia", "temperature", fallback=0.4)
+        except DeadeyeError:
+            return
+    # A value that reaches the request body is finite: `nan` or `inf` would
+    # serialize as a token no JSON reader on the provider side accepts.
+    assert math.isfinite(temperature)

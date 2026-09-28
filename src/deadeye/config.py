@@ -146,6 +146,27 @@ def _unknown_provider_keys(providers: dict[str, Any]) -> list[str]:
     return unknown
 
 
+def _known_leaf(path: tuple[str, ...]) -> bool:
+    """Whether a setting at `path` is one deadeye reads."""
+    if path[:1] == ("providers",) and len(path) == 3:
+        known = PROVIDER_KEYS.get(path[1])
+        return known is not None and path[2] in known
+    return len(path) == 1 and path[0] in TOP_LEVEL_KEYS
+
+
+def _known_table(path: tuple[str, ...]) -> bool:
+    """Whether a `[table]` at `path` is one deadeye reads into.
+
+    A table deadeye does not read is named as the fault, rather than judged by
+    the keys under it: `[default_provder]` holding `model` is a misspelled
+    table whose leaves happen to be spelled like settings elsewhere, and
+    checking only the leaves let it load as though the table were honored.
+    """
+    if path[:1] == ("providers",):
+        return len(path) == 1 or (len(path) == 2 and path[1] in PROVIDER_KEYS)
+    return len(path) == 1 and path[0] in TOP_LEVEL_KEYS
+
+
 def _unknown_keys(data: dict[str, Any], path: tuple[str, ...] = ()) -> list[str]:
     """Dotted paths of every setting in `data` that deadeye does not read."""
     unknown: list[str] = []
@@ -156,8 +177,11 @@ def _unknown_keys(data: dict[str, Any], path: tuple[str, ...] = ()) -> list[str]
                 unknown.extend(_unknown_provider_keys(value))
             continue
         if isinstance(value, dict):
-            unknown.extend(_unknown_keys(value, child))
-        elif key not in TOP_LEVEL_KEYS:
+            if _known_table(child):
+                unknown.extend(_unknown_keys(value, child))
+            else:
+                unknown.append(".".join(child))
+        elif not _known_leaf(child):
             unknown.append(".".join(child))
     return unknown
 
@@ -479,15 +503,26 @@ def _override_root(keys: tuple[str, ...]) -> str | None:
     The override exists for a self-hosted proxy, so plain http is accepted
     only for a loopback host; anywhere else the bearer key or API key would
     travel in cleartext or reach an unintended host. Anything else is refused
-    here — at review start with a named key — instead of failing inside the
-    HTTP stack after media was read.
+    here, at review start with a named key, including a URL the reader cannot
+    parse at all, instead of failing inside the HTTP stack after media was read.
     """
     raw = value(keys)
     if not isinstance(raw, str) or not raw.strip():
         return None
     root = raw.strip()
-    parts = urlsplit(root)
-    host = (parts.hostname or "").strip("[]").lower()
+    try:
+        parts = urlsplit(root)
+        host = (parts.hostname or "").strip("[]").lower()
+    except ValueError as exc:
+        # `urlsplit` raises rather than returning a host it cannot read, on a
+        # bracketed IPv6 literal that is never closed or never a valid address
+        # (`http://[::1`). That is this reader's refusal, not a parser fault:
+        # a raw ValueError would escape every caller named here, including
+        # `endpoint_problem`, which is the only path that is supposed to
+        # report an unusable override without raising.
+        raise DeadeyeError(
+            f"config '{'.'.join(keys)}' is not a URL this tool can read: {raw!r} ({exc})"
+        ) from exc
     if (parts.scheme == "https" and parts.netloc) or (
         parts.scheme == "http" and host in LOOPBACK_HOSTS
     ):
