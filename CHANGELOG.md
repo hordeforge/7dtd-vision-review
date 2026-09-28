@@ -114,6 +114,14 @@ required (`CONTRIBUTING.md`, "Changing a contract").
   also run under bash with `-e -o pipefail`, and `make dist` clears its output
   directory first so an artifact from an earlier version cannot ship beside
   the new one.
+- The redaction backstop has one home, `src/deadeye/redaction.py`, and the
+  copy `intent.py` carried is gone. The two had drifted: the intent copy
+  matched header-shaped key names (`x-goog-api-key`), invisible characters
+  inside a key, and bounded its own walk depth, while the copy the evidence
+  envelope and stdout JSON ran through matched none of them. After: every
+  output path gets the stronger backstop, so a request parameter, a usage
+  block, or a preserved raw response also drops a hyphenated header name or a
+  key spelled with a zero-width character.
 - The MCP tools read and type every argument at the boundary, so a
   malformed `tools/call` is refused by name instead of surfacing as a fault
   report. `clip`, `intent`, `intent_text`, `output`, and `model` must be

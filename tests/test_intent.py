@@ -7,12 +7,7 @@ import json
 import pytest
 
 from deadeye.errors import DeadeyeError
-from deadeye.intent import (
-    CAMERA_PATHS,
-    MAX_INTENT_BYTES,
-    load_intent,
-    parse_intent,
-)
+from deadeye.intent import CAMERA_PATHS, MAX_INTENT_BYTES, load_intent, parse_intent
 
 
 def test_a_valid_intent_parses(intent_bytes: bytes) -> None:

@@ -35,10 +35,9 @@ import base64
 
 from .. import config
 from ..errors import DeadeyeError
-from ..sampling import IMAGE_SUFFIXES, VIDEO_SUFFIXES
 from ._http import post_json
 from .base import (
-    ProviderLimits,
+    CredentialedProvider,
     ReviewRequest,
     ReviewResponse,
     attachment_label,
@@ -67,35 +66,13 @@ DEFAULT_TEMPERATURE = 0.6
 DEFAULT_TOP_P = 0.95
 
 
-class NvidiaProvider:
+class NvidiaProvider(CredentialedProvider):
     name = "nvidia"
     endpoint_mode = "hosted-api:openai-compatible-chat"
-    requires_credential = True
     credential_env_names = CREDENTIAL_ENV_VARS
-
-    @property
-    def default_model(self) -> str:
-        return config.text(("providers", "nvidia", "model")) or DEFAULT_MODEL
-
-    @property
-    def limits(self) -> ProviderLimits:
-        return ProviderLimits(
-            suffixes=IMAGE_SUFFIXES + VIDEO_SUFFIXES,
-            max_bytes=MAX_REQUEST_BYTES,
-            max_frames=MAX_FRAMES_PER_REQUEST,
-            accepts_video=True,
-            max_video_bytes=MAX_REQUEST_BYTES,
-        )
-
-    def credential(self) -> str | None:
-        """The configured key (environment first, then configuration), or None.
-
-        Never logged; callers send it only.
-        """
-        return config.credential_for("nvidia", CREDENTIAL_ENV_VARS)
-
-    def is_configured(self) -> bool:
-        return self.credential() is not None
+    default_model_name = DEFAULT_MODEL
+    max_request_bytes = MAX_REQUEST_BYTES
+    max_frames_per_request = MAX_FRAMES_PER_REQUEST
 
     def configuration_hint(self) -> str:
         return (

@@ -6,7 +6,8 @@ An adapter is a narrow protocol in `src/deadeye/providers/base.py`:
   whether a muxed video can be submitted as-is;
 - `is_configured()` / `configuration_hint()` — local credential presence
   (environment or `config.local.toml`) only, so `deadeye doctor`, `--help`,
-  and offline runs never contact a provider;
+  and offline runs never contact a provider; the hosted adapters inherit the
+  first from `CredentialedProvider` in `base.py` and write only the second;
 - `review(request)` — submit media plus prompt, return raw text plus usage
   metadata, raising `DeadeyeError` on refusal or fault.
 
@@ -122,7 +123,10 @@ including that frames travel as base64 bytes, never filesystem paths.
 ## Adding one
 
 1. a module under `src/deadeye/providers/` implementing the protocol in
-   `base.py` with the standard library;
+   `base.py` with the standard library; a hosted provider that takes a key
+   subclasses `CredentialedProvider` for the credential, model, and limits
+   every adapter shares, and implements `configuration_hint()` and
+   `review()`;
 2. one line in `PROVIDERS` in `surface.py`;
 3. a row in the provider table in [reference.md](reference.md) and a section
    on this page;

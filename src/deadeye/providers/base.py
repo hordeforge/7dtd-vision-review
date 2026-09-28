@@ -20,7 +20,7 @@ from typing import Any, Protocol
 
 from .. import config
 from ..errors import DeadeyeError
-from ..sampling import MediaKind, flat_label_text
+from ..sampling import IMAGE_SUFFIXES, VIDEO_SUFFIXES, MediaKind, flat_label_text
 
 
 @dataclass(frozen=True)
@@ -115,6 +115,52 @@ class VideoReviewProvider(Protocol):
     def review(self, request: ReviewRequest) -> ReviewResponse:
         """Submit media plus prompt; raise DeadeyeError on refusal or fault."""
         ...
+
+
+class CredentialedProvider:
+    """The credential, model, and media-limit half every hosted adapter shares.
+
+    A hosted provider differs from its neighbours in the payload it builds and
+    the envelope it reads back, not in where its key comes from or what it
+    accepts: those three answers were the same shape in each adapter, and a
+    copy of them is a copy that drifts. A subclass sets `name`,
+    `credential_env_names`, `endpoint_mode`, `default_model_name`,
+    `max_request_bytes`, and `max_frames_per_request`, implements
+    `configuration_hint` and `review`, and inherits the rest.
+    """
+
+    name: str
+    endpoint_mode: str
+    credential_env_names: tuple[str, ...]
+    default_model_name: str
+    max_request_bytes: int
+    max_frames_per_request: int
+
+    requires_credential = True
+
+    @property
+    def default_model(self) -> str:
+        return config.text(("providers", self.name, "model")) or self.default_model_name
+
+    @property
+    def limits(self) -> ProviderLimits:
+        return ProviderLimits(
+            suffixes=IMAGE_SUFFIXES + VIDEO_SUFFIXES,
+            max_bytes=self.max_request_bytes,
+            max_frames=self.max_frames_per_request,
+            accepts_video=True,
+            max_video_bytes=self.max_request_bytes,
+        )
+
+    def credential(self) -> str | None:
+        """The configured key (environment first, then configuration), or None.
+
+        Never logged; callers send it only.
+        """
+        return config.credential_for(self.name, self.credential_env_names)
+
+    def is_configured(self) -> bool:
+        return self.credential() is not None
 
 
 def attachment_label(payload: MediaPayload) -> str:
