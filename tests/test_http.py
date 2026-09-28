@@ -30,6 +30,7 @@ def _post() -> None:
         headers={"x-goog-api-key": "k"},
         timeout_seconds=1.0,
         credential_env="GEMINI_API_KEY",
+        credential="k",
     )
 
 
@@ -113,6 +114,7 @@ def test_non_finite_provider_numbers_cannot_reach_the_envelope(http_opener) -> N
         headers={"x-goog-api-key": "k"},
         timeout_seconds=1.0,
         credential_env="GEMINI_API_KEY",
+        credential="k",
     )
     assert envelope["usage"]["totalTokenCount"] == 41  # finite values pass untouched
     assert envelope["usage"]["ratio"] is None
@@ -203,6 +205,39 @@ class _CharsetResponse(io.BytesIO):
         self.headers["Content-Type"] = content_type
 
 
+def test_an_echoed_credential_never_reaches_a_fault_line(http_opener) -> None:
+    """A proxy that answers a refused request by echoing the request it
+    refused must not put the provider key on stderr, in a log, or in whatever
+    reads the CLI's error channel. The key-based backstop cannot catch it:
+    the body is endpoint prose, and it is often cut off at the fault cap
+    before it is a parseable document."""
+
+    def refusing_open(request, timeout):
+        raise urllib.error.HTTPError(
+            request.full_url,
+            400,
+            "Bad Request",
+            {},
+            io.BytesIO(b"upstream said: bad x-goog-api-key: AIzaSyNOTAREALKEY0000000000000000"),
+        )
+
+    http_opener(refusing_open)
+    with pytest.raises(DeadeyeError, match="HTTP 400") as excinfo:
+        post_json(
+            "gemini",
+            "https://proxy.example/v1/models/m:generateContent",
+            body={},
+            headers={"x-goog-api-key": "AIzaSyNOTAREALKEY0000000000000000"},
+            timeout_seconds=1.0,
+            credential_env="GEMINI_API_KEY",
+            credential="AIzaSyNOTAREALKEY0000000000000000",
+        )
+    assert "AIzaSyNOTAREALKEY0000000000000000" not in str(excinfo.value)
+    assert "[redacted]" in str(excinfo.value)
+    # The account of the fault survives; only the secret is gone.
+    assert "upstream said" in str(excinfo.value)
+
+
 def test_a_non_utf8_success_body_is_refused_not_crashed(http_opener) -> None:
     """An invalid byte in a 200 body is an undecodable envelope. It must end
     as one refusal naming the provider (the fault family every other malformed
@@ -235,6 +270,7 @@ def test_the_declared_charset_decodes_the_body(http_opener) -> None:
         headers={"x-goog-api-key": "k"},
         timeout_seconds=1.0,
         credential_env="GEMINI_API_KEY",
+        credential="k",
     )
     assert envelope["modelVersion"] == "café-model"
 
@@ -254,6 +290,7 @@ def test_an_unknown_declared_charset_falls_back_to_utf8(http_opener) -> None:
         headers={"x-goog-api-key": "k"},
         timeout_seconds=1.0,
         credential_env="GEMINI_API_KEY",
+        credential="k",
     )
     assert envelope["modelVersion"] == "m"
 
@@ -341,6 +378,7 @@ def test_a_declared_charset_whose_codec_raises_is_a_fault_not_a_crash(http_opene
         headers={"x-goog-api-key": "k"},
         timeout_seconds=1.0,
         credential_env="GEMINI_API_KEY",
+        credential="k",
     )
     assert envelope["modelVersion"] == "m"
 
@@ -367,6 +405,7 @@ def test_a_declared_charset_bytes_decode_rejects_is_a_fault_not_a_crash(http_ope
             headers={"x-goog-api-key": "k"},
             timeout_seconds=1.0,
             credential_env="GEMINI_API_KEY",
+            credential="k",
         )
         assert envelope["modelVersion"] == "m"
 
@@ -477,6 +516,7 @@ def test_a_slow_drip_provider_is_refused_at_the_total_budget(http_opener, monkey
             headers={"x-goog-api-key": "k"},
             timeout_seconds=0.3,
             credential_env="GEMINI_API_KEY",
+            credential="k",
         )
     # The refusal lands on the budget, not several drip intervals past it.
     assert clock[0] <= 0.5

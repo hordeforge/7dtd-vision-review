@@ -51,7 +51,12 @@ SENSITIVE_KEY_PARTS = (
 MAX_REDACT_DEPTH = 64
 
 
-def redact(value: Any, parts: tuple[str, ...] = SENSITIVE_KEY_PARTS, _depth: int = 0) -> Any:
+def redact(
+    value: Any,
+    parts: tuple[str, ...] = SENSITIVE_KEY_PARTS,
+    exceptions: tuple[str, ...] = (),
+    _depth: int = 0,
+) -> Any:
     """Deep-copy a JSON-shaped value, dropping credential-bearing mapping keys.
 
     The walk is depth-bounded at `MAX_REDACT_DEPTH`. `json.loads` accepts
@@ -62,23 +67,31 @@ def redact(value: Any, parts: tuple[str, ...] = SENSITIVE_KEY_PARTS, _depth: int
     submission that had already been billed. A container past the limit is
     replaced by null, because a walk that cannot finish cannot prove the
     subtree carries no credential.
+
+    `exceptions` are folded substrings that are never treated as sensitive.
+    They exist for one caller: a provider's usage block reports its cost as
+    `totalTokenCount` and friends, so the usage path cannot drop every
+    token-shaped key, and dropping the whole `token` part instead is what
+    lets `access_token`, `id_token`, and `refresh_token` through a backstop
+    meant to catch them. An allowlist of the billing names keeps the counts
+    and closes the rest.
     """
     if isinstance(value, dict):
         if _depth >= MAX_REDACT_DEPTH:
             return None
         return {
-            key: redact(item, parts, _depth + 1)
+            key: redact(item, parts, exceptions, _depth + 1)
             for key, item in value.items()
-            if isinstance(key, str) and not _is_sensitive_key(key, parts)
+            if isinstance(key, str) and not _is_sensitive_key(key, parts, exceptions)
         }
     if isinstance(value, list):
         if _depth >= MAX_REDACT_DEPTH:
             return None
-        return [redact(item, parts, _depth + 1) for item in value]
+        return [redact(item, parts, exceptions, _depth + 1) for item in value]
     return value
 
 
-def _is_sensitive_key(key: str, parts: tuple[str, ...]) -> bool:
+def _is_sensitive_key(key: str, parts: tuple[str, ...], exceptions: tuple[str, ...] = ()) -> bool:
     # Case folding, not lower(): a key that differs from a sensitive name only
     # under case folding (long s U+017F folds to ASCII s) must not slip past
     # the backstop, and folding is locale-independent where this match must be.
@@ -94,6 +107,8 @@ def _is_sensitive_key(key: str, parts: tuple[str, ...]) -> bool:
     # ASCII key cannot hide one and skips the per-character category walk,
     # which is the inner loop of every redacted document.
     folded = key.casefold() if key.isascii() else _strip_format_characters(key).casefold()
+    if any(exception in folded for exception in exceptions):
+        return False
     return folded == "key" or any(part in folded for part in parts)
 
 

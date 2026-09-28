@@ -149,13 +149,74 @@ def test_redact_passes_nan_leaves_through_untouched() -> None:
 
 
 def test_redact_keeps_token_counters_for_usage() -> None:
-    # The usage path redacts with USAGE_SENSITIVE_KEY_PARTS, which excludes
-    # "token" (billing, not authentication), so a provider's totalTokenCount
-    # survives while a credential-named key is still dropped.
-    from deadeye.evidence import USAGE_SENSITIVE_KEY_PARTS
+    # The usage path redacts with the full sensitive-part list plus an
+    # allowlist of the billing names, so a provider's totalTokenCount
+    # survives while a credential-named key is still dropped. An earlier
+    # version dropped the whole `token` part instead, which kept the counts
+    # and also kept `access_token` / `id_token` / `refresh_token`.
+    from deadeye.evidence import USAGE_BILLING_KEY_PARTS
 
     value = {"totalTokenCount": 12, "secret": "x"}
-    assert redact(value, USAGE_SENSITIVE_KEY_PARTS) == {"totalTokenCount": 12}
+    assert redact(value, exceptions=USAGE_BILLING_KEY_PARTS) == {"totalTokenCount": 12}
+
+
+def test_redact_drops_token_shaped_credentials_from_usage() -> None:
+    # The gap the allowlist closes: with "token" back in the sensitive parts,
+    # only the named billing counters survive. Every other token-shaped key
+    # is a credential by default, which is the fail-closed direction.
+    from deadeye.evidence import USAGE_BILLING_KEY_PARTS
+
+    value = {
+        "totalTokenCount": 12,
+        "promptTokenCount": 4,
+        "prompt_tokens": 4,
+        "access_token": "a",
+        "id_token": "b",
+        "refresh_token": "c",
+        "bearer_token": "d",
+        "sessionToken": "e",
+    }
+    assert redact(value, exceptions=USAGE_BILLING_KEY_PARTS) == {
+        "totalTokenCount": 12,
+        "promptTokenCount": 4,
+        "prompt_tokens": 4,
+    }
+
+
+def test_the_evidence_envelope_drops_a_token_shaped_credential_from_usage() -> None:
+    # The route `build_envelope` actually takes, not the helper in isolation:
+    # a provider usage block is vendor payload, and nothing a provider sent
+    # may reach stored evidence, stdout, or an MCP payload with a credential
+    # still in it.
+    from deadeye.evidence import build_envelope
+
+    envelope = build_envelope(
+        media_entries=(),
+        sampling=SamplingRecord(
+            frames_available=0,
+            frames_submitted=0,
+            sampled=False,
+            frame_indices=(),
+            submitted_files=(),
+            note="nothing",
+        ),
+        intent=ReviewIntent("p", "", "", "", (), (), (), "", ""),
+        intent_raw=b"{}",
+        provider_name="gemini",
+        endpoint_mode="hosted-api:inline-base64",
+        model_requested="m",
+        model_reported="m",
+        generation={},
+        prompt="",
+        result=None,
+        error=None,
+        raw_response=None,
+        usage={"totalTokenCount": 9, "access_token": "ya29.secret"},
+        total_bytes=0,
+        params={},
+        elapsed_seconds=0.0,
+    )
+    assert envelope["usage"] == {"totalTokenCount": 9}
 
 
 def test_redact_json_text_drops_credential_keys_from_a_document_string() -> None:

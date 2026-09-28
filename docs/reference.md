@@ -330,7 +330,11 @@ never silently swapped for another), `timeout_seconds` and `--timeout` must
 be positive numbers, and a per-provider `endpoint` override must be an
 `https://` URL — plain `http` is accepted only for a loopback proxy such as
 `http://localhost:8080`, so no credential ever rides a public wire in
-cleartext. The timeout is a whole-call budget: the adapters read the response
+cleartext. An override carrying a credential in the URL
+(`https://user:pass@host`) is refused by name without echoing the value
+back, because every refusal from this reader reaches stderr and whatever
+reads it; the key belongs in the environment or under
+`[providers.<name>] api_key`. The timeout is a whole-call budget: the adapters read the response
 in chunks against a `time.monotonic` deadline, so a provider that keeps
 trickling bytes cannot hold a billable submission open by resetting a
 per-socket-operation timeout, and an NTP step or a manual clock change during

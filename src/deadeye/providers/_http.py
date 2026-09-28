@@ -41,6 +41,34 @@ _MAX_BYTES_PER_CHAR = 4
 # 65k-token JSON verdict plus provider metadata.
 _MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 
+# What a scrubbed credential reads as in a refusal line.
+_REDACTED_CREDENTIAL = "[redacted]"
+
+# Below this length a credential is too short to scrub for: a replacement sweep
+# would corrupt ordinary words in the fault text as often as it removed a
+# secret, and every provider key this gateway sends is far longer.
+_MIN_SCRUBBABLE_CREDENTIAL_CHARS = 8
+
+
+def scrub_credential(text: str, credential: str | None) -> str:
+    """`text` with every occurrence of `credential` removed.
+
+    A fault body is text the endpoint chose, and it reaches a refusal line on
+    stderr, in logs, and in whatever reads the CLI's error channel. The
+    `endpoint` override exists for a self-hosted proxy, and a proxy that
+    answers a refused request by echoing the request it refused hands the
+    provider credential straight to every one of those readers. The key-based
+    backstop cannot catch that: the body is provider prose, frequently
+    truncated, and not always JSON for `redact_json_text` to parse.
+
+    Matching the value the tool already holds needs no parsing at all, so it
+    works on a body cut off at the fault cap, in any declared charset, and
+    whether or not the credential appears under a key.
+    """
+    if not credential or len(credential) < _MIN_SCRUBBABLE_CREDENTIAL_CHARS:
+        return text
+    return text.replace(credential, _REDACTED_CREDENTIAL)
+
 
 class _NoRedirects(urllib.request.HTTPRedirectHandler):
     """Refuse every redirect instead of following it.
@@ -292,6 +320,7 @@ def post_json(
     headers: dict[str, str],
     timeout_seconds: float,
     credential_env: str,
+    credential: str,
 ) -> dict[str, Any]:
     """POST `body` as JSON to `url`, return the parsed JSON envelope.
 
@@ -302,6 +331,9 @@ def post_json(
     `timeout_seconds` bounds the whole submission, response body included: the
     socket timeout is per operation, and the read loop carries the deadline
     that closes the gap.
+
+    `credential` is the key the adapter put in `headers`, handed here so the
+    fault path can scrub it back out of a body the endpoint chose.
     """
     request = urllib.request.Request(  # noqa: S310
         url,
@@ -341,8 +373,9 @@ def post_json(
     except urllib.error.HTTPError as exc:
         # A body that cannot be read must degrade to the status line, not
         # to an unbound name when the message below formats it. The read
-        # is bounded and the socket is closed inside `_read_fault_body`.
-        detail = _read_fault_body(exc)
+        # is bounded, the socket is closed inside `_read_fault_body`, and
+        # the credential is scrubbed out of whatever the endpoint echoed.
+        detail = scrub_credential(_read_fault_body(exc), credential)
         if exc.code in _REDIRECT_CODES:
             raise DeadeyeError(
                 f"provider {provider!r} answered with HTTP {exc.code} (redirect); "

@@ -80,7 +80,14 @@ stdout, JSON output, logs, or evidence. The redaction backstop in
 `redaction.py` drops credential-named keys wherever they would otherwise
 land, and bounds its own walk depth so a deeply nested payload is dropped
 rather than escaping as an uncaught error from a submission that was already
-billed.
+billed. Two paths the key-based backstop cannot reach are closed at the
+point they would leak: a provider's error body is scrubbed of the credential
+the adapter sent before it can join a refusal line (`_http.scrub_credential`),
+because an endpoint that echoes a request it refused would otherwise put the
+key on stderr; and an `endpoint` override carrying userinfo is refused
+without quoting the value, for the same reason. A provider usage block is
+redacted with the full sensitive-name list plus an allowlist of the billing
+counters, so `totalTokenCount` survives and `access_token` does not.
 
 **Text is not ASCII by construction.** A model's prose, an author's intent, and
 a filename are all non-ASCII by nature, and every encoding decision in the

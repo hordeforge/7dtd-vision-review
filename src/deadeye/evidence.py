@@ -31,19 +31,30 @@ from ._version import __version__
 from .errors import DeadeyeError
 from .intent import INTENT_SCHEMA_VERSION, ReviewIntent
 from .prompt import PROMPT_VERSION
-from .redaction import SENSITIVE_KEY_PARTS, redact
+from .redaction import redact
 from .result import ADVISORY_NOTE, RUBRIC_VERSION
 from .sampling import SamplingRecord
 
 EVIDENCE_SCHEMA_VERSION = 1
 
 # A provider's usage block reports its cost through names like
-# `totalTokenCount`, so it cannot reuse redaction.SENSITIVE_KEY_PARTS
-# wholesale: there "token" is billing, not authentication. It keeps every
-# count and still drops the names a secret actually travels in. Derived from
-# the canonical tuple, minus that one documented exception, so the two lists
-# cannot drift apart.
-USAGE_SENSITIVE_KEY_PARTS = tuple(part for part in SENSITIVE_KEY_PARTS if part != "token")
+# `totalTokenCount`, so the usage path cannot simply drop every token-shaped
+# key. Dropping the `token` part wholesale instead is what let
+# `access_token`, `id_token`, and `refresh_token` through the one backstop
+# every output path runs through, into stored evidence, stdout, and MCP
+# payloads. These are the billing names that must survive; every other
+# token-shaped key is treated as the credential it usually is.
+USAGE_BILLING_KEY_PARTS = (
+    "cachetokencount",
+    "cachedcontenttokencount",
+    "candidatestokencount",
+    "prompttokencount",
+    "thoughtstokencount",
+    "totaltokencount",
+    "completion_tokens",
+    "prompt_tokens",
+    "total_tokens",
+)
 
 
 def sha256_bytes(payload: bytes) -> str:
@@ -148,7 +159,7 @@ def build_envelope(
         # may reach stdout, JSON output, or evidence without the backstop.
         "raw_provider_response": raw_response,
         "usage": (
-            redact(dict(usage), USAGE_SENSITIVE_KEY_PARTS)
+            redact(dict(usage), exceptions=USAGE_BILLING_KEY_PARTS)
             if usage
             else {"reported_by_provider": False}
         ),

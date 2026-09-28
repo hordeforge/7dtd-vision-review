@@ -526,6 +526,17 @@ def _override_root(keys: tuple[str, ...]) -> str | None:
     if (parts.scheme == "https" and parts.netloc) or (
         parts.scheme == "http" and host in LOOPBACK_HOSTS
     ):
+        if parts.username is not None or parts.password is not None:
+            # Refused before the raw value can be quoted into a refusal, which
+            # is the whole point: the userinfo is the secret, and every other
+            # message from this reader lands on stderr and in whatever reads
+            # the CLI's error channel. Credentials travel in a header, never
+            # in a URL, for the same reason the adapters never put a key in a
+            # query string (a URL reaches access logs the header does not).
+            raise DeadeyeError(
+                f"config '{'.'.join(keys)}' must not carry a credential in the URL; "
+                "put the key in the environment or under [providers.<name>] api_key"
+            )
         return root
     raise DeadeyeError(
         f"config '{'.'.join(keys)}' must be an https:// URL (plain http only "

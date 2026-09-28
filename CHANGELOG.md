@@ -652,6 +652,33 @@ required (`CONTRIBUTING.md`, "Changing a contract").
 
 ### Security
 
+- A provider credential echoed back in an error body no longer reaches a
+  refusal line. Before: a 4xx/5xx body was sliced straight into the `ERROR:`
+  line on stderr, so a proxy that answered a refused request by echoing the
+  request it refused put the key into the operator's terminal, their logs, and
+  anything reading the CLI's error channel. After: the fault body is scrubbed
+  of the credential the adapter sent (`providers/_http.py`,
+  `scrub_credential`), which works on a body cut off at the fault cap and in
+  any declared charset, where the key-based backstop could not run. The
+  account of the fault is unchanged; the secret is gone. A credential shorter
+  than 8 characters is left alone rather than swept, because removing a
+  one-word string would mangle the fault text as often as it removed a secret.
+- The redaction backstop no longer lets a `token`-shaped credential through in
+  a provider usage block. Before: the usage path dropped the whole `token`
+  part from its sensitive names so `totalTokenCount` would survive, which also
+  let `access_token`, `id_token`, `refresh_token`, and `bearer_token` reach
+  stored evidence, stdout JSON, and MCP payloads. After: `redact` takes an
+  allowlist of the billing names (`evidence.USAGE_BILLING_KEY_PARTS`) and
+  every other token-shaped key is treated as the credential it usually is. No
+  reported token count changes; only the credential-shaped keys are dropped.
+- A per-provider `endpoint` override carrying a credential in the URL
+  (`https://user:pass@host`) is now refused, and the refusal does not quote
+  the value back. Before: the override passed the `https://` check, and every
+  refusal from that reader quotes the value it refused, so a password written
+  into the URL landed on stderr and in whatever reads the CLI's error channel.
+  After: the override is refused by name, and `deadeye doctor` reports the same
+  fault with no secret in the answer. Put the key in the environment or under
+  `[providers.<name>] api_key`, which is where it belongs.
 - The redaction backstop no longer misses a sensitive key hidden behind an
   invisible character. A parameter named `api<ZWSP>_key` holds no `api_key`
   substring, yet every reader, log, and re-serialization renders it as

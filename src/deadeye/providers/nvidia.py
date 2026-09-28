@@ -134,6 +134,7 @@ class NvidiaProvider(CredentialedProvider):
             },
             timeout_seconds=request.timeout_seconds,
             credential_env=CREDENTIAL_ENV_VARS[0],
+            credential=credential,
         )
 
         choice = first_response_object(

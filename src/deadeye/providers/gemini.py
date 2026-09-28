@@ -184,6 +184,7 @@ class GeminiProvider(CredentialedProvider):
             },
             timeout_seconds=request.timeout_seconds,
             credential_env=CREDENTIAL_ENV_VARS[0],
+            credential=credential,
         )
 
         candidates = envelope.get("candidates")

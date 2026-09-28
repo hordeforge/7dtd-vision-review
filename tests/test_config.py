@@ -233,6 +233,29 @@ def test_endpoint_override_refuses_remote_plaintext_before_any_submission(isolat
         config.endpoint(("providers", "nvidia", "endpoint"), "https://fallback")
 
 
+def test_endpoint_override_refuses_a_credential_in_the_url(isolated_config) -> None:
+    """A URL carrying userinfo is refused, and the refusal does not quote the
+    value back. Every other message from this reader lands on stderr and in
+    whatever reads the CLI's error channel, so echoing an override that
+    embeds a password writes that password to a log. The key belongs in the
+    environment or under `[providers.<name>] api_key`, where the credential
+    backstop already governs it."""
+    _write(
+        isolated_config,
+        "config.local.toml",
+        '[providers.nvidia]\nendpoint = "https://operator:hunter2@proxy.internal/v1"\n',
+    )
+    keys = ("providers", "nvidia", "endpoint")
+    with pytest.raises(DeadeyeError, match="must not carry a credential") as excinfo:
+        config.endpoint(keys, "https://fallback")
+    assert "hunter2" not in str(excinfo.value)
+    # The question `doctor` asks reports it rather than raising, and reports
+    # it the same way, with no secret in the answer.
+    problem = config.endpoint_problem(keys)
+    assert problem is not None
+    assert "hunter2" not in problem and "must not carry a credential" in problem
+
+
 def test_endpoint_override_refuses_a_url_it_cannot_read(isolated_config) -> None:
     """A bracketed IPv6 literal that is never closed: `urlsplit` raises rather
     than returning a host, and that refusal is this reader's, named like every
