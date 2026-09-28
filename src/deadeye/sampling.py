@@ -52,7 +52,14 @@ _ROLE_BY_EXTENSION: dict[str, str] = {
     **{suffix[1:]: "image" for suffix in IMAGE_SUFFIXES},
 }
 
-_FRAME_RE = re.compile(r"^frame-(\d+)\.(?:png|jpe?g|webp)$", re.IGNORECASE)
+# re.ASCII, not just re.IGNORECASE: a Unicode pattern's `\d` matches every
+# decimal digit in the Unicode database, and `int()` reads those back, so
+# `frame-٣.png` and `frame-3.png` both resolved to index 3 and two different
+# files claimed one place in the clip's order, the sequence deciding between
+# them by raw name. The case folding is ASCII for the same reason: the
+# literals are ASCII file extensions, and only the ASCII spellings are ones a
+# capture writes.
+_FRAME_RE = re.compile(r"^frame-(\d+)\.(?:png|jpe?g|webp)$", re.IGNORECASE | re.ASCII)
 
 MediaKind = Literal["frame", "video", "reference"]
 """A submitted file's role, as the prompt text addresses it.

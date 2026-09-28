@@ -92,6 +92,25 @@ def test_discover_ignores_a_dotfile_and_an_extensionless_entry(clip_dir) -> None
     ]
 
 
+def test_a_non_ascii_frame_digit_is_not_a_frame_index(clip_dir) -> None:
+    """Only ASCII digits number a frame.
+
+    A Unicode `\\d` matches every decimal digit in the Unicode database and
+    `int()` reads those back, so `frame-<ARABIC-INDIC 3>.png` and
+    `frame-3.png` both resolved to index 3: two different files claiming one
+    place in the clip's order, the sequence separating them by raw name. A
+    name no capture writes is not a numbered frame, so it joins the unnumbered
+    images the sequence already ignores beside numbered ones.
+    """
+    (clip_dir / "frame-٣.png").write_bytes(b"x")
+
+    media = discover(clip_dir)
+
+    assert [frame.name for frame in media.frames] == [
+        f"frame-{index:04d}.png" for index in range(10)
+    ]
+
+
 def test_the_scan_classifies_exactly_what_pathlib_would() -> None:
     """The scan's own suffix reading must agree with `Path.suffix`, always.
 
@@ -136,6 +155,16 @@ def test_the_scan_classifies_exactly_what_pathlib_would() -> None:
         "ünïcode.PNG",
     ):
         assert _role_for_name(name) == roles.get(PurePath(name).suffix.lower()), name
+
+
+def test_a_non_ascii_frame_digit_sorts_as_an_unnumbered_image(tmp_path) -> None:
+    """The same name, in a directory holding no numbered frames, is just an image."""
+    (tmp_path / "frame-٣.png").write_bytes(b"x")
+    (tmp_path / "turntable-a.png").write_bytes(b"x")
+
+    media = discover(tmp_path)
+
+    assert [frame.name for frame in media.frames] == ["frame-٣.png", "turntable-a.png"]
 
 
 def test_discover_orders_an_unnumbered_frame_sequence_by_name(tmp_path) -> None:

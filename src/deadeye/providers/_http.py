@@ -44,6 +44,21 @@ _MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 # What a scrubbed credential reads as in a refusal line.
 _REDACTED_CREDENTIAL = "[redacted]"
 
+# A byte-order mark at the head of a body, decoded: the one character a JSON
+# parser cannot skip and a refusal line has no business carrying. RFC 8259
+# forbids it, but a proxy in front of a provider still emits one, and the
+# project's own intent loader already treats a leading BOM as an editor's
+# habit rather than an error (`intent._decode_json`). Reading the encoding in
+# the data instead of assuming it is the same rule: the BOM names itself, so it
+# is honored where it appears and nowhere else.
+_BOM = "\ufeff"
+
+
+def _without_bom(text: str) -> str:
+    """`text` with a leading byte-order mark removed, and only a leading one."""
+    return text[1:] if text.startswith(_BOM) else text
+
+
 # Below this length a credential is too short to scrub for: a replacement sweep
 # would corrupt ordinary words in the fault text as often as it removed a
 # secret, and every provider key this gateway sends is far longer.
@@ -180,11 +195,15 @@ def _decode_envelope(provider: str, raw: bytes, headers: Any) -> str:
     naming the provider instead of raising a bare UnicodeDecodeError past
     this module's fault mapping (which would land after a billed submission)
     or silently substituting replacement characters into stored evidence.
+    A byte-order mark is stripped on either path (`_without_bom`): the
+    encoding the body declares about itself includes the mark, and the one
+    character a JSON parser will not skip would otherwise turn a billed,
+    perfectly good verdict into "returned a non-JSON envelope".
     """
     declared = _declared_charset(headers)
     if declared:
         try:
-            return raw.decode(declared)
+            return _without_bom(raw.decode(declared))
         except (UnicodeError, LookupError, ValueError):
             # Every failure mode a provider-declared charset can produce, each
             # with its own class: LookupError for a name this interpreter does
@@ -197,7 +216,7 @@ def _decode_envelope(provider: str, raw: bytes, headers: Any) -> str:
             # submission; an unusable declaration falls back to UTF-8.
             pass  # undecodable or unknown name: UTF-8 gets the next attempt
     try:
-        return raw.decode("utf-8")
+        return _without_bom(raw.decode("utf-8"))
     except UnicodeDecodeError as exc:
         if declared:
             raise DeadeyeError(
@@ -265,15 +284,16 @@ def _decode_fault_body(raw: bytes, headers: Any) -> str:
     decoders is how a mangled line stops being readable as a fault. The two
     differ only in what an unusable byte does, which the caller decides: a
     success body refuses, an error body replaces, because there is no second
-    submission to protect and the line is better than nothing.
+    submission to protect and the line is better than nothing. A leading
+    byte-order mark goes either way, for the reason `_without_bom` gives.
     """
     declared = _declared_charset(headers)
     if declared:
         try:
-            return raw.decode(declared)
+            return _without_bom(raw.decode(declared))
         except (UnicodeError, LookupError, ValueError):
             pass  # undecodable or unknown name: UTF-8 gets the next attempt
-    return raw.decode("utf-8", errors="replace")
+    return _without_bom(raw.decode("utf-8", errors="replace"))
 
 
 def _read_fault_body(exc: urllib.error.HTTPError) -> str:

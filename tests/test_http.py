@@ -295,6 +295,55 @@ def test_an_unknown_declared_charset_falls_back_to_utf8(http_opener) -> None:
     assert envelope["modelVersion"] == "m"
 
 
+def test_a_utf8_bom_does_not_discard_a_billed_verdict(http_opener) -> None:
+    """A leading byte-order mark is a byte the body declares about itself.
+
+    RFC 8259 forbids it, but a proxy in front of a provider still emits one,
+    and `json.loads` refuses it: the submission was billed, the verdict was
+    good, and the whole review died as "returned a non-JSON envelope" over a
+    character the model never wrote. The intent loader already tolerates the
+    same mark for the same reason.
+    """
+    body = b"\xef\xbb\xbf" + b'{"modelVersion": "m"}'
+
+    def answering_open(request, timeout):
+        return io.BytesIO(body)
+
+    http_opener(answering_open)
+    envelope = post_json(
+        "gemini",
+        "https://generativelanguage.googleapis.com/v1beta/models/m:generateContent",
+        body={},
+        headers={"x-goog-api-key": "k"},
+        timeout_seconds=1.0,
+        credential_env="GEMINI_API_KEY",
+        credential="k",
+    )
+    assert envelope["modelVersion"] == "m"
+
+
+def test_a_utf8_bom_does_not_reach_a_fault_line(http_opener) -> None:
+    """The same mark on the error path is an invisible character at the head
+    of the one line that explains a failed submission."""
+    headers = email.message.Message()
+    headers["Content-Type"] = "text/plain"
+
+    def refusing_open(request, timeout):
+        raise urllib.error.HTTPError(
+            request.full_url,
+            429,
+            "Too Many Requests",
+            headers,
+            io.BytesIO(b"\xef\xbb\xbfquota spent"),
+        )
+
+    http_opener(refusing_open)
+    with pytest.raises(DeadeyeError, match="rate-limited") as excinfo:
+        _post()
+    assert "\ufeff" not in str(excinfo.value)
+    assert "quota spent" in str(excinfo.value)
+
+
 def test_the_declared_charset_also_decodes_a_fault_body(http_opener) -> None:
     """A refusal line is the only account of a failed submission, so the error
     path decodes on the same rule as the success path. Reading a

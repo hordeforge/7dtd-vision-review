@@ -99,7 +99,8 @@ counters, so `totalTokenCount` survives and `access_token` does not.
 a filename are all non-ASCII by nature, and every encoding decision in the
 gateway is explicit for that reason: file reads are `rb` plus a named decode
 (including `utf-8-sig`, so an editor's BOM is not a parse error), provider
-bodies take the declared charset and fall back to UTF-8, evidence is written
+bodies take the declared charset and fall back to UTF-8, with a leading
+byte-order mark stripped on either path, evidence is written
 as bytes (`_atomic_write`) so the stored SHA-256 matches the file and the
 platform's newline translation cannot rewrite it, and `post_json` serializes
 its body with `json.dumps`, whose `ensure_ascii` default holds a request
