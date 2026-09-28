@@ -31,9 +31,15 @@ calls, spec error codes, and the review consent boundary.
   arguments returns the first attempt's envelope verbatim, submitting
   nothing, for as long as the server process lives. The key must be a
   non-empty string of at most 200 characters, and the ledger holds the most
-  recent 128 completed keys (least recently used evicted), so it cannot
-  grow without bound in a long-lived server. Three properties make the
-  replay honest rather than convenient:
+  recent 128 completed keys (least recently used evicted) and at most 32 MiB
+  of retained envelopes, whichever bound the next entry crosses first, so it
+  cannot grow without bound in a long-lived server. The byte budget matters
+  because an entry's size is the client's to choose: one carrying
+  `keep_raw_response` holds a redacted provider payload, which the HTTP
+  reader bounds at 8 MiB. The newest entry is always kept whatever it
+  weighs, so a key the client is about to retry still replays instead of
+  billing twice. Three properties make the replay honest rather than
+  convenient:
   - a key reused with *different* arguments is refused, so one operation's
     verdict is never returned for another's request and a name is never
     spent twice;

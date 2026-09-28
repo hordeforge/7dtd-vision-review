@@ -15,6 +15,7 @@ import os
 
 import pytest
 
+from deadeye import config
 from deadeye.errors import DeadeyeError
 from deadeye.providers.base import MediaPayload, ReviewRequest, attachment_label
 from deadeye.providers.nvidia import (

@@ -629,6 +629,28 @@ def test_the_idempotency_ledger_is_bounded(tmp_path, monkeypatch) -> None:
     assert list(mcp._COMPLETED) == ["job-1", "job-2"]
 
 
+def test_the_idempotency_ledger_is_bounded_by_retained_bytes_too(tmp_path, monkeypatch) -> None:
+    """The entry count is not the cost. One entry carries a whole envelope,
+    and `keep_raw_response` puts a redacted provider payload in it, which the
+    HTTP reader bounds at 8 MiB; a few dozen fat keys would pin a gigabyte in
+    a server that is supposed to idle between reviews. A byte budget evicts
+    the oldest, and the entry just answered is always kept so the key a
+    client is most likely to retry still replays."""
+    from deadeye import mcp
+
+    monkeypatch.setattr(mcp, "_IDEMPOTENCY_LEDGER_MAX_BYTES", 1)
+    for index in range(3):
+        response = _call(
+            "tools/call",
+            {
+                "name": "review",
+                "arguments": _review_arguments(tmp_path, idempotency_key=f"job-{index}"),
+            },
+        )
+        assert response["result"].get("isError") is not True
+    assert list(mcp._COMPLETED) == ["job-2"]
+
+
 def test_an_unusable_idempotency_key_is_refused_before_any_submission(tmp_path) -> None:
     """A key that is not a usable name (empty, not a string, absurdly long)
     is a client bug, and it is caught before anything is submitted."""

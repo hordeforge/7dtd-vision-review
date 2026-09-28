@@ -70,6 +70,17 @@ required (`CONTRIBUTING.md`, "Changing a contract").
   local: a restarted server is back to one call, one submission. Calls
   without a key behave exactly as before.
 
+### Fixed
+
+- The MCP idempotency ledger is now bounded by retained bytes as well as by
+  entry count: at most 32 MiB of envelopes, oldest evicted, whichever bound
+  the next entry crosses first. An entry's size is the client's to choose
+  (a call with `keep_raw_response` carries a redacted provider payload,
+  which the HTTP reader bounds at 8 MiB), so the entry count alone left a
+  long-lived server pinning a gigabyte of replayable verdicts. The entry
+  just answered is always kept whatever it weighs, so a key the client is
+  about to retry still replays instead of billing twice.
+
 ### Changed
 
 - The reviewer instruction and the author's statement now travel in separate

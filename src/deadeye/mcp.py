@@ -65,17 +65,30 @@ _READ_CHUNK_BYTES = 8192
 # ledger, which is why the tool description tells a client the guarantee
 # covers transport replay within one session, not across restarts.
 _IDEMPOTENCY_LEDGER_ENTRIES = 128
+# The entry count is not the only thing a retained envelope costs. One entry
+# carries the whole evidence envelope, and with `keep_raw_response` that
+# includes the redacted provider payload, which `_http` bounds at 8 MiB per
+# response: 128 of those is a gigabyte pinned in a process that is meant to
+# idle between reviews. A byte budget is the second bound, and it is the one
+# that scales with what a client asks for rather than with how many keys it
+# happens to name. The newest entry is always kept whatever it weighs, so a
+# key that has just been answered still replays instead of billing twice; a
+# single entry is bounded already by the response cap and the prompt caps.
+_IDEMPOTENCY_LEDGER_MAX_BYTES = 32 * 1024 * 1024
 # Long enough to name a job and its asset, short enough that the key stays a
 # log line. Anything longer is a client bug, not a key.
 _MAX_IDEMPOTENCY_KEY_CHARS = 200
 
 # Client-named keys to the completed reviews that answered them, oldest
-# first: `key -> (call fingerprint, envelope, evidence-write fault)`. A review
-# that was submitted and billed lands here whether or not its evidence reached
-# disk, so a retry under the same key replays the same answer instead of
-# billing the same media twice. A local refusal and an ambiguous timeout stay
-# out: nothing completed, so the call is retryable.
-_COMPLETED: OrderedDict[str, tuple[str, dict[str, Any], str | None]] = OrderedDict()
+# first: `key -> (call fingerprint, envelope, evidence-write fault, retained
+# bytes)`. A review that was submitted and billed lands here whether or not
+# its evidence reached disk, so a retry under the same key replays the same
+# answer instead of billing the same media twice. A local refusal and an
+# ambiguous timeout stay out: nothing completed, so the call is retryable.
+# The retained size rides with the entry rather than in a separate running
+# total, so clearing the ledger (what the test fixture does between cases) is
+# enough to release everything it held.
+_COMPLETED: OrderedDict[str, tuple[str, dict[str, Any], str | None, int]] = OrderedDict()
 
 TOOLS: list[dict[str, Any]] = [
     {
@@ -263,7 +276,7 @@ def _replayed_result(key: str, params: dict[str, Any]) -> tuple[dict[str, Any], 
     entry = _COMPLETED.get(key)
     if entry is None:
         return None
-    fingerprint, envelope, write_fault = entry
+    fingerprint, envelope, write_fault, _ = entry
     if fingerprint != _call_fingerprint(params):
         # Returning the earlier envelope here would attribute one operation's
         # verdict to another's request, and re-running would bill a second
@@ -279,10 +292,22 @@ def _replayed_result(key: str, params: dict[str, Any]) -> tuple[dict[str, Any], 
 def _remember_result(
     key: str, params: dict[str, Any], envelope: dict[str, Any], *, write_fault: str | None = None
 ) -> None:
-    """Record a completed review under `key`, evicting the oldest past the bound."""
-    _COMPLETED[key] = (_call_fingerprint(params), envelope, write_fault)
+    """Record a completed review under `key`, evicting the oldest past either bound."""
+    # Measured the way the envelope travels: the ledger holds what a client
+    # would have been sent, so the retained size is the rendered size. A
+    # non-serializable leaf is a bug the frame loop reports, not a reason to
+    # lose the record of a billed submission, so it falls back to the key's
+    # own size rather than raising here.
+    try:
+        retained = len(json.dumps(envelope, sort_keys=True).encode("utf-8"))
+    except (TypeError, ValueError):
+        retained = len(key.encode("utf-8"))
+    _COMPLETED[key] = (_call_fingerprint(params), envelope, write_fault, retained)
     _COMPLETED.move_to_end(key)
-    while len(_COMPLETED) > _IDEMPOTENCY_LEDGER_ENTRIES:
+    while len(_COMPLETED) > 1 and (
+        len(_COMPLETED) > _IDEMPOTENCY_LEDGER_ENTRIES
+        or sum(entry[3] for entry in _COMPLETED.values()) > _IDEMPOTENCY_LEDGER_MAX_BYTES
+    ):
         _COMPLETED.popitem(last=False)
 
 
