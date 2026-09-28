@@ -46,7 +46,14 @@ LOG_SUFFIXES = (".log",)
 # for the three membership tests, so a directory is classified by a single
 # lookup per entry and the three suffix tuples stay the only place a suffix is
 # declared.
-_ROLE_BY_EXTENSION: dict[str, str] = {
+ClipEntryRole = Literal["image", "video", "log"]
+"""What a directory entry's name makes it, before it is known to be a clip file.
+
+`image` is the only role a file can fail to be (an image that is not a numbered
+frame), so the scan branches on it and buckets the other two by name.
+"""
+
+_ROLE_BY_EXTENSION: dict[str, ClipEntryRole] = {
     **{suffix[1:]: "video" for suffix in VIDEO_SUFFIXES},
     **{suffix[1:]: "log" for suffix in LOG_SUFFIXES},
     **{suffix[1:]: "image" for suffix in IMAGE_SUFFIXES},
@@ -142,7 +149,7 @@ def discover(source: Path) -> ClipMedia:
     return ClipMedia(frames=tuple(frames), video=video, log=log, source=source)
 
 
-def _role_for_name(name: str) -> str | None:
+def _role_for_name(name: str) -> ClipEntryRole | None:
     """What a directory entry's name makes it: 'image', 'video', 'log', or nothing.
 
     The one place a directory entry's suffix is read, and it reads the name
@@ -193,10 +200,13 @@ def _scan_directory(directory: Path) -> tuple[list[Path], Path | None, Path | No
                 continue
             name = entry.name
             role = _role_for_name(name)
-            if role is None:
+            if role == "video":
+                videos.append((name, entry.path))
+                continue
+            if role == "log":
+                logs.append((name, entry.path))
                 continue
             if role != "image":
-                (videos if role == "video" else logs).append((name, entry.path))
                 continue
             # The pattern ends in one of the image suffixes, so a match is
             # impossible for any other entry: a directory that also holds
