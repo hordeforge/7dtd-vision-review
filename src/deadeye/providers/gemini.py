@@ -131,7 +131,7 @@ class GeminiProvider(CredentialedProvider):
         credential = self.credential()
         if credential is None:
             raise DeadeyeError(f"provider 'gemini' has no credential; {self.configuration_hint()}")
-        body = build_body(request, provider_name=self.name)
+        body = build_body(request)
         # The override is validated in config.endpoint: https only, except a
         # loopback proxy over plain http.
         api_root = config.endpoint(("providers", "gemini", "endpoint"), API_ROOT)
@@ -192,7 +192,7 @@ class GeminiProvider(CredentialedProvider):
         )
 
 
-def build_body(request: ReviewRequest, *, provider_name: str = "gemini") -> dict[str, object]:
+def build_body(request: ReviewRequest) -> dict[str, object]:
     """The `generateContent` payload, as a plain dict (offline-testable).
 
     The reviewer instruction rides `systemInstruction`, its own role in the
@@ -226,7 +226,7 @@ def build_body(request: ReviewRequest, *, provider_name: str = "gemini") -> dict
             # spend when the model loops. Override with
             # providers.gemini.max_output_tokens.
             "maxOutputTokens": int_setting(
-                provider_name, "max_output_tokens", DEFAULT_MAX_OUTPUT_TOKENS, minimum=1
+                "gemini", "max_output_tokens", DEFAULT_MAX_OUTPUT_TOKENS, minimum=1
             ),
             "temperature": float_setting(provider_name, "temperature", DEFAULT_TEMPERATURE),
         },

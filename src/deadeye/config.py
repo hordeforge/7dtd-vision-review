@@ -243,17 +243,17 @@ class Config:
         local = directory / LOCAL_NAME
         if base.is_file():
             base_data = _load_file(base)
-            self._reject_unread(base, base_data, BASE_NAME)
+            self._reject_unread(base, base_data)
             _record_origins(base_data, self._origins, BASE_NAME)
             self.data = _merge(self.data, base_data)
         if local.is_file():
             local_data = _load_file(local)
-            self._reject_unread(local, local_data, LOCAL_NAME)
+            self._reject_unread(local, local_data)
             _record_origins(local_data, self._origins, LOCAL_NAME)
             self.data = _merge(self.data, local_data)
 
     @staticmethod
-    def _reject_unread(path: Path, data: dict[str, Any], filename: str) -> None:
+    def _reject_unread(path: Path, data: dict[str, Any]) -> None:
         """Refuse a file holding settings deadeye does not read, naming them.
 
         The failure is the whole file, not the individual key: a name deadeye

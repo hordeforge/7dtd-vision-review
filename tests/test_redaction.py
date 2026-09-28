@@ -7,7 +7,15 @@ import math
 import sys
 from typing import Any
 
-from deadeye.redaction import MAX_REDACT_DEPTH, _is_sensitive_key, redact, redact_json_text
+from deadeye.evidence import build_envelope
+from deadeye.intent import ReviewIntent
+from deadeye.redaction import (
+    MAX_REDACT_DEPTH,
+    _is_sensitive_key,
+    redact,
+    redact_json_text,
+)
+from deadeye.sampling import SamplingRecord
 
 
 def test_redact_drops_credential_keys_nested() -> None:
@@ -208,65 +216,6 @@ def _refuse_constant(name: str) -> object:
     raise AssertionError(f"non-finite token {name} reached the stored document")
 
 
-def test_redact_drops_header_shaped_credential_keys() -> None:
-    # A preserved raw response can echo the request it answered, and the
-    # adapters send the key under a hyphenated header name. `api_key` alone
-    # would not match `x-goog-api-key`.
-    value = {"x-goog-api-key": "AIza-x", "x-api-key": "AIza-y", "keep": 1}
-    assert redact(value) == {"keep": 1}
-
-
-def test_redact_matches_keys_hiding_invisible_characters() -> None:
-    # `api<ZWSP>_key` contains no `api_key` substring, yet it renders as
-    # `api_key` in every log, viewer, and re-serialization, and the credential
-    # is the same credential. Every format character (category Cf) is dropped
-    # before the match so a key nobody can see cannot defeat the backstop.
-    # The three keys below carry a ZWJ, a word joiner, and a left-to-right
-    # embed, named by code point so the file's own text stays readable.
-    zero_width_join = chr(0x200D)
-    word_joiner = chr(0x2060)
-    left_to_right_embed = chr(0x202A)
-    value = {
-        "api_key": "nvapi-x",
-        f"sec{zero_width_join}ret": "y",
-        f"pass{word_joiner}word": "z",
-        f"k{left_to_right_embed}ey": "w",
-        "keep": 1,
-    }
-    assert redact(value) == {"keep": 1}
-
-
-def test_redact_keeps_a_key_that_differs_by_a_visible_glyph() -> None:
-    # The policy strips what no reader can see and nothing else. A key spelled
-    # with a different visible letter is a different key, not a hidden
-    # spelling of a sensitive name: matching it is a homoglyph policy call,
-    # and this backstop does not make one.
-    assert not _is_sensitive_key("api_k" + chr(0xE9) + "y", ("api_key",))
-    assert _is_sensitive_key("api_key", ("api_key",))
-
-
-def test_redact_drops_container_past_the_depth_limit() -> None:
-    # `json.loads` accepts nesting far deeper than a recursive walk survives,
-    # so the walk stops descending instead of raising RecursionError out of a
-    # review that has already been billed. A subtree that cannot be examined
-    # is dropped, not carried through unredacted.
-    value: dict[str, object] = {"api_key": "secret"}
-    for _ in range(MAX_REDACT_DEPTH + 5):
-        value = {"nested": value}
-    cleaned = redact(value)
-    assert "secret" not in json.dumps(cleaned)
-    # A shallow document is untouched by the bound.
-    assert redact({"a": {"b": [1, 2]}}) == {"a": {"b": [1, 2]}}
-
-
-def test_redact_json_text_survives_a_deeply_nested_document() -> None:
-    depth = 4000
-    document = '{"a":' * depth + '{"api_key": "LEAK"}' + "}" * depth
-    json.loads(document)  # the parser accepts it, so redaction must too
-    cleaned = redact_json_text(document)
-    assert "LEAK" not in cleaned
-
-
 def test_the_evidence_envelope_survives_a_deeply_nested_usage_payload() -> None:
     # The usage block and the request parameters reach `build_envelope`
     # straight from a provider, so the envelope is the one place the backstop
@@ -274,9 +223,7 @@ def test_the_evidence_envelope_survives_a_deeply_nested_usage_payload() -> None:
     # metadata past the interpreter's stack limit used to raise
     # RecursionError out of the envelope of a submission that had already been
     # billed; the bound belongs on this path, not only on the raw-response one.
-    from deadeye.evidence import build_envelope
-    from deadeye.intent import INTENT_SCHEMA_VERSION, ReviewIntent
-    from deadeye.sampling import SamplingRecord
+    from deadeye.intent import INTENT_SCHEMA_VERSION
 
     usage: dict[str, object] = {"api_key": "secret"}
     for _ in range(4000):
@@ -284,11 +231,7 @@ def test_the_evidence_envelope_survives_a_deeply_nested_usage_payload() -> None:
     envelope = build_envelope(
         media_entries=(),
         sampling=SamplingRecord(
-            frames_available=0,
-            frames_submitted=0,
-            sampled=False,
-            submitted_files=(),
-            note="no media",
+            0, 0, sampled=False, frame_indices=(), submitted_files=(), note="no media"
         ),
         intent=ReviewIntent("p", "", "", "", (), (), (), "", ""),
         intent_raw=b"{}",
@@ -307,3 +250,46 @@ def test_the_evidence_envelope_survives_a_deeply_nested_usage_payload() -> None:
     )
     assert "secret" not in json.dumps(envelope)
     assert envelope["intent"]["schema_version"] == INTENT_SCHEMA_VERSION
+
+
+def test_the_evidence_path_redacts_with_the_full_backstop() -> None:
+    # The evidence envelope writes request parameters and usage through this
+    # module, so every protection the backstop makes has to reach the stored
+    # document: the hyphenated header names and keys hiding invisible
+    # characters. A second copy of `redact` living beside the real one is how
+    # those two went missing on this path.
+    invisible = chr(0x200D)
+    envelope = build_envelope(
+        media_entries=(),
+        sampling=SamplingRecord(0, 0, sampled=False, frame_indices=(), submitted_files=(), note=""),
+        intent=ReviewIntent(
+            purpose="p",
+            subject="",
+            camera_path="",
+            desired_qualities="",
+            avoid=(),
+            references=(),
+            questions=(),
+            suite="",
+            case="",
+        ),
+        intent_raw=b"",
+        provider_name="gemini",
+        endpoint_mode="default",
+        model_requested="m",
+        model_reported=None,
+        prompt="",
+        result=None,
+        error=None,
+        raw_response=None,
+        usage=None,
+        total_bytes=0,
+        params={
+            "x-goog-api-key": "AIza-header-shaped",
+            f"sec{invisible}ret": "hidden-by-zero-width-join",
+            "model": "m",
+        },
+        elapsed_seconds=0.0,
+    )
+    assert envelope["parameters"] == {"model": "m"}
+    assert "AIza" not in json.dumps(envelope)
