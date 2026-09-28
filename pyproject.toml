@@ -101,6 +101,9 @@ select = [
   # Correctness and hygiene groups the whole tree already passes; each was
   # proven clean by a run before being pinned here.
   "A",     # flake8-builtins: shadowing a builtin is a latent bug
+  "ARG",   # flake8-unused-arguments: a parameter taken and never read is a
+           # wiring mistake, and in a callback or hook it hides the fact that
+           # the value never reached the code that needed it
   "ASYNC", # blocking calls inside async code
   "DTZ",   # naive datetimes: every datetime here must be tz-explicit
   "EXE",   # executable-bit and shebang consistency for scripts
@@ -109,6 +112,9 @@ select = [
   "G",     # logging call format-string mistakes
   "ICN",   # import conventions
   "INT",   # gettext i18n mistakes
+  # An unparenthesized concatenation inside a list or dict is a missing comma
+  # with no other symptom, and ISC004 is the rule that catches it.
+  "ISC",   # implicit string concatenation
   "PGH",   # blanket noqa / untyped type:ignore are forbidden
   "PIE",   # unnecessary constructs (duplicate kwargs, useless classes)
   "PERF",  # perflint: accidental quadratic patterns
@@ -146,7 +152,11 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 # The suite asserts with `assert`; bandit's S101 is for production paths.
-"tests/**" = ["S101"]
+# ARG is off here because a test signature is driven by pytest: a fixture is
+# requested to prove the fixture works, and a stub callback keeps the provider
+# signature it stands in for. Neither is a wiring mistake in the code under
+# test, which is where ARG stays armed.
+"tests/**" = ["S101", "ARG"]
 
 [tool.mypy]
 python_version = "3.11"
@@ -165,6 +175,9 @@ enable_error_code = [
 # The test files are runtime-asserted by pytest, not statically checked; the
 # strict contract applies to the shipped package plus the scripts CI itself
 # executes (coverage badge, release notes), which already type-check clean.
+# mypy 2.3 cannot relax a strict flag for one module (a per-module
+# `disallow_untyped_defs = false` is ignored, however it is spelled), so
+# extending the run to tests needs a repo-wide annotation sweep first.
 files = ["src", "scripts"]
 mypy_path = ["src"]
 

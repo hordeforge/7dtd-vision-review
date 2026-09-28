@@ -259,7 +259,7 @@ def _build_parser() -> tuple[argparse.ArgumentParser, dict[str, argparse.Argumen
     }
 
 
-def _handle_mcp(args: argparse.Namespace) -> int:
+def _handle_mcp(_args: argparse.Namespace) -> int:
     from .mcp import serve
 
     return serve()
@@ -430,7 +430,7 @@ def _print_setting(name: str, setting: dict[str, Any], fmt: str = "") -> None:
     print(f"{name}: {value:{fmt}}" if fmt else f"{name}: {value}")
 
 
-def _handle_schema(args: argparse.Namespace) -> int:
+def _handle_schema(_args: argparse.Namespace) -> int:
     print(json.dumps(schema_document(), indent=2, sort_keys=True))
     return 0
 

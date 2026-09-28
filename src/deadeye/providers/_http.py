@@ -50,7 +50,7 @@ class _NoRedirects(urllib.request.HTTPRedirectHandler):
         code: int,
         msg: str,
         headers: Any,
-        newurl: str,
+        newurl: str,  # noqa: ARG002 - the stdlib names it; the raise ignores it
     ) -> urllib.request.Request:
         raise urllib.error.HTTPError(req.full_url, code, msg, headers, fp)
 
