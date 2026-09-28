@@ -149,6 +149,21 @@ def _require_single(matches: list[Path], directory: Path, what: str, remedy: str
     return matches[0] if matches else None
 
 
+def file_size(path: Path) -> int:
+    """A submission file's size, without materializing its contents.
+
+    The one home for the preflight size lookup, so a file that cannot be
+    inspected (it vanished between discovery and the budget check, its
+    directory is unreadable, the filesystem faulted) is refused with its path
+    named instead of escaping as a bare OSError from whichever caller reached
+    it first.
+    """
+    try:
+        return path.stat().st_size
+    except OSError as exc:
+        raise DeadeyeError(f"cannot inspect file {path}: {exc}") from exc
+
+
 def base64_wire_bytes(size: int) -> int:
     """The size `size` raw media bytes reach the wire as, once base64-encoded.
 
@@ -178,7 +193,7 @@ def sample(
     exactly what reached the model.
     """
     if media.video is not None and video_capable:
-        size = media.video.stat().st_size
+        size = file_size(media.video)
         # The budget names what the request carries, and the request carries
         # the video base64-encoded: compare the encoded size, never the raw.
         wire = base64_wire_bytes(size)

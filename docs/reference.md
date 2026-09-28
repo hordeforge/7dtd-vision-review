@@ -29,7 +29,7 @@ source checkout, run the same commands through the project venv instead:
 | `--output PATH` | also write the evidence envelope there; never overwrites an earlier one without `--force` |
 | `--keep-raw-response` | preserve a redacted copy of the provider's raw response in evidence |
 | `--force` | overwrite an earlier evidence envelope at `--output` |
-| `--timeout SECONDS` | provider budget; overrides `timeout_seconds` from configuration |
+| `--timeout SECONDS` | budget for the whole submission, response body included; overrides `timeout_seconds` from configuration |
 
 `deadeye doctor [--json]` reports provider capability state without contacting
 any provider. `deadeye schema` prints the intent and result schemas.

@@ -244,3 +244,18 @@ def test_an_over_encoded_budget_video_without_frames_refuses_before_submission(
         r"15-byte video budget",
     ):
         sample(discover(clip), max_frames=8, video_capable=True, max_video_bytes=15)
+
+
+def test_a_video_that_cannot_be_inspected_is_refused_with_its_path(tmp_path) -> None:
+    """The video's size decides whether it is submitted or sampled away, and
+    the stat that reads it can fail after discovery: a file removed in
+    between, an unreadable parent, a filesystem fault. That must be one
+    refusal naming the file, not a bare OSError from whichever caller
+    happened to reach the stat first."""
+    clip = tmp_path / "clip"
+    clip.mkdir()
+    (clip / "clip.mp4").write_bytes(b"fake-mp4-bytes")
+    media = discover(clip)
+    (clip / "clip.mp4").unlink()
+    with pytest.raises(DeadeyeError, match=r"cannot inspect file .*clip\.mp4"):
+        sample(media, max_frames=8, video_capable=True, max_video_bytes=None)

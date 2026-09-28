@@ -244,3 +244,29 @@ def test_an_unknown_declared_charset_falls_back_to_utf8(http_opener) -> None:
         credential_env="GEMINI_API_KEY",
     )
     assert envelope["modelVersion"] == "m"
+
+
+def test_a_trickling_response_body_is_cut_off_at_the_overall_deadline(
+    http_opener, monkeypatch
+) -> None:
+    """`urllib`'s timeout is per socket operation, so a body that keeps
+    trickling bytes never trips it. The read loop must still end at the
+    submission's own budget: in the long-lived MCP server an unbounded read
+    is a stall the caller never hears about, on a request that may already
+    have billed server-side."""
+    from deadeye.providers import _http
+
+    clock = [0.0]
+    monkeypatch.setattr(_http.time, "monotonic", lambda: clock[0])
+
+    class TricklingResponse(io.BytesIO):
+        def read(self, size=-1):  # type: ignore[override]
+            clock[0] += 0.4
+            return super().read(size)
+
+    http_opener(lambda request, timeout: TricklingResponse(b"x" * 200_000))
+    with pytest.raises(DeadeyeError, match="did not answer within 1s") as excinfo:
+        _post()
+    # The ambiguous-outcome warning rides the refusal: the submission was
+    # sent, so a resubmission is a new billable review, not a retry.
+    assert "not a retry of this one" in str(excinfo.value)

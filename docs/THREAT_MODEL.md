@@ -64,13 +64,13 @@ not a network one.
 | TOML config files | `src/deadeye/config.py:86-128` | committed `config.toml` + gitignored `config.local.toml`; includes per-provider `endpoint` override |
 | Clip media on disk | `src/deadeye/sampling.py:80-107` | frame files, muxed video, `client.log` (discovered only — see note below) |
 | Intent JSON file / inline text | `src/deadeye/intent.py:252-281` | JSON validated against the intent schema |
-| Intent `references[].path` | `src/deadeye/intent.py:160-192` | arbitrary filesystem paths → read and uploaded by `review.py:270-277,296-298` |
+| Intent `references[].path` | `src/deadeye/intent.py:160-192` | arbitrary filesystem paths → read and uploaded by `review.py:264-271,295-301` |
 | Provider HTTP responses | `providers/gemini.py:92-185`, `providers/nvidia.py:103-150` | untrusted vendor payload over TLS |
 | Outputs | `cli.py:276-290`; `evidence.py:166-177`; `review.py:100-110` | stdout JSON, evidence file, stderr disclosure lines |
 
 Note: `sampling.discover()` finds `client.log` beside the frames
 (`sampling.py:110-140`) but nothing ever submits or stores it — `review.py`
-submits only sampled media plus intent references (`review.py:257-324`, the
+submits only sampled media plus intent references (`review.py:251-318`, the
 submission file set at `285-288`). SECURITY.md previously claimed log contents
 leave the machine; that claim was false and is corrected in this pass.
 
@@ -143,15 +143,18 @@ No run ledger exists (noted for readiness; o11y-review owns log structure).
 **Information disclosure.** Key leakage paths (stdout, evidence, raw
 response) all funnel through one name-based backstop — T3. Provider error
 bodies (≤300 chars) surface in refusal messages
-(`providers/_http.py:127-154`). `--intent-text` content is visible in process
+(`providers/_http.py:132-160`). `--intent-text` content is visible in process
 listings (authored context, not credentials).
 
 **Denial of service.** Local and bounded: byte budget enforced before any
-read-for-submission (`review.py:335-344`), frame caps via sampling
-(`sampling.py:228-236`), default timeout 120s (`config.py:43`, resolved at
-`surface.py:58-75`), no retry loops. Residual cost amplification via intent
-size is T4. There is no remote trigger for resource exhaustion; the CLI does
-nothing until a human runs it.
+read-for-submission (`review.py:321-330`), frame caps via sampling
+(`sampling.py:243-252`), default timeout 120s (`config.py:43`, resolved at
+`surface.py:58-75`), no retry loops. The socket timeout is per operation, so
+the response reader also carries an overall deadline for the whole submission
+(`providers/_http.py:110-130`): a body that keeps trickling bytes ends the
+read instead of holding the long-lived MCP server open. Residual cost
+amplification via intent size is T4. There is no remote trigger for resource
+exhaustion; the CLI does nothing until a human runs it.
 
 **Elevation of privilege.** None modeled: stdlib-only, no subprocess, no
 eval, single process. Nearest analog is T2 (reading files the operator did
@@ -166,9 +169,9 @@ the verdict rather than over the process.
 | Consent gate runs before credential reads and any contact | all egress (I, R) | `review.py:68-73`; pinned by `tests/test_review.py:17-27` |
 | Credentials never accepted as arguments | argv/leakage (I) | `cli.py:38-197` (absence of any key flag) |
 | Header-only credential transport | URL/access-log leakage (I) | `gemini.py:132-134`, `nvidia.py:117-119` |
-| Name-based redaction backstop on params, usage, raw response | secret landing in evidence/stdout (I) | `intent.py:298-316` (`redact`), `intent.py:319-339` (`redact_json_text`); applied at `evidence.py:128,138`, `review.py:188,214`; pinned by `tests/test_intent.py:201-230` |
+| Name-based redaction backstop on params, usage, raw response | secret landing in evidence/stdout (I) | `intent.py:298-316` (`redact`), `intent.py:319-339` (`redact_json_text`); applied at `evidence.py:128,138`, `review.py:182,208`; pinned by `tests/test_intent.py:201-230` |
 | Vendor payload validated, refuse-not-coerce | hostile/malformed responses (T) | `result.py:104-134,137-287`; adapters extract text only |
-| Local limits before submission: suffix allowlist, byte budget, frame cap | oversized/unexpected uploads (D) | `base.py:26-39`; `sampling.py:80-107,165-244`; `review.py:270-277,293-294,307` |
+| Local limits before submission: suffix allowlist, byte budget, frame cap | oversized/unexpected uploads (D) | `base.py:26-39`; `sampling.py:80-107,180-259`; `review.py:264-271,292-293,307` |
 | Bounded HTTP success (8 MiB) and error-body (300-character) reads; socket closed on the fault path | unbounded provider payload retained in the MCP process (D) | `providers/_http.py` `_read_response_body` (`109-124`) / `_read_fault_body` (`127-154`) |
 | MCP stdio frames capped at 1 MiB, discarded through the next newline | unbounded JSON-RPC line on the long-lived server (D) | `mcp.py` `_MAX_FRAME_BYTES` |
 | Intent document capped at 64 KiB at the read, then per-field caps | huge intent file filling the process (D) | `intent.py` `MAX_INTENT_BYTES` |
@@ -212,8 +215,8 @@ disclosure lines, or drop the override.
 
 `references[].path` accepts any non-empty string path
 (`intent.py:160-192`); existence and suffix are the only checks
-(`review.py:270-277`) before the file is hashed and uploaded
-(`review.py:296-298`). A crafted or mistaken intent makes deadeye
+(`review.py:264-271`) before the file is hashed and uploaded
+(`review.py:295-301`). A crafted or mistaken intent makes deadeye
 publish arbitrary readable files (e.g. outside the clip directory) once
 consent is given. Partially mitigated: suffix allowlist, byte budget, and
 disclosure lines naming every submitted path. See abuse case A1.
@@ -273,7 +276,7 @@ on external integrity controls.
   declares references pointing at files outside the clip directory
   (`{"path": "../../private.png", "purpose": "..."}`). Path named, so the
   operator sees it in the stderr disclosure — if reading. Code path:
-  `intent.py:160-192` → `review.py:270-277` → upload at
+  `intent.py:160-192` → `review.py:264-271` → upload at
   `review.py:296-298`.
 - **A2 — spend gaming.** Inline `--intent-text` of arbitrary size or hundreds
   of questions would inflate the billed prompt (`cli.py:86` →

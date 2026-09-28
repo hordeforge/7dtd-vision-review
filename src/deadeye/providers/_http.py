@@ -13,11 +13,12 @@ import contextlib
 import http.client
 import json
 import math
+import time
 import urllib.error
 import urllib.request
 from typing import Any
 
-from ..errors import DeadeyeError
+from ..errors import DeadeyeError, did_not_answer
 from ..sampling import flat_label_text
 
 _REDIRECT_CODES = frozenset({301, 302, 303, 307, 308})
@@ -106,11 +107,15 @@ def _decode_envelope(provider: str, raw: bytes, headers: Any) -> str:
         ) from exc
 
 
-def _read_response_body(response: Any, provider: str) -> bytes:
-    """Read one bounded successful JSON response from a hosted provider."""
+def _read_response_body(
+    response: Any, provider: str, *, deadline: float, timeout_seconds: float
+) -> bytes:
+    """Read one bounded, time-bounded successful JSON response."""
     chunks: list[bytes] = []
     remaining = _MAX_RESPONSE_BYTES + 1
     while remaining:
+        if time.monotonic() >= deadline:
+            raise did_not_answer(provider, timeout_seconds)
         raw = response.read(min(64 * 1024, remaining))
         if not isinstance(raw, bytes):
             raise DeadeyeError(f"provider {provider!r} returned a non-bytes response body")
@@ -169,6 +174,9 @@ def post_json(
     already validated by `config.endpoint`) plus, at most, encoded model path
     segments: scheme and host are never caller-controlled. Redirects are never
     followed (`_NoRedirects`), so the credential cannot ride one elsewhere.
+    `timeout_seconds` bounds the whole submission, response body included: the
+    socket timeout is per operation, and the read loop carries the deadline
+    that closes the gap.
     """
     request = urllib.request.Request(  # noqa: S310
         url,
@@ -176,9 +184,12 @@ def post_json(
         headers={"Content-Type": "application/json", **headers},
         method="POST",
     )
+    deadline = time.monotonic() + timeout_seconds
     try:
         with _OPENER.open(request, timeout=timeout_seconds) as response:
-            raw = _read_response_body(response, provider)
+            raw = _read_response_body(
+                response, provider, deadline=deadline, timeout_seconds=timeout_seconds
+            )
             envelope: Any = json.loads(
                 _decode_envelope(provider, raw, getattr(response, "headers", None))
             )
@@ -215,12 +226,7 @@ def post_json(
         # The request may have reached the provider and completed there:
         # a caller that resubmits starts a second billable review, it does
         # not retry this one. Every ambiguous-outcome refusal says so.
-        raise DeadeyeError(
-            f"provider {provider!r} did not answer within {timeout_seconds:g}s; "
-            "no verdict arrived, and the submission may still have completed "
-            "and billed server-side: submitting again is a new billable "
-            "review, not a retry of this one"
-        ) from exc
+        raise did_not_answer(provider, timeout_seconds) from exc
     except urllib.error.URLError as exc:
         raise DeadeyeError(
             f"provider {provider!r} could not be reached: {exc.reason}; no verdict was produced"

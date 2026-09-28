@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from . import config, sampling
-from .errors import DeadeyeError, EvidenceWriteError
+from .errors import DeadeyeError, EvidenceWriteError, did_not_answer
 from .evidence import build_envelope, ensure_writable, sha256_file, write_evidence
 from .intent import ReviewIntent, load_intent, redact_json_text
 from .prompt import build_prompt
@@ -139,15 +139,9 @@ def run_review(
     try:
         response = provider.review(request)
     except TimeoutError as exc:
-        # An adapter let its own timeout escape. The request was sent, so the
-        # provider may still complete and bill it: resubmitting is a second
-        # billable review, never a retry of this one.
-        raise DeadeyeError(
-            f"provider {provider.name!r} did not answer within {timeout_seconds:g}s; "
-            "no verdict arrived, and the submission may still have completed "
-            "and billed server-side: submitting again is a new billable "
-            "review, not a retry of this one"
-        ) from exc
+        # An adapter let its own timeout escape; the shared HTTP reader maps
+        # its own to the same refusal, so a caller reads one message.
+        raise did_not_answer(provider.name, timeout_seconds) from exc
     elapsed_seconds = time.perf_counter() - submitted_at
 
     def envelope_for(
@@ -290,7 +284,7 @@ def _prepare_submission(
     # particular, references may total far more than a hosted provider's
     # request limit; retaining all of them just to refuse the request wastes
     # disk I/O and can create a large, avoidable memory spike.
-    declared_sizes = [_file_size(Path(path)) for path, _ in files]
+    declared_sizes = [sampling.file_size(Path(path)) for path, _ in files]
     _enforce_request_budget(declared_sizes, limits.max_bytes, provider_name)
     # Per entry, not per unique path: the same file listed twice (a repeated
     # reference, a reference inside the clip) is uploaded twice, and the
@@ -322,14 +316,6 @@ def _prepare_submission(
         total_bytes=total_bytes,
         file_bytes=cached_bytes,
     )
-
-
-def _file_size(path: Path) -> int:
-    """Return a submission file's size without materializing its contents."""
-    try:
-        return path.stat().st_size
-    except OSError as exc:
-        raise DeadeyeError(f"cannot inspect file {path}: {exc}") from exc
 
 
 def _enforce_request_budget(sizes: list[int], max_bytes: int | None, provider_name: str) -> None:
