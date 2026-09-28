@@ -145,7 +145,8 @@ make check test
 ```
 
 `make all` is everything CI's offline job runs; `make coverage` measures the
-suite. The suite is fully offline: no network, no credentials, no model.
+suite, and `make badge BADGE=path.svg` renders the README badge. The suite is
+fully offline: no network, no credentials, no model.
 
 CI runs that suite on Ubuntu with Python 3.11–3.13. The CLI itself is pure
 Python (the published wheel is `py3-none-any`). `scripts/bootstrap` and

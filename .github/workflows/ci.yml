@@ -19,6 +19,12 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # UV_PYTHON reaches both `uv sync` and the `uv run` inside the Makefile.
+    # Without it, `uv run` would re-read .python-version (3.13) and replace the
+    # matrix interpreter's .venv before the suite ran, and all three legs would
+    # test 3.13 with 3.11 and 3.12 never executed.
+    env:
+      UV_PYTHON: ${{ matrix.python-version }}
     strategy:
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
@@ -29,11 +35,11 @@ jobs:
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: true
-      - run: uv python install ${{ matrix.python-version }}
+      - run: uv python install "$UV_PYTHON"
       # The core has no runtime dependencies; `uv sync --locked` resolves from
       # the committed uv.lock, verifies its hashes, and brings the dev group
       # (ruff, mypy) that `make check` needs.
-      - run: uv sync --locked --python ${{ matrix.python-version }}
+      - run: uv sync --locked --python "$UV_PYTHON"
       - run: echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
       # Exercise the installed console script, not only the source tree, so a
       # broken entry point fails here rather than in a consumer's checkout.
@@ -59,8 +65,7 @@ jobs:
           enable-cache: true
       - run: uv sync --locked
       - run: echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
-      - run: make coverage
-      - run: python scripts/coverage_badge.py "$RUNNER_TEMP/coverage.svg"
+      - run: make badge BADGE="$RUNNER_TEMP/coverage.svg"
       - name: Publish the badge to the badges branch
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

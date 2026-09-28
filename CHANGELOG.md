@@ -25,6 +25,19 @@ left to be discovered by a failing parse downstream.
   `deadeye doctor` output is unchanged. Not a breaking change for consumers:
   the stdout array keeps its shape, so `7dtd-asset-pipeline` and
   `7dtd-playtest` need no edit.
+- The CI Python matrix tested one interpreter three times. `uv run` re-read
+  `.python-version` and rebuilt `.venv` as 3.13 before the suite started, so
+  the 3.11 and 3.12 legs never ran. The job now pins `UV_PYTHON` to its matrix
+  entry and the Makefile forwards it, so the supported floor is actually
+  exercised.
+- The coverage badge step in CI invoked `scripts/coverage_badge.py` with a
+  bare `python`, working only because the workflow put `.venv/bin` on PATH
+  first. `make badge BADGE=path` is now the one command locally and in CI, and
+  the badge's intermediate coverage JSON is written to a temp directory instead
+  of the checkout.
+- The release build pinned `SOURCE_DATE_EPOCH` but not the rest of the
+  runner's environment; the wheel and sdist build now also run under
+  `LC_ALL=C`, `TZ=UTC`, and `PYTHONHASHSEED=0`.
 
 ### Changed
 

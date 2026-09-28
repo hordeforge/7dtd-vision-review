@@ -2,7 +2,7 @@
 """Render the line-coverage badge SVG from the local .coverage file.
 
 Must be run by an interpreter that has coverage importable: the Makefile
-`coverage` target arranges that by running it under `$(PYTHON)` (`uv run
+`badge` target arranges that by running it under `$(PYTHON)` (`uv run
 --frozen python3`), and `scripts/bootstrap` syncs the dev dependency group
 from the committed lockfile, so `coverage` is present in the project venv.
 Usage: coverage_badge.py OUTPUT.svg
@@ -13,20 +13,24 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 
 def percentage() -> int:
-    out = Path(".coverage.json")
-    subprocess.run(
-        [sys.executable, "-m", "coverage", "json", "-q", "-o", str(out)],
-        check=True,
-    )
-    # Explicit encoding: a C-locale host (common on dedicated servers) makes
-    # the locale default ASCII, and any non-ASCII byte in the report would
-    # then crash the badge build.
-    data = json.loads(out.read_text(encoding="utf-8"))
-    out.unlink()
+    # The intermediate JSON report lands in a temp directory, not the working
+    # tree: a failure between here and the read would otherwise leave an
+    # untracked .coverage.json in the checkout.
+    with tempfile.TemporaryDirectory() as scratch:
+        out = Path(scratch, "coverage.json")
+        subprocess.run(
+            [sys.executable, "-m", "coverage", "json", "-q", "-o", str(out)],
+            check=True,
+        )
+        # Explicit encoding: a C-locale host (common on dedicated servers) makes
+        # the locale default ASCII, and any non-ASCII byte in the report would
+        # then crash the badge build.
+        data = json.loads(out.read_text(encoding="utf-8"))
     pct = float(data["totals"]["percent_covered"])
     return round(pct)
 

@@ -1,4 +1,4 @@
-.PHONY: help all check lint lint-shell typecheck test smoke coverage
+.PHONY: help all check lint lint-shell typecheck test smoke coverage badge
 
 .DEFAULT_GOAL := help
 
@@ -18,11 +18,23 @@ UV_PRESENT := $(shell command -v uv >/dev/null 2>&1 && echo yes || echo no)
 SHELLCHECK := $(shell command -v shellcheck >/dev/null 2>&1 && echo shellcheck)
 SHELL_SOURCES := scripts/bootstrap scripts/e2e.sh
 
+# uv picks the project interpreter from .python-version, and silently rebuilds
+# .venv with it when the existing one disagrees. A CI job that synced a
+# specific version (uv sync --python 3.11) would then have that venv replaced
+# before a single test ran, and every matrix leg would test the same
+# interpreter. UV_PYTHON (uv's own env var, also settable on the command line)
+# pins it through to uv run. Leave it unset for a normal checkout.
+ifdef UV_PYTHON
+UV_INTERPRETER := --python $(UV_PYTHON)
+else
+UV_INTERPRETER :=
+endif
+
 ifeq ($(UV_PRESENT),yes)
-PYTHON := uv run --frozen python3
-RUFF := uv run --frozen ruff
-MYPY := uv run --frozen mypy
-DEADEYE := uv run --frozen deadeye
+PYTHON := uv run --frozen $(UV_INTERPRETER) python3
+RUFF := uv run --frozen $(UV_INTERPRETER) ruff
+MYPY := uv run --frozen $(UV_INTERPRETER) mypy
+DEADEYE := uv run --frozen $(UV_INTERPRETER) deadeye
 else
 PYTHON := python3
 RUFF := $(shell command -v ruff >/dev/null 2>&1 && echo ruff)
@@ -35,6 +47,7 @@ help:
 	@echo "test      offline test suite"
 	@echo "smoke     exercise the CLI entry points CI exercises"
 	@echo "coverage  test suite with a line-coverage report"
+	@echo "badge     coverage report plus the README badge SVG (BADGE=path)"
 	@echo "all       check + test + smoke: everything CI's offline job runs"
 	@echo
 	@echo "single test module:  uv run pytest tests/test_config.py -q"
@@ -97,3 +110,13 @@ smoke:
 coverage:
 	PYTHONPATH=src $(PYTHON) -m coverage run --source=src -m pytest -q
 	$(PYTHON) -m coverage report -m
+
+# The badge render is a project script and needs coverage importable, so it
+# runs under $(PYTHON) like every other tool here. CI used to call it with a
+# bare `python`, which only worked because the workflow happened to put
+# .venv/bin on PATH first; `make badge BADGE=PATH` is the one command.
+BADGE ?= .local/coverage.svg
+
+badge: coverage
+	@mkdir -p "$(dir $(BADGE))"
+	$(PYTHON) scripts/coverage_badge.py "$(BADGE)"

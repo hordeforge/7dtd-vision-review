@@ -68,11 +68,15 @@ jobs:
 
       # SOURCE_DATE_EPOCH pinned to the tagged commit: setuptools stamps
       # wheel entries from it, so rebuilding the same tag yields
-      # byte-identical wheels. Without it no two builds agree.
+      # byte-identical wheels. Without it no two builds agree. LC_ALL, TZ, and
+      # PYTHONHASHSEED pin the rest of the runner's environment: the sdist
+      # file walk and the sorted listings behind it must not vary with the
+      # runner's locale, timezone, or hash seed.
       - name: Build the sdist and wheel
         shell: bash
         run: |
           set -euo pipefail
+          export LC_ALL=C TZ=UTC PYTHONHASHSEED=0
           export SOURCE_DATE_EPOCH="$(git log -1 --pretty=format:%ct)"
           echo "building with SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH"
           uv build
