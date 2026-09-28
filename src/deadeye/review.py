@@ -259,8 +259,14 @@ def _decide_submission(
     actually sent, and the media decision never costs a second read of the
     files it settles between.
     """
+    reference_sizes = _reference_sizes(intent, limits, provider_name)
     plan = _plan(
-        media, intent, limits, provider_name=provider_name, video_capable=limits.accepts_video
+        media,
+        intent,
+        limits,
+        reference_sizes,
+        provider_name=provider_name,
+        video_capable=limits.accepts_video,
     )
     if plan.record.primary_kind == "video" and media.frames:
         planned_parts = _prompt_parts(plan.record, plan.total_bytes, intent)
@@ -276,6 +282,7 @@ def _decide_submission(
                 media,
                 intent,
                 limits,
+                reference_sizes,
                 provider_name=provider_name,
                 video_capable=False,
                 note_prefix=_video_over_request_budget(media, plan),
@@ -389,23 +396,17 @@ class _Submission:
     """Cached file contents, one per entry, read during hashing."""
 
 
-def _plan(
-    media: sampling.ClipMedia,
-    intent: ReviewIntent,
-    limits: ProviderLimits,
-    *,
-    provider_name: str,
-    video_capable: bool,
-    note_prefix: str | None = None,
-) -> _Plan:
-    """The local-only decision phase, before anything is contacted or read.
+def _reference_sizes(
+    intent: ReviewIntent, limits: ProviderLimits, provider_name: str
+) -> tuple[int, ...]:
+    """Each reference's size, after refusing one the provider cannot ingest.
 
-    Reference checks, sampling to the provider's declared limits, and the
-    whole-request size budget all happen here, so every refusal is cheap and
-    no attachment is opened to make it. `video_capable` is the caller's
-    decision to consider the muxed video at all; `False` plans the frame
-    sequence beside it. `note_prefix` records in the sampling note why this
-    plan is the one that was chosen.
+    Settled once per review rather than once per candidate plan. `_decide_submission`
+    plans twice for the same intent when the muxed video misses the whole-request
+    budget, and the reference checks depend on neither the video decision nor the
+    sampling it drives: a missing file or an unacceptable format is refused the
+    same way in both plans, and each one cost a stat per reference to learn it
+    again.
     """
     for reference in intent.references:
         if not reference.path.is_file():
@@ -415,10 +416,29 @@ def _plan(
                 f"reference {reference.path} ({reference.path.suffix or 'no suffix'}) is not "
                 f"a format provider {provider_name!r} accepts ({', '.join(limits.suffixes)})"
             )
+    return tuple(sampling.file_size(reference.path) for reference in intent.references)
 
-    # Reference media rides the same request as the candidate, so its encoded
-    # size is already spent when the video budget decides what to submit.
-    reference_sizes = [sampling.file_size(reference.path) for reference in intent.references]
+
+def _plan(
+    media: sampling.ClipMedia,
+    intent: ReviewIntent,
+    limits: ProviderLimits,
+    reference_sizes: tuple[int, ...],
+    *,
+    provider_name: str,
+    video_capable: bool,
+    note_prefix: str | None = None,
+) -> _Plan:
+    """The local-only decision phase, before anything is contacted or read.
+
+    Reference media rides the same request as the candidate, so its encoded
+    size is already spent when the video budget decides what to submit.
+    `reference_sizes` is what the caller read for this intent's references.
+
+    `video_capable` is the caller's decision to consider the muxed video at
+    all; `False` plans the frame sequence beside it. `note_prefix` records in
+    the sampling note why this plan is the one that was chosen.
+    """
     record = sampling.sample(
         media,
         max_frames=limits.max_frames,

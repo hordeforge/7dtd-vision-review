@@ -34,6 +34,7 @@ import unicodedata
 from collections import OrderedDict
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
+from itertools import chain
 from pathlib import Path
 from typing import Any, Literal, TextIO, TypeVar, overload
 
@@ -555,12 +556,16 @@ def _remember_result(
         retained_bytes=retained,
     )
     _COMPLETED.move_to_end(key)
+    # The ledger's weight is totaled once, not once per eviction: the loop
+    # condition re-summed every entry on every pass, so a run of evictions
+    # cost a pass over the whole ledger each time. Recomputing it here rather
+    # than carrying it between calls is what keeps a ledger a test cleared
+    # directly from desynchronizing the bound.
+    total = sum(entry.retained_bytes for entry in _COMPLETED.values())
     while len(_COMPLETED) > 1 and (
-        len(_COMPLETED) > _IDEMPOTENCY_LEDGER_ENTRIES
-        or sum(entry.retained_bytes for entry in _COMPLETED.values())
-        > _IDEMPOTENCY_LEDGER_MAX_BYTES
+        len(_COMPLETED) > _IDEMPOTENCY_LEDGER_ENTRIES or total > _IDEMPOTENCY_LEDGER_MAX_BYTES
     ):
-        _COMPLETED.popitem(last=False)
+        total -= _COMPLETED.popitem(last=False)[1].retained_bytes
 
 
 def _call_doctor(params: dict[str, Any]) -> dict[str, Any]:
@@ -706,18 +711,13 @@ def _error(request_id: Any, code: int, message: str) -> dict[str, Any]:
 _Line = TypeVar("_Line", bytes, str)
 
 
-def _discard_through_newline(read: Callable[[int], Any], newline: _Line) -> _Line:
-    """Drop bytes until (and including) the next newline; return what follows."""
-    empty: _Line = newline[:0]
+def _read_chunks(read: Callable[[int], Any]) -> Iterator[_Line]:
+    """Every subsequent non-empty chunk, stopping at end of stream."""
     while True:
         chunk = read(_READ_CHUNK_BYTES)
         if not chunk:
-            return empty
-        if not isinstance(chunk, type(newline)):
-            return empty
-        index = chunk.find(newline)
-        if index >= 0:
-            return chunk[index + len(newline) :]
+            return
+        yield chunk
 
 
 def _split_stdio_frames(
@@ -730,27 +730,71 @@ def _split_stdio_frames(
 
     `None` means the current frame exceeded the cap and was discarded through
     its terminating newline (or EOF), so the next yield is still aligned.
+
+    The segments of one frame accumulate in a list and join once, at the
+    frame's boundary. Holding the pending frame as a single string made every
+    read and every delimiter search walk all of it, so a frame arriving in
+    `_READ_CHUNK_BYTES` pieces cost time quadratic in its size: a client
+    sending a near-cap `intent_text` copied megabytes per read to find a
+    newline it could have located in the chunk that held it. Each read now
+    contributes one slice of its own chunk and nothing else. Only the last
+    `len(newline) - 1` characters can hold a delimiter split across two reads,
+    and those are the one piece carried into the next window.
     """
-    leftover: _Line = first
-    while True:
-        while True:
-            index = leftover.find(newline)
-            if index < 0:
-                break
-            line, leftover = leftover[:index], leftover[index + len(newline) :]
-            yield None if len(line) > max_bytes else line
-        if len(leftover) > max_bytes:
+    empty: _Line = newline[:0]
+    edge = len(newline) - 1
+    segments: list[_Line] = []
+    carried: _Line = empty
+    # Bytes banked in `segments`, and whether the frame in hand has already
+    # been refused for running past the cap with no newline in sight.
+    banked = 0
+    oversize = False
+    for chunk in chain((first,), _read_chunks(read)):
+        if not isinstance(chunk, type(carried)):
+            return
+        window = carried + chunk
+        start = 0
+        index = window.find(newline)
+        while index >= 0:
+            line = window[start:index]
+            # The frame is every segment banked from earlier reads plus what
+            # this window contributes, not this window's slice alone.
+            frame_bytes = banked + len(line)
+            if oversize:
+                # The newline ends the frame already refused for exceeding
+                # the cap; the next line opens a fresh one.
+                oversize = False
+                banked = 0
+                segments = []
+            elif frame_bytes > max_bytes:
+                banked = 0
+                segments = []
+                yield None
+            else:
+                segments.append(line)
+                yield empty.join(segments)
+                segments = []
+                banked = 0
+            start = index + len(newline)
+            index = window.find(newline, start)
+        tail = window[start:]
+        carried = tail[len(tail) - edge :] if edge else empty
+        if len(tail) > edge:
+            banked += len(tail) - edge
+            segments.append(tail[: len(tail) - edge])
+        if not oversize and banked + len(carried) > max_bytes:
+            # Over the cap with no newline in this window, so the frame runs
+            # into the next read: answer once for it and keep none of it.
+            oversize = True
+            segments = []
+            banked = 0
             yield None
-            leftover = _discard_through_newline(read, newline)
-            continue
-        chunk = read(_READ_CHUNK_BYTES)
-        if not chunk:
-            if leftover:
-                yield None if len(leftover) > max_bytes else leftover
-            return
-        if not isinstance(chunk, type(leftover)):
-            return
-        leftover += chunk
+    if oversize:
+        # Already answered for the frame that was still unterminated at EOF.
+        return
+    if segments or carried:
+        segments.append(carried)
+        yield empty.join(segments)
 
 
 def _frame_size(payload: bytes | str) -> int:
