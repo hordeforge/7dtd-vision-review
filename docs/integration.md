@@ -96,8 +96,8 @@ A consumer's capability registry probes `deadeye` on PATH (and, for a real
 provider, the provider's credential environment) without running a review.
 `deadeye doctor --json` reports provider state from local credential presence
 (environment or config files) and never contacts a provider, so the consumer
-can show `unavailable`, `configured`, or `not probed` exactly as the
-audio-review capability does.
+can show `unavailable` or `configured` exactly as the audio-review capability
+does.
 
 ## Versioning
 

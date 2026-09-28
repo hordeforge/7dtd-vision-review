@@ -628,11 +628,11 @@ def handle_frame(frame: dict[str, Any]) -> dict[str, Any] | None:
     if not isinstance(params, dict):
         return _error(request_id, -32602, "Invalid params")
     if method == "initialize":
-        return {"jsonrpc": "2.0", "id": request_id, "result": _initialize_result()}
+        return _result(request_id, _initialize_result())
     if method == "ping":
-        return {"jsonrpc": "2.0", "id": request_id, "result": {}}
+        return _result(request_id, {})
     if method == "tools/list":
-        return {"jsonrpc": "2.0", "id": request_id, "result": {"tools": TOOLS}}
+        return _result(request_id, {"tools": TOOLS})
     if method == "tools/call":
         name = params.get("name")
         arguments = params.get("arguments")
@@ -646,16 +646,15 @@ def handle_frame(frame: dict[str, Any]) -> dict[str, Any] | None:
         if call is None:
             return _error(request_id, -32602, f"Unknown tool: {name}")
         try:
-            return {"jsonrpc": "2.0", "id": request_id, "result": _tool_result(call(arguments))}
+            return _result(request_id, _tool_result(call(arguments)))
         except EvidenceWriteError as exc:
             # Same contract as the CLI: the submission completed and was
             # billed, only the evidence write failed. isError stays true
             # (nothing was persisted), and the full envelope travels in the
             # result text so an agent recovers it without resubmitting.
-            return {
-                "jsonrpc": "2.0",
-                "id": request_id,
-                "result": {
+            return _result(
+                request_id,
+                {
                     "content": [
                         {
                             "type": "text",
@@ -672,13 +671,9 @@ def handle_frame(frame: dict[str, Any]) -> dict[str, Any] | None:
                         "envelope": exc.document,
                     },
                 },
-            }
+            )
         except DeadeyeError as exc:
-            return {
-                "jsonrpc": "2.0",
-                "id": request_id,
-                "result": _tool_error(str(exc), _error_code(exc)),
-            }
+            return _result(request_id, _tool_error(str(exc), _error_code(exc)))
         except (KeyError, TypeError, ValueError, OSError) as exc:
             # A bare KeyError's str is just the quoted key ('clip'), which
             # names neither the tool nor the fault; keep the type and tool on
@@ -686,13 +681,10 @@ def handle_frame(frame: dict[str, Any]) -> dict[str, Any] | None:
             # is its own code because nothing here is known to be the caller's
             # mistake, so a client must not read it as a refusal the same key
             # could retry.
-            return {
-                "jsonrpc": "2.0",
-                "id": request_id,
-                "result": _tool_error(
-                    f"tool {name!r} failed: {type(exc).__name__}: {exc}", "fault"
-                ),
-            }
+            return _result(
+                request_id,
+                _tool_error(f"tool {name!r} failed: {type(exc).__name__}: {exc}", "fault"),
+            )
     return _error(request_id, -32601, "Method not found")
 
 
@@ -702,6 +694,10 @@ def _initialize_result() -> dict[str, Any]:
         "capabilities": {"tools": {}},
         "serverInfo": {"name": SERVER_NAME, "version": __version__},
     }
+
+
+def _result(request_id: Any, result: dict[str, Any]) -> dict[str, Any]:
+    return {"jsonrpc": "2.0", "id": request_id, "result": result}
 
 
 def _error(request_id: Any, code: int, message: str) -> dict[str, Any]:
