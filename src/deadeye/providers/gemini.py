@@ -31,7 +31,7 @@ import base64
 import urllib.parse
 
 from .. import config
-from ..errors import DeadeyeError
+from ..errors import DeadeyeError, no_verdict
 from ..result import BASE_RUBRIC, RESULT_KEYS
 from ._http import post_json
 from .base import (
@@ -154,10 +154,9 @@ class GeminiProvider(CredentialedProvider):
         if not isinstance(candidates, list) or not candidates:
             feedback = envelope.get("promptFeedback")
             reason = feedback.get("blockReason") if isinstance(feedback, dict) else None
-            raise DeadeyeError(
-                "provider 'gemini' returned no candidate"
-                + (f" (blocked: {reason})" if reason else "")
-                + "; no verdict was produced"
+            raise no_verdict(
+                self.name,
+                "returned no candidate" + (f" (blocked: {reason})" if reason else ""),
             )
         candidate = candidates[0]
         if not isinstance(candidate, dict):
@@ -169,9 +168,7 @@ class GeminiProvider(CredentialedProvider):
         )
         raw_parts = content.get("parts", [])
         if not isinstance(raw_parts, list):
-            raise DeadeyeError(
-                "provider 'gemini' returned invalid candidate parts; no verdict was produced"
-            )
+            raise no_verdict(self.name, "returned invalid candidate parts")
         text = "".join(
             part["text"]
             for part in raw_parts
@@ -179,10 +176,7 @@ class GeminiProvider(CredentialedProvider):
         )
         finish = candidate.get("finishReason")
         if finish and finish not in ("STOP", "MAX_TOKENS"):
-            raise DeadeyeError(
-                f"provider 'gemini' ended the response early (finishReason {finish}); "
-                "no verdict was produced"
-            )
+            raise no_verdict(self.name, f"ended the response early (finishReason {finish})")
         usage = envelope.get("usageMetadata")
         return ReviewResponse(
             raw_text=text,

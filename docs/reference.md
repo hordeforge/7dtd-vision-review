@@ -227,8 +227,11 @@ MCP `review` tool does, through the optional `idempotency_key` argument: a
 client that retries its own call with the same key and the same arguments
 gets the first attempt's answer back without submitting anything, for the
 life of the server process. That covers every submission that reached the
-provider, verdict or not, so a timeout or an answer that failed validation
-replays its refusal rather than billing the media twice. See
+provider, verdict or not, so a timeout, an answer the adapter cannot use (no
+candidate, no text, a body that does not parse), or one that failed result
+validation replays its refusal rather than billing the media twice. A status
+the provider refused before running the review (a rejected credential, a
+quota, a bad request) spends nothing and leaves the key free. See
 [docs/mcp-server.md](mcp-server.md).
 
 ## Providers

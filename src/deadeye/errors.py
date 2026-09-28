@@ -35,7 +35,31 @@ class NoVerdictError(DeadeyeError):
     same bytes and may well get the same unusable answer. A transport that
     can deduplicate records this fault against the key and replays it,
     exactly as it replays a completed verdict whose evidence write failed.
+
+    Every refusal raised once the request is on the wire is this type, not
+    only the two in `review.py`: an adapter that got an answer with no
+    candidate, no text, or a body that does not parse has just as little to
+    offer a retry as a timeout does, and a deduplicating caller can only tell
+    a spent key from a free one by the exception type. A status the provider
+    refused before running the review (a rejected credential, a quota, a bad
+    request) is a plain `DeadeyeError` instead: nothing billed, so the key
+    stays free for a corrected retry.
     """
+
+
+def no_verdict(provider: str, detail: str) -> NoVerdictError:
+    """The one refusal for an answer that carries no usable verdict.
+
+    The provider returned, so the submission reached it and may already be
+    billed; `detail` names what the answer lacked. The billing warning is
+    this refusal's own, so an operator reading only the message knows a
+    resubmission is a second charge rather than a retry.
+    """
+    return NoVerdictError(
+        f"provider {provider!r} {detail}; no verdict was produced, and the "
+        "submission reached the provider and may already have billed: "
+        "submitting again is a new billable review, not a retry of this one"
+    )
 
 
 def did_not_answer(provider: str, timeout_seconds: float) -> NoVerdictError:

@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from .. import config
-from ..errors import DeadeyeError
+from ..errors import DeadeyeError, no_verdict
 from ..prompt_text import flat_label_text
 from ..sampling import IMAGE_SUFFIXES, VIDEO_SUFFIXES, MediaKind
 
@@ -196,17 +196,18 @@ def first_response_object(
     Adapters use distinct envelope keys but share this contract: an absent or
     empty list means no verdict, while a non-list or non-object entry is a
     malformed provider response that must not escape as an AttributeError.
+
+    Both are refusals of a submission that reached the provider, so both are
+    `no_verdict`: a deduplicating caller records the key as spent rather than
+    billing the same media a second time for an answer the provider has
+    already shown it will not give.
     """
     entries = envelope.get(key)
     if not isinstance(entries, list) or not entries:
-        raise DeadeyeError(
-            f"provider {provider_name!r} returned no {item_name}; no verdict was produced"
-        )
+        raise no_verdict(provider_name, f"returned no {item_name}")
     entry = entries[0]
     if not isinstance(entry, dict):
-        raise DeadeyeError(
-            f"provider {provider_name!r} returned an invalid {item_name}; no verdict was produced"
-        )
+        raise no_verdict(provider_name, f"returned an invalid {item_name}")
     return entry
 
 
@@ -223,16 +224,14 @@ def response_object(
     candidate, `message` inside a choice). An absent level carries no verdict
     either, so it reads as an empty object and the caller's own emptiness
     check names the fault; a present-but-not-object level is a malformed
-    provider response that must not escape as an AttributeError.
+    provider response that must not escape as an AttributeError. That refusal
+    follows the request, so it is a `no_verdict` for the same reason.
     """
     value = entry.get(key)
     if value is None:
         return {}
     if not isinstance(value, dict):
-        raise DeadeyeError(
-            f"provider {provider_name!r} returned invalid {item_name} {key!r}; "
-            "no verdict was produced"
-        )
+        raise no_verdict(provider_name, f"returned invalid {item_name} {key!r}")
     return value
 
 

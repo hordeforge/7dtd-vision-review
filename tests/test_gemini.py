@@ -13,7 +13,7 @@ import os
 
 import pytest
 
-from deadeye.errors import DeadeyeError
+from deadeye.errors import DeadeyeError, NoVerdictError
 from deadeye.providers.base import MediaPayload
 from deadeye.providers.gemini import (
     GeminiProvider,
@@ -174,7 +174,9 @@ def test_an_invalid_candidate_list_is_a_refusal_not_an_attribute_error(
         )
     )
 
-    with pytest.raises(DeadeyeError, match=r"invalid candidate|no candidate"):
+    # The provider answered, so the submission is spent: a deduplicating
+    # caller must be able to tell this from a preflight refusal by the type.
+    with pytest.raises(NoVerdictError, match=r"invalid candidate|no candidate"):
         GeminiProvider().review(_review_request())
 
 
@@ -217,7 +219,7 @@ def test_a_truncated_generation_is_a_refusal_not_a_half_verdict(monkeypatch, htt
         ]
     }
     http_opener(lambda request, timeout: _FakeResponse(json_module.dumps(envelope).encode()))
-    with pytest.raises(DeadeyeError, match="ended the response early"):
+    with pytest.raises(NoVerdictError, match="ended the response early"):
         GeminiProvider().review(_review_request())
 
 

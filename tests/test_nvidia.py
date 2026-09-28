@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 from deadeye import config
-from deadeye.errors import DeadeyeError
+from deadeye.errors import DeadeyeError, NoVerdictError
 from deadeye.providers.base import MediaPayload, ReviewRequest, attachment_label
 from deadeye.providers.nvidia import (
     DEFAULT_MODEL,
@@ -287,7 +287,7 @@ def test_a_truncated_generation_is_a_refusal_not_a_half_verdict(monkeypatch, htt
             ],
         },
     )
-    with pytest.raises(DeadeyeError, match="ended the response early"):
+    with pytest.raises(NoVerdictError, match="ended the response early"):
         NvidiaProvider().review(ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0))
 
 

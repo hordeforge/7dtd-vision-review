@@ -59,8 +59,9 @@ returns the first envelope without submitting the media again. A key reused
 with different arguments is refused, and every submission that reached the
 provider is recorded: a review that billed but could not persist its evidence
 replays the same fault and envelope, and a review the provider answered with
-nothing usable (a timeout, a response that failed validation) replays the
-same refusal rather than paying for the same bytes twice. A refusal raised
+nothing usable (a timeout, an answer the adapter cannot use, a response that
+failed result validation) replays the same refusal rather than paying for the
+same bytes twice. A refusal raised
 before anything is submitted leaves the key free, so a corrected retry is
 still possible. The ledger is process-local and bounded, so the guarantee
 covers replay within one server session. Over the CLI there is no equivalent:

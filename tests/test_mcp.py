@@ -7,6 +7,7 @@ without a socket.
 
 from __future__ import annotations
 
+import io
 import json
 
 from deadeye.mcp import PROTOCOL_VERSION, handle_frame
@@ -636,6 +637,25 @@ def test_an_oversized_frame_is_a_parse_error_and_keeps_serving(monkeypatch) -> N
     assert lines[2]["id"] == 3 and lines[2]["result"] == {}
 
 
+class _UnusableGeminiAnswer(io.BytesIO):
+    """A urlopen stand-in carrying an answer the adapter cannot use.
+
+    The request reached the provider and it answered 200 with a body holding
+    no candidate, so a review may already have run and billed on the far
+    side. The stub is the real adapter's own input, not a hand-raised fault,
+    so the test pins the whole chain from the response to the ledger.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(b'{"candidates": []}')
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        return False
+
+
 def _review_arguments(tmp_path, **extra) -> dict:
     """A complete, consented `review` call against the offline fake provider."""
     clip = tmp_path / "clip"
@@ -854,6 +874,42 @@ def test_a_billed_review_with_no_usable_verdict_leaves_no_envelope_to_replay(
     entry = mcp._COMPLETED["job-46"]
     assert entry.envelope is None
     assert entry.fault is not None
+
+
+def test_an_answer_the_adapter_cannot_use_spends_its_key_too(
+    tmp_path, monkeypatch, http_opener
+) -> None:
+    """A provider that answers and offers nothing usable has still been paid.
+
+    The refusal here is the adapter's own (an answer with no candidate, no
+    text, a body that does not parse), not the core's structural validation,
+    and it is raised after the request is on the wire. The ledger can only
+    tell a spent key from a free one by the exception type, so this one must
+    be the spent type: otherwise a client that retries a call whose answer
+    the adapter rejected is offered a second billable submission for the same
+    bytes, which is exactly what naming the key promised to prevent.
+    """
+    from deadeye import mcp
+
+    submissions = 0
+
+    def counted(request, timeout):
+        nonlocal submissions
+        submissions += 1
+        return _UnusableGeminiAnswer()
+
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    http_opener(counted)
+    arguments = _review_arguments(tmp_path, idempotency_key="job-47", provider="gemini")
+
+    first = _call("tools/call", {"name": "review", "arguments": arguments})
+    second = _call("tools/call", {"name": "review", "arguments": arguments})
+
+    assert submissions == 1, "the retry must not reach the provider a second time"
+    assert first["result"]["isError"] is True
+    assert first["result"] == second["result"]
+    assert "no candidate" in first["result"]["content"][0]["text"]
+    assert mcp._COMPLETED["job-47"].fault is not None
 
 
 def test_the_idempotency_ledger_is_bounded(tmp_path, monkeypatch) -> None:

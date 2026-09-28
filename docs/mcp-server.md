@@ -48,8 +48,10 @@ calls, spec error codes, and the review consent boundary.
     billed is never offered back as a safe retry. A review whose verdict
     arrived but whose evidence file could not be written replays that same
     fault and envelope; a review the provider answered with nothing usable
-    (a timeout, a response that failed validation) replays that same
-    refusal. Neither submits the media a second time, and a client that
+    (a timeout, an answer the adapter cannot use, a response that failed
+    result validation) replays that same refusal. A status the provider
+    refused before running the review (a rejected credential, a quota, a bad
+    request) spent nothing, so that key stays free for a corrected retry. Neither submits the media a second time, and a client that
     genuinely wants another attempt names a new key;
   - the ledger is process-local, so the guarantee covers replay within one
     session, not a restart; across restarts the client is back to the

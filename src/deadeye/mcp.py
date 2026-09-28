@@ -149,8 +149,9 @@ TOOLS: list[dict[str, Any]] = [
         "every submission that reached the provider, billed or not: a review "
         "whose evidence file could not be written replays that error and its "
         "envelope, and a review the provider answered with nothing usable (a "
-        "timeout, a response that failed validation) replays the same refusal "
-        "rather than submitting the media a second time.",
+        "timeout, an answer the adapter cannot use, a response that failed "
+        "validation) replays the same refusal rather than submitting the "
+        "media a second time.",
         "inputSchema": {
             "type": "object",
             "properties": {

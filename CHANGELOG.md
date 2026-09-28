@@ -230,6 +230,19 @@ required (`CONTRIBUTING.md`, "Changing a contract").
   replace. The refusal after a reclaimed name also names the real occupant:
   a `--force` run that took the name in that window publishes an envelope,
   and the run was told a write was in progress.
+- A provider answer the adapter could not use did not spend its MCP
+  `idempotency_key`. The ledger records a key as spent by exception type, and
+  only the core's two post-submission refusals carried that type: an answer
+  with no candidate, no text, an unrecognised finish reason, a non-object
+  body, or a body that does not parse raised an ordinary `DeadeyeError`, so a
+  client that retried such a call under the same key was offered a second
+  billable submission for the same bytes, the outcome naming the key promises
+  to prevent. Every refusal raised once the request is on the wire is now a
+  `NoVerdictError` (the one home: `errors.no_verdict`, shared by both hosted
+  adapters and the HTTP reader), carrying the same warning a timeout does. A
+  status the provider refused before running the review (a rejected
+  credential, a quota, a bad request) stays a plain `DeadeyeError`, so the key
+  stays free for a corrected retry.
 - The process-wide config cache could be keyed on a file it had not read. The
   signature that decides whether the cached `Config` is still good was taken
   after the parse, so a `config.local.toml` rewritten between the parse and the

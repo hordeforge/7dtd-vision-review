@@ -17,7 +17,7 @@ import urllib.request
 
 import pytest
 
-from deadeye.errors import DeadeyeError
+from deadeye.errors import DeadeyeError, NoVerdictError
 from deadeye.providers._http import _NoRedirects, post_json
 
 
@@ -125,14 +125,17 @@ def test_a_deeply_nested_envelope_is_refused_not_crashed(http_opener) -> None:
     """Nesting beyond the interpreter limit is a malformed answer, not a bug
     here: it must be refused like any other bad structure (the treatment
     parse_model_json and the MCP loop give theirs), never escaped as a raw
-    RecursionError that would tear through the one-error-line contract."""
+    RecursionError that would tear through the one-error-line contract.
+
+    The provider did answer, so it is a spent submission: the type is what a
+    deduplicating caller reads to know the key may not be retried."""
     body = ("[" * 20000 + "]" * 20000).encode("utf-8")
 
     def nested_open(request, timeout):
         return io.BytesIO(body)
 
     http_opener(nested_open)
-    with pytest.raises(DeadeyeError, match="nested too deeply"):
+    with pytest.raises(NoVerdictError, match="nested too deeply"):
         _post()
 
 

@@ -34,7 +34,7 @@ from __future__ import annotations
 import base64
 
 from .. import config
-from ..errors import DeadeyeError
+from ..errors import DeadeyeError, no_verdict
 from ._http import post_json
 from .base import (
     CredentialedProvider,
@@ -109,15 +109,10 @@ class NvidiaProvider(CredentialedProvider):
         )
         text = message.get("content")
         if not isinstance(text, str) or not text.strip():
-            raise DeadeyeError(
-                "provider 'nvidia' returned no text content; no verdict was produced"
-            )
+            raise no_verdict(self.name, "returned no text content")
         finish = choice.get("finish_reason")
         if finish and finish not in ("stop", "length"):
-            raise DeadeyeError(
-                f"provider 'nvidia' ended the response early (finish_reason {finish}); "
-                "no verdict was produced"
-            )
+            raise no_verdict(self.name, f"ended the response early (finish_reason {finish})")
         usage = envelope.get("usage")
         return ReviewResponse(
             raw_text=text,
