@@ -225,7 +225,10 @@ def _refusal_for_occupant(path: Path) -> str:
 def write_evidence(path: Path, document: dict[str, Any], *, force: bool) -> tuple[Path, str]:
     """Write an envelope atomically; refuse to overwrite an earlier one."""
     ensure_writable(path, force=force)
-    payload = json.dumps(document, indent=2, sort_keys=True)
+    # Encoded once: the bytes written and the bytes the digest covers are the
+    # same buffer, and an envelope carrying a preserved raw response is
+    # megabytes this would otherwise encode twice.
+    payload = json.dumps(document, indent=2, sort_keys=True).encode("utf-8")
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         _atomic_write(path, payload, force=force)
@@ -233,7 +236,7 @@ def write_evidence(path: Path, document: dict[str, Any], *, force: bool) -> tupl
         # A bare errno would leave the caller guessing which argument failed;
         # name the evidence path the way every other refusal names its cause.
         raise DeadeyeError(f"cannot write evidence file {path}: {exc}") from exc
-    return path, sha256_bytes(payload.encode("utf-8"))
+    return path, sha256_bytes(payload)
 
 
 def _reserve_exclusive(path: Path) -> None:
@@ -274,7 +277,7 @@ def _reserve_exclusive(path: Path) -> None:
     os.close(fd)
 
 
-def _atomic_write(path: Path, payload: str, *, force: bool) -> None:
+def _atomic_write(path: Path, payload: bytes, *, force: bool) -> None:
     temporary: Path | None = None
     placeholder: Path | None = None
     try:
@@ -287,11 +290,10 @@ def _atomic_write(path: Path, payload: str, *, force: bool) -> None:
         ) as handle:
             temporary = Path(handle.name)
             # Bytes, never text mode: the digest returned for this payload
-            # hashes its LF-encoded UTF-8 exactly, and a text-mode write would
-            # let the platform's newline translation rewrite it on disk
-            # (CRLF), making every stored evidence hash disagree with its own
-            # file.
-            handle.write(payload.encode("utf-8"))
+            # hashes exactly what lands on disk, and a text-mode write would
+            # let the platform's newline translation rewrite it (CRLF), making
+            # every stored evidence hash disagree with its own file.
+            handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
         if not force:

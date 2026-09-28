@@ -14,6 +14,7 @@ actually judged.
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -110,29 +111,43 @@ def discover(source: Path) -> ClipMedia:
 def _scan_directory(directory: Path) -> tuple[list[Path], Path | None, Path | None]:
     """Single-pass directory scan: find frames, muxed video, and log file.
 
-    One readdir plus one stat per entry, whatever the file's role: a scan per
-    role would re-open and re-stat the whole directory three times, which
-    matters for a clip with many frames.
+    One readdir serves the whole classification, whatever the file's role: a
+    scan per role would walk the directory three times, which matters for a
+    clip with many frames. `os.scandir` answers "is this a file?" from the
+    directory entry the OS already read, where `Path.is_file()` spends a stat
+    syscall per entry. Nothing is sorted until it has to be: numbered frames
+    are ordered by index (name breaking a tie, so the order never depends on
+    how the filesystem happened to hand the entries over), and the other two
+    lists hold the rare video and log, sorted only when they are ambiguous.
     """
-    numbered: list[tuple[int, Path]] = []
+    numbered: list[tuple[int, str, Path]] = []
     fallback_images: list[Path] = []
     videos: list[Path] = []
     logs: list[Path] = []
 
-    for candidate in sorted(directory.iterdir()):
-        suffix = candidate.suffix.lower()
-        if candidate.is_file():
+    with os.scandir(directory) as entries:
+        for entry in entries:
+            if not entry.is_file():
+                continue
+            candidate = Path(entry.path)
+            suffix = candidate.suffix.lower()
             if suffix in VIDEO_SUFFIXES:
                 videos.append(candidate)
             elif suffix in LOG_SUFFIXES:
                 logs.append(candidate)
             elif suffix in IMAGE_SUFFIXES:
                 fallback_images.append(candidate)
-            match = _FRAME_RE.match(candidate.name)
+            match = _FRAME_RE.match(entry.name)
             if match:
-                numbered.append((int(match.group(1)), candidate))
+                numbered.append((int(match.group(1)), entry.name, candidate))
 
-    frames = [path for _, path in sorted(numbered)] if numbered else fallback_images
+    if numbered:
+        numbered.sort(key=lambda item: (item[0], item[1]))
+        frames = [path for _, _, path in numbered]
+    else:
+        frames = sorted(fallback_images, key=lambda path: path.name)
+    videos.sort(key=lambda path: path.name)
+    logs.sort(key=lambda path: path.name)
 
     video = _require_single(videos, directory, "muxed video", "review one clip at a time")
     log = _require_single(logs, directory, "log file", "keep the clip self-contained")
@@ -293,7 +308,13 @@ def flat_label_text(value: str) -> str:
     other control character could forge extra label-shaped lines there; every
     non-printable character becomes a space. Evidence keeps the true path;
     only prompt-facing renderings are flattened.
+
+    `isprintable()` settles the common name on its own: a string with nothing
+    to flatten is returned unchanged, so the per-character Python walk runs
+    only for the hostile names this exists to catch.
     """
+    if value.isprintable():
+        return value
     return "".join(char if char.isprintable() else " " for char in value)
 
 

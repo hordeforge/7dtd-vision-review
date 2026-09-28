@@ -47,6 +47,9 @@ ADVISORY_NOTE = (
     "sign-off in the real context decides that."
 )
 
+_FENCED_JSON_RE = re.compile(r"```(?:json)?\s*(\{.*\})\s*```", re.DOTALL)
+"""The fenced-JSON form a model wraps its verdict in, compiled once at import."""
+
 
 @dataclass(frozen=True)
 class RubricDimension:
@@ -107,7 +110,7 @@ def _moment(value: Any, *, non_negative: bool) -> list[float] | None:
 def parse_model_json(raw_text: str) -> dict[str, Any]:
     """Extract the JSON object from a model response, refusing anything else."""
     text = raw_text.strip()
-    fenced = re.search(r"```(?:json)?\s*(\{.*\})\s*```", text, re.DOTALL)
+    fenced = _FENCED_JSON_RE.search(text)
     if fenced:
         text = fenced.group(1)
     else:

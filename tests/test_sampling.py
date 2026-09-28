@@ -39,6 +39,46 @@ def test_discover_ignores_a_directory_named_like_a_frame(clip_dir) -> None:
     ]
 
 
+def test_discover_follows_a_symlinked_frame(clip_dir) -> None:
+    """A capture that links its frames in is still a capture."""
+    (clip_dir / "frame-0010.png").symlink_to(clip_dir / "frame-0000.png")
+
+    media = discover(clip_dir)
+
+    assert media.frames[-1].name == "frame-0010.png"
+
+
+def test_discover_orders_ties_by_name_not_by_readdir_order(clip_dir) -> None:
+    """Two files claiming one frame index must land in the same order everywhere.
+
+    The sequence is the submission order, so it cannot depend on the order the
+    filesystem happened to hand its directory over.
+    """
+    (clip_dir / "frame-0003.jpg").write_bytes(b"x")
+
+    media = discover(clip_dir)
+
+    assert [frame.name for frame in media.frames[2:5]] == [
+        "frame-0002.png",
+        "frame-0003.jpg",
+        "frame-0003.png",
+    ]
+
+
+def test_discover_orders_an_unnumbered_frame_sequence_by_name(tmp_path) -> None:
+    """Images without frame numbers are still submitted in a fixed order."""
+    for name in ("turntable-c.png", "turntable-a.png", "turntable-b.png"):
+        (tmp_path / name).write_bytes(b"x")
+
+    media = discover(tmp_path)
+
+    assert [frame.name for frame in media.frames] == [
+        "turntable-a.png",
+        "turntable-b.png",
+        "turntable-c.png",
+    ]
+
+
 def test_discover_accepts_a_single_video_or_image_file(tmp_path) -> None:
     video = tmp_path / "clip.mp4"
     video.write_bytes(b"v")

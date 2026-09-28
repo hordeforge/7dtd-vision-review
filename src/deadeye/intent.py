@@ -359,8 +359,15 @@ def _is_sensitive_key(key: str, parts: tuple[str, ...]) -> bool:
     # because a key that reads differently is a different key. No Unicode
     # normalization: every name in `parts` is ASCII, so NFC would compose
     # letters the match never looks at and leave the result identical.
-    folded = "".join(char for char in key if unicodedata.category(char) != "Cf").casefold()
+    # No Cf code point is below U+0080 (the ASCII control range is Cc), so an
+    # ASCII key cannot hide one and skips the per-character category walk,
+    # which is the inner loop of every redacted document.
+    folded = key.casefold() if key.isascii() else _strip_format_characters(key).casefold()
     return folded == "key" or any(part in folded for part in parts)
+
+
+def _strip_format_characters(key: str) -> str:
+    return "".join(char for char in key if unicodedata.category(char) != "Cf")
 
 
 def redact_json_text(text: str, parts: tuple[str, ...] = SENSITIVE_KEY_PARTS) -> str:
