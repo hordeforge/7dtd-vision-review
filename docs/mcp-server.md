@@ -120,7 +120,7 @@ place a client reads instead of matching on message text:
 
 | Code | Meaning | Retry under the same `idempotency_key`? |
 |---|---|---|
-| `usage` | the call was malformed (the exactly-one intent route, an argument of the wrong type) | yes, nothing was submitted |
+| `usage` | the call was malformed (the exactly-one intent route, an argument of the wrong type, a blank or out-of-range value, an argument the schema does not declare, a key reused with different arguments) | yes, nothing was submitted |
 | `refused` | a provider or configuration refusal raised before the review ran | yes, nothing was submitted |
 | `no_verdict` | the submission reached the provider and produced nothing usable | no, the attempt may have billed |
 | `evidence_write` | a billed verdict that could not be persisted; the envelope rides alongside | no, and the envelope is the answer |
@@ -130,6 +130,16 @@ place a client reads instead of matching on message text:
 refusals `errors.py` types apart precisely so a deduplicating caller can tell a
 spent key from a free one. The `ERROR: ` text and `isError` are unchanged for
 a client that reads neither; the code is additive.
+
+Every refusal raised while reading an argument is a `usage` code, the class
+argparse rejects the same mistake with on the CLI (exit 2), so one mistake reads
+the same way over both transports. A string argument must also be non-blank:
+`Path("")` is the working directory, so an empty `clip` would otherwise submit
+the server's own directory as the media, and the published schema carries
+`minLength: 1` so a client generating a call from `tools/list` reads the same
+rule. A value that came from configuration rather than from the call (an
+unusable `timeout_seconds` in `config.toml`, say) is a `refused` code, because
+it is a configuration refusal rather than a malformed call.
 
 `review` accepts `intent` or `intent_text`, never both and never neither: the
 core's exactly-one rule applies verbatim, and passing both is the refusal
@@ -168,11 +178,11 @@ $ deadeye mcp
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}
 {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"deadeye","version":"0.1.1"}}}
 {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"review","arguments":{"clip":"clip/","intent":"intent.json","provider":"fake","allow_network":true}}}
-{"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"{\n  \"kind\": \"deadeye-review\",\n ... }"}]}}
+{"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"{\n  \"advisory_only\": true,\n ... }"}]}}
 {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"review","arguments":{"clip":"clip/","provider":"genimi","allow_network":true}}}
-{"jsonrpc":"2.0","id":3,"result":{"content":[{"type":"text","text":"ERROR: review parameter 'provider' 'genimi' is not one of fake, gemini, nvidia"}],"isError":true}}
+{"jsonrpc":"2.0","id":3,"result":{"content":[{"type":"text","text":"ERROR: review parameter 'provider' 'genimi' is not one of fake, gemini, nvidia"}],"isError":true,"structuredContent":{"error":{"code":"usage","message":"review parameter 'provider' 'genimi' is not one of fake, gemini, nvidia"}}}}
 {"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"review","arguments":{"clip":7,"allow_network":true}}}
-{"jsonrpc":"2.0","id":4,"result":{"content":[{"type":"text","text":"ERROR: review parameter 'clip' must be a string"}],"isError":true}}
+{"jsonrpc":"2.0","id":4,"result":{"content":[{"type":"text","text":"ERROR: review parameter 'clip' must be a string"}],"isError":true,"structuredContent":{"error":{"code":"usage","message":"review parameter 'clip' must be a string"}}}}
 {"jsonrpc":"2.0","method":"notifications/initialized"}
 ```
 

@@ -162,24 +162,32 @@ TOOLS: list[dict[str, Any]] = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "clip": {"type": "string", "description": "clip directory or video file"},
+                "clip": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "clip directory or video file",
+                },
                 "intent": {
                     "type": "string",
+                    "minLength": 1,
                     "description": "intent JSON file path; exactly one of intent or "
                     "intent_text, never both and never neither",
                 },
                 "intent_text": {
                     "type": "string",
+                    "minLength": 1,
                     "description": "inline intent JSON; exactly one of intent or "
                     "intent_text, never both and never neither",
                 },
                 "provider": {
                     "type": "string",
                     "enum": sorted(PROVIDERS),
+                    "minLength": 1,
                     "description": "provider name (default per config)",
                 },
                 "model": {
                     "type": "string",
+                    "minLength": 1,
                     "description": "provider model id (default per provider)",
                 },
                 "allow_network": {"type": "boolean", "description": "explicit upload consent"},
@@ -193,7 +201,11 @@ TOOLS: list[dict[str, Any]] = [
                     "type": "boolean",
                     "description": "retain a redacted raw response in evidence",
                 },
-                "output": {"type": "string", "description": "evidence path"},
+                "output": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "evidence path",
+                },
                 "force": {
                     "type": "boolean",
                     "description": "overwrite an earlier envelope at output",
@@ -243,16 +255,19 @@ TOOLS: list[dict[str, Any]] = [
             "properties": {
                 "intent": {
                     "type": "string",
+                    "minLength": 1,
                     "description": "intent JSON file path; exactly one of intent or "
                     "intent_text, never both and never neither",
                 },
                 "intent_text": {
                     "type": "string",
+                    "minLength": 1,
                     "description": "inline intent JSON; exactly one of intent or "
                     "intent_text, never both and never neither",
                 },
                 "clip": {
                     "type": "string",
+                    "minLength": 1,
                     "description": "optional clip directory or video file, described "
                     "in the rendered prompt's media summary",
                 },
@@ -279,7 +294,10 @@ def _error_code(exc: DeadeyeError) -> str:
     that: `errors.py` types the refusals for exactly this reason, so the type
     is what travels here. `no_verdict` is the one that bills; `usage` and
     `refused` name caller's mistakes and a provider that refused before
-    running the review, and both are retryable under the same key.
+    running the review, and both are retryable under the same key. Every
+    refusal this module raises while reading an argument is a `UsageError`,
+    the class argparse raises for the same mistake on the CLI, so a
+    malformed call reads as `usage` here and exits 2 there.
     """
     if isinstance(exc, NoVerdictError):
         return "no_verdict"
@@ -314,7 +332,7 @@ def _boolean(tool: str, params: dict[str, Any], name: str) -> bool:
         return False
     value = params[name]
     if not isinstance(value, bool):
-        raise DeadeyeError(f"{tool} parameter {name!r} must be a boolean")
+        raise UsageError(f"{tool} parameter {name!r} must be a boolean")
     return value
 
 
@@ -326,14 +344,23 @@ def _text(tool: str, params: dict[str, Any], name: str, *, required: bool = Fals
     A number or a boolean would otherwise reach `Path()` and fail there as a
     TypeError naming no argument, and a missing required one would surface as
     a bare KeyError; both are the caller's mistake, so both are named here.
+
+    A blank string is refused for the same reason. `Path("")` is the current
+    directory, so an empty `clip` would submit the server's working directory
+    as the media and an empty `intent` would fail as an unreadable `.`, both
+    reported as somebody else's fault, and an empty `model` would reach the
+    provider as an empty model id. The published schema carries `minLength: 1`
+    for these arguments; this is the half a schema cannot enforce.
     """
     value = params.get(name)
     if value is None:
         if required:
-            raise DeadeyeError(f"{tool} parameter {name!r} is required")
+            raise UsageError(f"{tool} parameter {name!r} is required")
         return None
     if not isinstance(value, str):
-        raise DeadeyeError(f"{tool} parameter {name!r} must be a string")
+        raise UsageError(f"{tool} parameter {name!r} must be a string")
+    if not value.strip():
+        raise UsageError(f"{tool} parameter {name!r} must not be empty")
     return value
 
 
@@ -364,10 +391,10 @@ def _provider_arg(name: Any) -> str:
     typo deserves.
     """
     if name is not None and not isinstance(name, str):
-        raise DeadeyeError("review parameter 'provider' must be a string")
+        raise UsageError("review parameter 'provider' must be a string")
     provider = resolve_provider(name)
     if provider not in PROVIDERS:
-        raise DeadeyeError(
+        raise UsageError(
             f"review parameter 'provider' {provider!r} is not one of {', '.join(sorted(PROVIDERS))}"
         )
     return provider
@@ -380,12 +407,15 @@ def _known_args(tool: str, params: dict[str, Any]) -> None:
     misspelled one is the last way a call can go quietly wrong: `intetnt`
     instead of `intent` is dropped, and the client collects a refusal about
     the intent route it believes it supplied. The published properties are
-    the list, so the schema and this check cannot drift apart.
+    the list, so the schema and this check cannot drift apart. A name the
+    schema does not declare is the caller's mistake, so it carries the
+    `usage` code every other argument refusal carries, not the `refused` a
+    provider refusal carries.
     """
     declared = next(item["inputSchema"]["properties"] for item in TOOLS if item["name"] == tool)
     unknown = sorted(set(params) - set(declared))
     if unknown:
-        raise DeadeyeError(
+        raise UsageError(
             f"{tool} does not take {', '.join(repr(name) for name in unknown)}; "
             f"it takes {', '.join(sorted(declared))}"
         )
@@ -412,7 +442,7 @@ def _call_review(params: dict[str, Any]) -> dict[str, Any]:
     provider_name = _provider_arg(params.get("provider"))
     # Same resolution and validation as the CLI flag: the tool argument, else
     # config's timeout_seconds, else the built-in default.
-    timeout = resolve_timeout(params.get("timeout_seconds"))
+    timeout = _timeout_arg(params)
 
     if key is not None:
         replayed = _replayed_result(key, params)
@@ -472,6 +502,26 @@ def _call_review(params: dict[str, Any]) -> dict[str, Any]:
     return envelope
 
 
+def _timeout_arg(params: dict[str, Any]) -> float:
+    """The submission budget, validated as this transport's argument.
+
+    `resolve_timeout` is the one home for the range check, so it runs for the
+    value either way. What changes here is the refusal a client gets back: a
+    value the caller put in the call is the caller's mistake, the same class
+    argparse rejects `--timeout 0` with, so it carries the `usage` code. A
+    value that came from configuration is a configuration refusal and keeps
+    the `refused` the core raises.
+    """
+    if params.get("timeout_seconds") is None:
+        return resolve_timeout(None)
+    try:
+        return resolve_timeout(params["timeout_seconds"])
+    except UsageError:
+        raise
+    except DeadeyeError as exc:
+        raise UsageError(str(exc)) from exc
+
+
 def _idempotency_key(params: dict[str, Any]) -> str | None:
     """The client's key for this logical operation, or None when it named none.
 
@@ -490,10 +540,10 @@ def _idempotency_key(params: dict[str, Any]) -> str | None:
         return None
     key = params["idempotency_key"]
     if not isinstance(key, str) or not key.strip():
-        raise DeadeyeError("review parameter 'idempotency_key' must be a non-empty string")
+        raise UsageError("review parameter 'idempotency_key' must be a non-empty string")
     key = unicodedata.normalize("NFC", key)
     if len(key) > _MAX_IDEMPOTENCY_KEY_CHARS:
-        raise DeadeyeError(
+        raise UsageError(
             f"review parameter 'idempotency_key' must be at most "
             f"{_MAX_IDEMPOTENCY_KEY_CHARS} characters"
         )
@@ -521,8 +571,11 @@ def _replayed_result(key: str, params: dict[str, Any]) -> _LedgerEntry | None:
     if entry.fingerprint != _call_fingerprint(params):
         # Returning the earlier answer here would attribute one operation's
         # verdict to another's request, and re-running would bill a second
-        # time under a name the client already used. Refuse instead.
-        raise DeadeyeError(
+        # time under a name the client already used. Refuse instead. The
+        # second call is the caller's mistake and the key is unspent, so the
+        # refusal is a usage error and a corrected retry under a new key is
+        # what it asks for.
+        raise UsageError(
             f"idempotency_key {key!r} was already used for a review with different "
             "arguments; a key names one logical operation, so pass a new one"
         )

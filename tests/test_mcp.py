@@ -374,6 +374,75 @@ def test_review_names_a_missing_required_clip(tmp_path) -> None:
     assert "KeyError" not in text
 
 
+def test_every_argument_refusal_carries_the_usage_code(tmp_path) -> None:
+    """The documented table calls a malformed call `usage` and a provider or
+    configuration refusal `refused`. A client branching on the code has to be
+    able to tell the two, so every refusal raised while reading an argument
+    is a `UsageError`: the mistake belongs to the caller, exactly as it does
+    under argparse on the CLI, and nothing was submitted either way."""
+    clip = tmp_path / "clip"
+    clip.mkdir()
+    (clip / "frame-0000.png").write_bytes(b"x")
+    base = {
+        "clip": str(clip),
+        "intent_text": json.dumps({"purpose": "p"}),
+        "provider": "fake",
+        "allow_network": True,
+    }
+    mistakes = [
+        {**base, "provider": "genimi"},
+        {**base, "provider": 7},
+        {**base, "clip": 7},
+        {**base, "force": "yes"},
+        {**base, "keep_raw_response": 1},
+        {**base, "timeout_seconds": 0},
+        {**base, "timeout_seconds": "30"},
+        {**base, "idempotency_key": ""},
+        {**base, "idempotency_key": "k" * 201},
+        {**base, "intetnt": "intent.json"},
+        {"allow_network": True, "intent_text": json.dumps({"purpose": "p"})},
+    ]
+    for arguments in mistakes:
+        response = _call("tools/call", {"name": "review", "arguments": arguments})
+        result = response["result"]
+        assert result["isError"] is True, arguments
+        assert result["structuredContent"]["error"]["code"] == "usage", arguments
+
+    response = _call("tools/call", {"name": "prompt", "arguments": {"intent": 5}})
+    assert response["result"]["structuredContent"]["error"]["code"] == "usage"
+
+
+def test_a_blank_string_argument_is_refused_before_the_core_sees_it(tmp_path) -> None:
+    """`Path("")` is the working directory, so an empty `clip` would submit
+    the server's own directory as the media and an empty `intent` would fail
+    as an unreadable `.`. Both are the caller's mistake and are named as one
+    before anything is read from disk."""
+    for name in ("clip", "intent", "intent_text", "model", "output"):
+        arguments = {
+            "clip": str(tmp_path),
+            "intent_text": json.dumps({"purpose": "p"}),
+            "provider": "fake",
+            "allow_network": True,
+        }
+        arguments[name] = "   "
+        response = _call("tools/call", {"name": "review", "arguments": arguments})
+        result = response["result"]
+        assert result["isError"] is True, name
+        assert result["structuredContent"]["error"]["code"] == "usage", name
+        assert "must not be empty" in result["content"][0]["text"], name
+
+
+def test_the_published_string_arguments_declare_their_minimum_length() -> None:
+    """The refusal above is the half a JSON Schema cannot enforce; the other
+    half is the constraint a client generating a call from `tools/list` reads."""
+    from deadeye.mcp import TOOLS
+
+    for tool in TOOLS:
+        for name, schema in tool["inputSchema"]["properties"].items():
+            if schema["type"] == "string" and name != "idempotency_key":
+                assert schema.get("minLength") == 1, (tool["name"], name)
+
+
 def test_prompt_refuses_a_non_string_argument(tmp_path) -> None:
     response = _call("tools/call", {"name": "prompt", "arguments": {"intent": 5}})
     assert response["result"]["isError"] is True

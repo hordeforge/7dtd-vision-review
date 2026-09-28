@@ -25,6 +25,30 @@ required (`CONTRIBUTING.md`, "Changing a contract").
 
 ### Breaking
 
+- A blank string argument is now refused at the MCP boundary. Before: `clip`,
+  `intent`, `intent_text`, `output`, `model`, and `provider` accepted `""` or a
+  run of spaces, so an empty `clip` was `Path("")`, the server's working
+  directory, and was submitted as the media, an empty `intent` failed as an
+  unreadable `.`, and an empty `model` reached the provider as an empty model
+  id. After: each is refused by name (`review parameter 'clip' must not be
+  empty`) before anything is read from disk, the `ERROR: ` text and `isError`
+  are unchanged, and the published input schemas carry `minLength: 1` so a
+  client generating a call from `tools/list` reads the rule. To upgrade, pass
+  a real path, document, or model id; any argument that was already a
+  non-blank string is unaffected, and the CLI never took a blank one.
+
+- An argument refused while being read now reports the `usage` code instead of
+  `refused`. Before: `structuredContent.error.code` documented `usage` for "an
+  argument of the wrong type", but a wrong type, an unknown provider, a
+  non-positive `timeout_seconds`, an undeclared argument name, and a key
+  reused with different arguments all answered `refused`, the code documented
+  for a provider or configuration refusal. After: every refusal raised while
+  reading an argument is a `UsageError`, the class argparse rejects the same
+  mistake with on the CLI, so a client branching on the code tells a malformed
+  call from a provider refusal. To upgrade: treat `usage` and `refused` as the
+  retryable pair, which is what the code table already said both were; only a
+  client that branched on `refused` meaning "bad argument" needs the switch.
+
 - A configured generation parameter outside the range the provider documents
   is now refused before submission. Before: `temperature` and `top_p` were
   type-checked only, so a `top_p = 5` or a `temperature = -1` reached the
