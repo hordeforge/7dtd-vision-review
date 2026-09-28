@@ -27,7 +27,7 @@ Put your provider key in the gitignored local config, then check what
 deadeye sees:
 
 ```bash
-cp config.local.toml.example config.local.toml
+cp src/deadeye/config.local.toml.example config.local.toml
 uv run deadeye doctor
 ```
 

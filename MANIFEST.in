@@ -3,8 +3,9 @@
 # README.md tells a contributor to run from a checkout (scripts/bootstrap,
 # uv sync --locked, make check test) works from an unpacked tarball.
 include CHANGELOG.md CONTRIBUTING.md SECURITY.md
-include Makefile uv.lock
-include config.toml config.local.toml.example
+include Makefile uv.lock .python-version
+include config.toml
+include src/deadeye/config.local.toml.example
 graft tests
 graft docs
 graft scripts

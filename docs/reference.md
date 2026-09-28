@@ -214,8 +214,10 @@ mirroring the sibling llm-proxy convention:
   generation parameters. Model precedence: `--model` flag > `default_model`
   > `[providers.<name>] model` > built-in default.
 - `config.local.toml` — **gitignored**, for your API key and machine-local
-  overrides. Copy `config.local.toml.example` to `config.local.toml` and set
-  the key; no `export` needed per shell.
+  overrides. Copy the shipped `config.local.toml.example` (next to the
+  installed `deadeye` package, named by `deadeye doctor` when no config is
+  found) to `config.local.toml` and set the key; no `export` needed per
+  shell.
 
 Command-line options override their configured equivalents. Credentials prefer
 the environment, then the merged configuration; all other settings come from

@@ -198,6 +198,19 @@ def test_doctor_prints_the_effective_settings_without_crashing(capsys) -> None:
     assert "timeout_seconds:" in out
 
 
+def test_doctor_names_a_config_template_the_reader_can_open(isolated_config, capsys) -> None:
+    """With no config found, doctor must point at a file that exists on disk.
+
+    Naming a template an install-from-wheel does not carry leaves the reader
+    hunting for a file that was never shipped.
+    """
+    code, out, _ = _run(["doctor"], capsys)
+    assert code == 0
+    named = out.split("config: none (copy ", 1)[1].split(" to config.local.toml)", 1)[0]
+    path = Path(named)
+    assert path.is_file(), f"doctor names {path}, which is not on disk"
+
+
 def test_doctor_reports_an_unusable_default_provider(isolated_config, capsys) -> None:
     """A bad default_provider is surfaced by doctor, never crashes it."""
     (isolated_config / "config.toml").write_text('default_provider = "nvda"\n', encoding="utf-8")

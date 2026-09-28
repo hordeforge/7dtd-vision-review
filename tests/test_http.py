@@ -271,24 +271,28 @@ def test_a_declared_charset_whose_codec_raises_is_a_fault_not_a_crash(http_opene
 
 def test_a_declared_charset_bytes_decode_rejects_is_a_fault_not_a_crash(http_opener) -> None:
     """A Content-Type whose charset parameter is not a usable codec name at
-    all (`charset=\0`, which `bytes.decode` refuses with a plain ValueError,
-    neither a UnicodeError nor a LookupError) must take the same
-    fall-back-to-UTF-8 path as every other unusable declaration, not escape
-    as a bare traceback past the fault mapping after a billed submission."""
+    all must take the same fall-back-to-UTF-8 path as every other unusable
+    declaration, not escape as a bare traceback past the fault mapping after a
+    billed submission. `bytes.decode` refuses a name carrying an embedded null
+    with a plain ValueError before it ever reaches the codec lookup, so it is
+    neither a LookupError nor a UnicodeError; both spellings of that name are
+    covered here."""
 
-    def answering_open(request, timeout):
-        return _CharsetResponse(b'{"modelVersion": "m"}', "application/json; charset=\0")
+    for charset in ("charset=\0", "charset=\x00bogus"):
 
-    http_opener(answering_open)
-    envelope = post_json(
-        "gemini",
-        "https://generativelanguage.googleapis.com/v1beta/models/m:generateContent",
-        body={},
-        headers={"x-goog-api-key": "k"},
-        timeout_seconds=1.0,
-        credential_env="GEMINI_API_KEY",
-    )
-    assert envelope["modelVersion"] == "m"
+        def answering_open(request, timeout, charset=charset):
+            return _CharsetResponse(b'{"modelVersion": "m"}', f"application/json; {charset}")
+
+        http_opener(answering_open)
+        envelope = post_json(
+            "gemini",
+            "https://generativelanguage.googleapis.com/v1beta/models/m:generateContent",
+            body={},
+            headers={"x-goog-api-key": "k"},
+            timeout_seconds=1.0,
+            credential_env="GEMINI_API_KEY",
+        )
+        assert envelope["modelVersion"] == "m"
 
 
 def test_an_undecodable_body_with_a_declared_charset_names_both_attempts(http_opener) -> None:

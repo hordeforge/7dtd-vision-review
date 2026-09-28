@@ -348,7 +348,7 @@ def _handle_doctor(args: argparse.Namespace) -> int:
         if sources:
             print("config: " + ", ".join(str(path) for path in sources))
         else:
-            print("config: none (see config.toml and config.local.toml.example)")
+            print(f"config: none (copy {config.EXAMPLE_PATH} to config.local.toml)")
         if load_failure:
             print(f"config error: {load_failure}")
         note = config.discovery_note()

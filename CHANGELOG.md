@@ -56,6 +56,13 @@ required (`CONTRIBUTING.md`, "Changing a contract").
 
 ### Added
 
+- The wheel now ships `config.local.toml.example`, and `deadeye doctor` names
+  the file by its real path when no config is found. A user who installed the
+  release artifact had no checkout to copy the template from, and the
+  documented first step after `uv tool install` was impossible. The template
+  moved to `src/deadeye/` so the checkout and the installed package have one
+  copy, never two that drift; a checkout copies it from there
+  (`cp src/deadeye/config.local.toml.example config.local.toml`).
 - Property-based fuzz targets for the response-body and prompt-flattening
   boundaries: a raw provider body must decode under its declared charset or
   UTF-8 and refuse by name otherwise, a sanitized envelope must re-serialize
@@ -69,17 +76,6 @@ required (`CONTRIBUTING.md`, "Changing a contract").
   recent 128 keys, least recently used evicted. The guarantee is process-
   local: a restarted server is back to one call, one submission. Calls
   without a key behave exactly as before.
-
-### Fixed
-
-- The MCP idempotency ledger is now bounded by retained bytes as well as by
-  entry count: at most 32 MiB of envelopes, oldest evicted, whichever bound
-  the next entry crosses first. An entry's size is the client's to choose
-  (a call with `keep_raw_response` carries a redacted provider payload,
-  which the HTTP reader bounds at 8 MiB), so the entry count alone left a
-  long-lived server pinning a gigabyte of replayable verdicts. The entry
-  just answered is always kept whatever it weighs, so a key the client is
-  about to retry still replays instead of billing twice.
 
 ### Changed
 
@@ -120,6 +116,22 @@ required (`CONTRIBUTING.md`, "Changing a contract").
 
 ### Fixed
 
+- The MCP idempotency ledger is now bounded by retained bytes as well as by
+  entry count: at most 32 MiB of envelopes, oldest evicted, whichever bound
+  the next entry crosses first. An entry's size is the client's to choose
+  (a call with `keep_raw_response` carries a redacted provider payload,
+  which the HTTP reader bounds at 8 MiB), so the entry count alone left a
+  long-lived server pinning a gigabyte of replayable verdicts. The entry
+  just answered is always kept whatever it weighs, so a key the client is
+  about to retry still replays instead of billing twice.
+- A provider whose `Content-Type` declares a charset carrying an embedded
+  null byte crashed the review instead of refusing it. `bytes.decode` raises
+  a plain `ValueError` for such a name, before the codec lookup, so it was
+  caught by neither the `LookupError` (unknown name) nor the `UnicodeError`
+  (decode fault) the decoder handled, and the traceback escaped past the
+  fault mapping after a billable submission. It now takes the same
+  fall-back-to-UTF-8 path as any other undecodable declaration. Found by
+  `tests/test_fuzz_parsers.py`, pinned in `tests/test_http.py`.
 - The suite no longer lies about the release gate. Four tests in
   `tests/test_config.py` requested a fixture named `_isolated_config` that
   the shared conftest does not define, so they errored at setup instead of

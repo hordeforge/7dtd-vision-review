@@ -270,7 +270,7 @@ def test_sdist_is_a_complete_source_tree(built_artifacts: dict[str, list[str]]) 
         f"{SDIST_PREFIX}/uv.lock",
         f"{SDIST_PREFIX}/Makefile",
         f"{SDIST_PREFIX}/config.toml",
-        f"{SDIST_PREFIX}/config.local.toml.example",
+        f"{SDIST_PREFIX}/src/deadeye/config.local.toml.example",
         # The committed test suite must be runnable from the tarball:
         # conftest.py defines the fixtures every test module imports.
         f"{SDIST_PREFIX}/tests/conftest.py",
@@ -298,6 +298,11 @@ def test_wheel_ships_exactly_the_package(built_artifacts: dict[str, list[str]]) 
     assert "deadeye/py.typed" in shipped, (
         "PEP 561 marker missing: the package is strictly typed, so consumers' "
         "type checkers must see that"
+    )
+    assert "deadeye/config.local.toml.example" in shipped, (
+        "the config template is the one home for the config schema; a user who "
+        "installs the wheel has no checkout to copy it from, and `deadeye "
+        "doctor` names this exact path"
     )
     assert f"{DIST_INFO}/licenses/LICENSE" in members
     assert f"{DIST_INFO}/entry_points.txt" in members

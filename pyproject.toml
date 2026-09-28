@@ -64,7 +64,10 @@ where = ["src"]
 # PEP 561: the package is fully typed under strict mypy; the marker is what
 # tells a consumer's type checker to trust the inline annotations.
 [tool.setuptools.package-data]
-deadeye = ["py.typed"]
+# The example is the one home for the config schema, and it ships in the
+# wheel: a user who installs the release artifact has no checkout to copy it
+# from, and `deadeye doctor` points at this file.
+deadeye = ["py.typed", "config.local.toml.example"]
 
 [tool.ruff]
 line-length = 100

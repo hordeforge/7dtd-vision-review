@@ -144,7 +144,6 @@ def test_a_non_positive_output_cap_is_refused_before_submission(isolated_config:
     """A cap is the only thing between a looping generation and unbounded
     spend, and a provider that reads zero or a negative cap as 'no limit'
     turns a botched key into exactly that. The refusal names the key."""
-    from deadeye import config
 
     for value in ("0", "-1"):
         (isolated_config / "config.local.toml").write_text(

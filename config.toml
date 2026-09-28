@@ -3,7 +3,8 @@
 # Command-line review options override the configured equivalents. Provider
 # credentials prefer environment variables, then this merged configuration;
 # config.local.toml wins over this file for every configured setting. Copy
-# config.local.toml.example to config.local.toml and put your provider key
+# config.local.toml.example (in src/deadeye/) to config.local.toml and put your
+# provider key
 # there instead of exporting it per shell.
 
 # The provider `review` uses when --provider is omitted.

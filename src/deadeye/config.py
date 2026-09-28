@@ -49,6 +49,11 @@ BASE_NAME = "config.toml"
 LOCAL_NAME = "config.local.toml"
 DEFAULT_TIMEOUT_SECONDS = 120.0
 
+# The template ships inside the package, so it is on disk for an install from
+# a wheel as well as from a checkout, and `deadeye doctor` can name a file the
+# reader can actually open.
+EXAMPLE_PATH = Path(__file__).resolve().parent / "config.local.toml.example"
+
 # Hosts for which a plain-http endpoint override is tolerated: a local
 # self-hosted proxy. Anywhere else, the credential must ride https.
 LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
