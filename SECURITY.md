@@ -33,7 +33,7 @@ that tag.
   `reasoning_budget`; `src/deadeye/config.py:77-94`), so a shadowing config
   changes which model a verdict is attributed to and how it samples, not just
   where the bytes go. The resolved model and generation parameters are recorded
-  in the evidence envelope (`src/deadeye/evidence.py:133`).
+  in the evidence envelope (`src/deadeye/evidence.py:144`).
 - **Uploading media requires explicit consent.** No real provider is contacted
   without `--allow-network`; the `fake` provider is offline by construction.
   Sampled frames, muxed clips, and intent-declared reference media leave the
@@ -61,7 +61,12 @@ that tag.
   the clip's tree (`src/deadeye/evidence.py`). Without `--force` an existing
   envelope is never replaced; with it, the exclusive publish is skipped and
   the file at that path is replaced, leaving no record of what was there.
-  Point `--output` somewhere only you can write.
+  Without `--force` a run will still delete an *empty* file older than a
+  minute at that path, treating it as an abandoned reservation left by a
+  crashed run (`_stale_placeholder_stat` in `src/deadeye/evidence.py`). A
+  write that fails after the provider answered hands the whole envelope,
+  intent text and every submitted path included, to the caller rather than
+  leaving it on disk. Point `--output` somewhere only you can write.
 - **An MCP client holds the process's authority.** The `review` tool takes the
   clip, the intent, the destination path, the overwrite flag, and the upload
   consent as arguments of one call, and there is no second identity or path
@@ -71,7 +76,7 @@ that tag.
   resident in memory. The other tools read, and write nothing: `doctor` and
   `schema` read config and schemas, and `prompt` takes a client-named `clip`
   path and describes whatever media discovery finds there, with no consent gate
-  because nothing is submitted (`src/deadeye/mcp.py:214-252`). Treat the stdio
+  because nothing is submitted (`src/deadeye/mcp.py:216-264`). Treat the stdio
   server as granting whatever its client already has, and do not point an
   automatically-driven client at paths you would not delete by hand.
 - **A verdict is advisory, never an acceptance.** `ADVISORY_NOTE` rides every
