@@ -16,6 +16,14 @@ import json
 from ..sampling import IMAGE_SUFFIXES, VIDEO_SUFFIXES
 from .base import ProviderLimits, ReviewRequest, ReviewResponse
 
+# How many submissions one instance records in `requests`. The list is the
+# assertion seam the offline tests read (`requests[-1]`), and it holds each
+# request whole, media bytes included: a request may carry a full 20 MiB
+# request budget, so a caller that reuses one instance for a long run pins
+# every clip it ever reviewed. The seam reads the most recent, so a small
+# window costs it nothing.
+MAX_RECORDED_REQUESTS = 16
+
 
 class FakeProvider:
     name = "fake"
@@ -36,6 +44,9 @@ class FakeProvider:
 
     def __init__(self) -> None:
         self.requests: list[ReviewRequest] = []
+        """The most recent submissions, oldest first, capped at
+        `MAX_RECORDED_REQUESTS`: what the offline tests assert on, and what
+        this adapter deliberately does not accumulate past that."""
 
     @property
     def default_model(self) -> str:
@@ -53,6 +64,11 @@ class FakeProvider:
 
     def review(self, request: ReviewRequest) -> ReviewResponse:
         self.requests.append(request)
+        # Bounded here, not in a `finally`: the newest request is always
+        # recorded, so the seam `requests[-1]` reads survives a refusal, and
+        # dropping the oldest is what keeps a reused instance from growing
+        # one clip's bytes per review.
+        del self.requests[:-MAX_RECORDED_REQUESTS]
         candidate = request.media[0]
         payload = {
             "summary": (

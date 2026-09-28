@@ -11,7 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 
-from deadeye.providers.fake import FakeProvider
+from deadeye.providers.fake import MAX_RECORDED_REQUESTS, FakeProvider
 from deadeye.review import run_review
 from deadeye.sampling import MIME_BY_SUFFIX
 
@@ -117,3 +117,15 @@ def test_the_dry_run_accepts_every_format_discovery_does(clip_dir, tmp_path) -> 
         provider = FakeProvider()
         run_review(clip_dir, provider=provider, intent_path=intent_path, allow_network=True)
         assert provider.requests[-1].media[-1].name == f"good{suffix}"
+
+
+def test_the_recorded_requests_are_bounded(clip_dir, intent_path) -> None:
+    # `requests` holds each submission whole, media bytes included, so a
+    # caller reusing one instance for a long run would otherwise pin every
+    # clip it reviewed. The window is a bound, not a leak: the newest
+    # submission is always recorded, which is what the seam reads.
+    provider = FakeProvider()
+    for _ in range(MAX_RECORDED_REQUESTS + 5):
+        run_review(clip_dir, provider=provider, intent_path=intent_path, allow_network=True)
+    assert len(provider.requests) == MAX_RECORDED_REQUESTS
+    assert provider.requests[-1].media

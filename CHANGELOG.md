@@ -184,6 +184,12 @@ required (`CONTRIBUTING.md`, "Changing a contract").
 
 ### Fixed
 
+- `FakeProvider.requests` grew for the life of the instance, keeping every
+  submitted request whole, media bytes included, so a long-running caller that
+  reused one adapter (the offline dry-run lane in a server or a test session)
+  pinned every clip it had ever reviewed. The recorded window is now capped at
+  `MAX_RECORDED_REQUESTS`; the most recent submission is always kept, which is
+  what the tests reading `requests[-1]` assert on.
 - A retry under the same MCP `idempotency_key` could still bill the same
   media twice. The ledger recorded only a review that returned a verdict, so
   a submission the provider answered with nothing usable (a timeout, a
@@ -193,6 +199,13 @@ required (`CONTRIBUTING.md`, "Changing a contract").
   provider now records its outcome, and a repeat replays the first refusal;
   a refusal raised before anything was sent still leaves the key free, so a
   corrected retry is unchanged.
+- `tests/test_redaction.py` carried five functions twice over: `ruff check`
+  failed on the redefinition, so the whole offline gate (`make all`) was red
+  and the second copy of each test never ran. The duplicates are gone, and
+  `test_the_evidence_usage_walk_is_the_bounded_one` builds its
+  `SamplingRecord` with the `frame_indices` field the dataclass gained, so
+  the bounded-walk guarantee it pins is asserted again rather than raising
+  `TypeError` inside `build_envelope`.
 - Three evidence-race tests passed a `str` to `_atomic_write`, which takes
   bytes, so they raised `TypeError` inside the write instead of asserting
   anything: the concurrent-writer and stale-placeholder guarantees were
