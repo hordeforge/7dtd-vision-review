@@ -88,16 +88,38 @@ def _decode_envelope(provider: str, raw: bytes, headers: Any) -> str:
         ) from exc
 
 
+def _read_chunk(response: Any, size: int) -> Any:
+    """One socket read that returns as soon as any bytes have arrived.
+
+    `HTTPResponse.read(n)` blocks until it has all `n` bytes or hits EOF, so
+    one call can sit on a connection for as long as the provider keeps it
+    open. `read1` stops at the first chunk the network delivered; a response
+    object without it (a test double answering from memory) falls back to
+    `read`, which bounds such a double by its own length anyway.
+    """
+    read1 = getattr(response, "read1", None)
+    return read1(size) if callable(read1) else response.read(size)
+
+
 def _read_response_body(
     response: Any, provider: str, *, deadline: float, timeout_seconds: float
 ) -> bytes:
-    """Read one bounded, time-bounded successful JSON response."""
+    """Read one bounded, time-bounded successful JSON response.
+
+    `deadline` is a monotonic instant the whole call is held to. urllib's
+    `timeout=` is a per-socket-operation timeout, not a budget for the call: a
+    provider that answers a byte every few seconds resets that clock on every
+    read and the submission runs indefinitely, billing for as long as it keeps
+    the connection open. Each read is already capped by the socket timeout, and
+    the check between reads caps the sum, so the advertised "seconds to wait
+    for the provider" is the real bound on the call.
+    """
     chunks: list[bytes] = []
     remaining = _MAX_RESPONSE_BYTES + 1
     while remaining:
         if time.monotonic() >= deadline:
             raise did_not_answer(provider, timeout_seconds)
-        raw = response.read(min(64 * 1024, remaining))
+        raw = _read_chunk(response, min(64 * 1024, remaining))
         if not isinstance(raw, bytes):
             raise DeadeyeError(f"provider {provider!r} returned a non-bytes response body")
         if not raw:
@@ -165,6 +187,10 @@ def post_json(
         headers={"Content-Type": "application/json", **headers},
         method="POST",
     )
+    # Monotonic, taken before the connection opens: the budget covers the
+    # whole call, connect and response headers included. `timeout_seconds`
+    # arms the socket, which bounds any single read that stalls; the deadline
+    # bounds the sum of reads that keep making progress.
     deadline = time.monotonic() + timeout_seconds
     try:
         with _OPENER.open(request, timeout=timeout_seconds) as response:

@@ -65,6 +65,14 @@ left to be discovered by a failing parse downstream.
 - A raw provider response preserved with `--keep-raw-response` no longer
   writes a bare `NaN`/`Infinity` token (RFC 8259 defines neither) into the
   evidence document, so a strict reader can parse that document back.
+- `--timeout` (and the `timeout_seconds` it overrides) now bounds the whole
+  provider call instead of one socket read. urllib's `timeout=` is a
+  per-operation timeout, so a provider trickling a few bytes per read reset it
+  and the billable submission ran indefinitely, which in a long-lived
+  `deadeye mcp` server held the call open without bound. The budget is
+  enforced on a `time.monotonic` deadline across the response reads, so a
+  clock change mid-review cannot shorten or extend it either. A timed-out
+  submission still ends as the same "did not answer within Ns" refusal.
 
 ### Changed
 

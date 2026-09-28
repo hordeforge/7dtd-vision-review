@@ -29,7 +29,7 @@ source checkout, run the same commands through the project venv instead:
 | `--output PATH` | also write the evidence envelope there; never overwrites an earlier one without `--force` |
 | `--keep-raw-response` | preserve a redacted copy of the provider's raw response in evidence |
 | `--force` | overwrite an earlier evidence envelope at `--output` |
-| `--timeout SECONDS` | budget for the whole submission, response body included; overrides `timeout_seconds` from configuration |
+| `--timeout SECONDS` | budget for the whole submission, response body included, measured on the monotonic clock rather than as a per-socket-read timeout; overrides `timeout_seconds` from configuration |
 
 `deadeye doctor [--json]` reports provider capability state without contacting
 any provider. `deadeye schema` prints the intent and result schemas.
@@ -240,7 +240,11 @@ never silently swapped for another), `timeout_seconds` and `--timeout` must
 be positive numbers, and a per-provider `endpoint` override must be an
 `https://` URL — plain `http` is accepted only for a loopback proxy such as
 `http://localhost:8080`, so no credential ever rides a public wire in
-cleartext. Per-provider generation parameters (`max_tokens`,
+cleartext. The timeout is a whole-call budget: the adapters read the response
+in chunks against a `time.monotonic` deadline, so a provider that keeps
+trickling bytes cannot hold a billable submission open by resetting a
+per-socket-operation timeout, and an NTP step or a manual clock change during
+a review cannot shorten or extend it. Per-provider generation parameters (`max_tokens`,
 `reasoning_budget`, `temperature`, `top_p`, `max_output_tokens`) follow the
 same rule: a value that is present but unusable for its role — a string
 where a number belongs, a boolean, a non-finite float such as `nan` — is

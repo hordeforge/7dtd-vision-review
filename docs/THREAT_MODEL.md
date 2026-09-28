@@ -143,15 +143,16 @@ No run ledger exists (noted for readiness; o11y-review owns log structure).
 **Information disclosure.** Key leakage paths (stdout, evidence, raw
 response) all funnel through one name-based backstop — T3. Provider error
 bodies (≤300 chars) surface in refusal messages
-(`providers/_http.py:132-160`). `--intent-text` content is visible in process
+(`providers/_http.py:135-162`). `--intent-text` content is visible in process
 listings (authored context, not credentials).
 
 **Denial of service.** Local and bounded: byte budget enforced before any
 read-for-submission (`review.py:321-330`), frame caps via sampling
 (`sampling.py:243-252`), default timeout 120s (`config.py:43`, resolved at
-`surface.py:58-75`), no retry loops. The socket timeout is per operation, so
-the response reader also carries an overall deadline for the whole submission
-(`providers/_http.py:110-130`): a body that keeps trickling bytes ends the
+`surface.py:58-75`), no retry loops. That default is enforced as a whole-call
+monotonic deadline rather than a per-socket-read timeout, so the response
+reader also carries an overall deadline for the whole submission
+(`providers/_http.py:104-133`): a body that keeps trickling bytes ends the
 read instead of holding the long-lived MCP server open. Residual cost
 amplification via intent size is T4. There is no remote trigger for resource
 exhaustion; the CLI does nothing until a human runs it.
