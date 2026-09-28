@@ -524,3 +524,38 @@ def _keys_read_by(module: object, provider: str) -> set[str]:
             if isinstance(key, ast.Constant) and isinstance(key.value, str):
                 keys.add(key.value)
     return keys
+
+
+def test_a_config_edited_after_load_is_picked_up_without_a_restart(isolated_config) -> None:
+    """The MCP server is long-lived and config files are written outside it,
+    so a cached config must not outlive the file it was built from."""
+    _write(isolated_config, "config.toml", 'default_provider = "nvidia"\n')
+    assert config.value(("default_provider",)) == "nvidia"
+    _write(isolated_config, "config.toml", 'default_provider = "gemini"\n')
+    assert config.value(("default_provider",)) == "gemini"
+    # A file that appears after the first load is a write path too: a
+    # credential dropped into the gitignored local file must be read.
+    assert config.value(("api_key",)) is None
+    _write(isolated_config, "config.local.toml", 'api_key = "nvapi-top"\n')
+    assert config.value(("api_key",)) == "nvapi-top"
+    assert config.load().provenance(("api_key",)) == "config.local.toml"
+
+
+def test_a_fixed_config_recovers_from_a_cached_parse_failure(isolated_config) -> None:
+    """The failure is cached so a broken file is named once, not re-read on
+    every call; correcting it must still take effect in the same process."""
+    _write(isolated_config, "config.toml", 'default_provder = "nvidia"\n')
+    with pytest.raises(ValueError, match=r"default_provder"):
+        config.load()
+    with pytest.raises(ValueError, match=r"default_provder"):
+        config.load()
+    _write(isolated_config, "config.toml", 'default_provider = "nvidia"\n')
+    assert config.value(("default_provider",)) == "nvidia"
+    assert config.load_failure() is None
+
+
+def test_unchanged_config_is_not_reparsed(isolated_config) -> None:
+    """The cache still caches: an unchanged source file costs a stat, not a
+    fresh `Config` and a fresh identity every call."""
+    _write(isolated_config, "config.toml", 'default_provider = "nvidia"\n')
+    assert config.load() is config.load()

@@ -545,20 +545,69 @@ def test_one_idempotency_key_cannot_serve_two_different_calls(tmp_path) -> None:
 
 
 def test_a_refused_call_never_occupies_its_idempotency_key(tmp_path) -> None:
-    """A local refusal is safe to retry, so it must not be frozen into the
-    ledger: the same key and the same call must still run afterwards."""
+    """A refusal that happens before the submission is safe to retry, so it
+    must not be frozen into the ledger: the same key and a corrected call must
+    still run afterwards. Both preflight refusals count: a missing clip, and
+    an occupied evidence path."""
     from deadeye import mcp
 
-    occupied = tmp_path / "taken.json"
-    occupied.write_text("earlier evidence", encoding="utf-8")
-    arguments = _review_arguments(tmp_path, idempotency_key="job-43", output=str(occupied))
+    arguments = _review_arguments(tmp_path, idempotency_key="job-43")
+    good_clip = arguments["clip"]
+
+    arguments["clip"] = str(tmp_path / "no-such-clip")
     refused = _call("tools/call", {"name": "review", "arguments": arguments})
     assert refused["result"]["isError"] is True
     assert not mcp._COMPLETED
 
+    arguments["clip"] = good_clip
+    occupied = tmp_path / "taken.json"
+    occupied.write_text("earlier evidence", encoding="utf-8")
+    arguments["output"] = str(occupied)
+    refused = _call("tools/call", {"name": "review", "arguments": arguments})
+    assert refused["result"]["isError"] is True
+    assert not mcp._COMPLETED, "an occupied path is refused before the submission"
+
     arguments.pop("output")
     recovered = _call("tools/call", {"name": "review", "arguments": arguments})
     assert recovered["result"].get("isError") is not True
+
+
+def test_a_billed_review_whose_evidence_write_failed_still_occupies_its_key(tmp_path) -> None:
+    """The ledger exists so a retry never bills the same media twice. A
+    verdict that was returned and then failed to reach disk was still billed,
+    so the key holds that answer and a retry replays it, fault and all,
+    instead of submitting the clip again."""
+    from deadeye import mcp
+
+    submissions = 0
+    original = mcp.run_review_core
+
+    def counted(*args, **kwargs):
+        nonlocal submissions
+        submissions += 1
+        return original(*args, **kwargs)
+
+    occupied = tmp_path / "taken.json"
+    occupied.write_text("earlier evidence", encoding="utf-8")
+    # An evidence path under a regular file: the preflight cannot see the
+    # fault, so the submission runs and the write fails afterwards, which is
+    # the billed case the ledger exists for.
+    blocker = tmp_path / "blocker"
+    blocker.write_text("not a directory", encoding="utf-8")
+    arguments = _review_arguments(
+        tmp_path, idempotency_key="job-44", output=str(blocker / "evidence.json")
+    )
+    mcp.run_review_core = counted
+    try:
+        first = _call("tools/call", {"name": "review", "arguments": arguments})
+        second = _call("tools/call", {"name": "review", "arguments": arguments})
+    finally:
+        mcp.run_review_core = original
+
+    assert submissions == 1, "the retry must not reach the provider a second time"
+    assert first["result"]["isError"] is True
+    assert first["result"] == second["result"]
+    assert "envelope" in first["result"]["content"][0]["text"]
 
 
 def test_the_idempotency_ledger_is_bounded(tmp_path, monkeypatch) -> None:

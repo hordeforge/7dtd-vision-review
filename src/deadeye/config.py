@@ -201,7 +201,8 @@ def _discover() -> Path | None:
 
 
 class Config:
-    """One merged view of base + local config, loaded lazily once per process."""
+    """One merged view of base + local config, loaded lazily and reloaded when
+    the source files change (see `_Cache`)."""
 
     def __init__(self, directory: Path | None) -> None:
         self.directory = directory
@@ -269,28 +270,75 @@ class _Cache:
     loaded: Config | None = None
     failed: str | None = None
     note: str | None = None
+    signature: tuple[Any, ...] | None = None
+
+
+def _source_signature(directory: Path | None) -> tuple[Any, ...]:
+    """What the cached config was built from: the directory discovery chose,
+    the explicit-directory override, and each source file's identity and
+    modification state.
+
+    Config files are written outside this process (an operator's editor, a
+    secret that just landed), so the cache is only valid while this signature
+    is unchanged. A signature is a stat per file, never a parse: an unchanged
+    file costs nothing to keep serving.
+    """
+    entries: list[Any] = [
+        os.environ.get(CONFIG_ENV, "").strip(),
+        str(directory) if directory else None,
+    ]
+    if directory is None:
+        return tuple(entries)
+    for name in (BASE_NAME, LOCAL_NAME):
+        path = directory / name
+        try:
+            status = path.stat()
+        except OSError:
+            continue
+        entries.append((name, status.st_ino, status.st_size, status.st_mtime_ns))
+    return tuple(entries)
 
 
 def load() -> Config:
-    """The process-wide merged config; a parse failure surfaces once, loudly."""
-    if _Cache.loaded is None and _Cache.failed is None:
-        try:
-            directory = _discover()
-            if directory is None:
-                explicit = os.environ.get(CONFIG_ENV, "").strip()
-                if explicit:
-                    _Cache.note = (
-                        f"{CONFIG_ENV}={explicit} names a directory holding "
-                        f"neither {BASE_NAME} nor {LOCAL_NAME}; built-in "
-                        "defaults apply"
-                    )
-            _Cache.loaded = Config(directory)
-        except ValueError as exc:
-            _Cache.failed = str(exc)
-            raise
-    if _Cache.loaded is None:
-        raise ValueError(_Cache.failed or "config failed to load")
-    return _Cache.loaded
+    """The process-wide merged config, reloaded when its source files change.
+
+    A parse failure is cached too, so a broken file is named once rather than
+    re-read on every call, and the operator's fix takes effect as soon as the
+    file's signature changes: the long-lived MCP server must not keep
+    reporting a fault (or a missing credential) for a config that has since
+    been corrected.
+    """
+    # Discovery runs again so a directory that only now holds a config file
+    # (a fresh checkout, a new DEADEYE_CONFIG_DIR) invalidates the cache
+    # without a restart.
+    if (_Cache.loaded is not None or _Cache.failed is not None) and _source_signature(
+        _discover()
+    ) == _Cache.signature:
+        if _Cache.loaded is None:
+            raise ValueError(_Cache.failed or "config failed to load")
+        return _Cache.loaded
+    try:
+        directory = _discover()
+        note: str | None = None
+        if directory is None:
+            explicit = os.environ.get(CONFIG_ENV, "").strip()
+            if explicit:
+                note = (
+                    f"{CONFIG_ENV}={explicit} names a directory holding "
+                    f"neither {BASE_NAME} nor {LOCAL_NAME}; built-in defaults apply"
+                )
+        loaded = Config(directory)
+    except ValueError as exc:
+        _Cache.loaded = None
+        _Cache.failed = str(exc)
+        _Cache.note = None
+        _Cache.signature = _source_signature(_discover())
+        raise
+    _Cache.loaded = loaded
+    _Cache.failed = None
+    _Cache.note = note
+    _Cache.signature = _source_signature(directory)
+    return loaded
 
 
 def load_failure() -> str | None:
@@ -308,6 +356,7 @@ def reset() -> None:
     _Cache.loaded = None
     _Cache.failed = None
     _Cache.note = None
+    _Cache.signature = None
 
 
 def value(keys: tuple[str, ...]) -> Any:

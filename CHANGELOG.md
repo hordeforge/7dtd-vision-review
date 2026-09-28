@@ -73,6 +73,24 @@ left to be discovered by a failing parse downstream.
   another, the same divergence already fixed in the CI matrix. The version
   is read from the file and pinned through `UV_PYTHON`, the way the CI job
   does.
+- A config edit no longer waits for a restart. The merged config is cached
+  process-wide, and the cache never checked whether the files it was built
+  from had changed, so a long-lived MCP server kept answering `doctor` and
+  `review` from a `config.toml` or `config.local.toml` an operator had since
+  edited, and kept reporting a parse fault after the file was fixed. `load()`
+  now compares a signature of the source files (the directory discovery
+  chose, the explicit-directory override, and each file's identity, size, and
+  mtime) and re-reads them only when that signature changes. An unchanged
+  config is still served from the cache without a re-parse. The CLI, which
+  runs one command per process, is unaffected.
+- A review that was submitted and billed but could not write its evidence
+  now holds its MCP `idempotency_key`. The ledger recorded only reviews that
+  returned an envelope, so a client whose evidence write failed and retried
+  under the same key paid for the same media twice; the completed review is
+  recorded with its write fault, and a repeat replays that same `isError`
+  result and envelope without submitting again. A refusal that happens before
+  the submission (missing clip, occupied evidence path, no consent) still
+  leaves the key free, and the CLI is unchanged.
 - `deadeye doctor --json` no longer hides a malformed config. A config that
   fails to parse makes every provider report `unavailable`, so the array on
   stdout was byte-identical to a missing API key; the fault now rides stderr

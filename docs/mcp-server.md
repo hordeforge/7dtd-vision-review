@@ -39,7 +39,10 @@ calls, spec error codes, and the review consent boundary.
     spent twice;
   - only completed reviews are recorded, so a local refusal stays retryable
     and an ambiguous timeout is never frozen into a result the client never
-    received;
+    received. A review whose verdict arrived but whose evidence file could
+    not be written *was* completed and billed, so it is recorded too, and a
+    retry under the same key replays that same fault and envelope instead of
+    submitting the media a second time;
   - the ledger is process-local, so the guarantee covers replay within one
     session, not a restart; across restarts the client is back to the
     default of a duplicate call being a new submission.

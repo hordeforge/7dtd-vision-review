@@ -51,7 +51,9 @@ no second submission.
 A consumer driving deadeye over MCP can name the operation instead of relying
 on that: pass `idempotency_key` and a retried call with identical arguments
 returns the first envelope without submitting the media again. A key reused
-with different arguments is refused, only completed reviews are recorded, and
+with different arguments is refused, only completed reviews are recorded (a
+review that billed but could not persist its evidence counts as completed, so
+its retry replays the same fault and envelope), and
 the ledger is process-local and bounded, so the guarantee covers replay within
 one server session. Over the CLI there is no equivalent: a re-run is a new
 submission, and the evidence-path guard is the only thing that makes one free.

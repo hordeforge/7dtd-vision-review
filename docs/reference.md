@@ -233,6 +233,13 @@ config that failed to parse is reported as an `ERROR: ...` line on stderr: a
 failed parse makes every provider read as `unavailable`, which in the array
 alone is indistinguishable from a missing credential.
 
+The merged config is held in memory for the life of the process, and re-read
+when its sources change: the directory discovery chose, the
+`DEADEYE_CONFIG_DIR` value, and each file's identity, size, and mtime. A
+long-lived `deadeye mcp` server therefore picks up an edited
+`config.local.toml` (a key that just landed) or a corrected parse error on the
+next call, with no restart.
+
 Values are validated before use, not deep inside a submission: a file that
 sets a key deadeye does not read (`default_provder`, `providers.geminie`, a
 knob misspelled as `max_token`) is refused at load with the offending name,

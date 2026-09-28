@@ -70,10 +70,12 @@ _IDEMPOTENCY_LEDGER_ENTRIES = 128
 _MAX_IDEMPOTENCY_KEY_CHARS = 200
 
 # Client-named keys to the completed reviews that answered them, oldest
-# first: `key -> (call fingerprint, envelope)`. Only successful reviews land
-# here, so a local refusal stays retryable and an ambiguous timeout is never
-# frozen into a result the client did not receive.
-_COMPLETED: OrderedDict[str, tuple[str, dict[str, Any]]] = OrderedDict()
+# first: `key -> (call fingerprint, envelope, evidence-write fault)`. A review
+# that was submitted and billed lands here whether or not its evidence reached
+# disk, so a retry under the same key replays the same answer instead of
+# billing the same media twice. A local refusal and an ambiguous timeout stay
+# out: nothing completed, so the call is retryable.
+_COMPLETED: OrderedDict[str, tuple[str, dict[str, Any], str | None]] = OrderedDict()
 
 TOOLS: list[dict[str, Any]] = [
     {
@@ -87,7 +89,10 @@ TOOLS: list[dict[str, Any]] = [
         "replaying the first attempt. Supply idempotency_key to name the "
         "logical operation instead: a repeated call with the same key and the "
         "same arguments returns the first attempt's envelope without "
-        "submitting anything, for the lifetime of this server process.",
+        "submitting anything, for the lifetime of this server process. That "
+        "holds for a review whose evidence file could not be written: it was "
+        "billed, so a repeat replays the same error and envelope instead of "
+        "submitting the media a second time.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -105,7 +110,8 @@ TOOLS: list[dict[str, Any]] = [
                     "type": "string",
                     "description": "client-chosen name for this logical operation; a "
                     "repeat of the same key with the same arguments returns the first "
-                    "result instead of submitting again",
+                    "result instead of submitting again, including a review that "
+                    "completed but could not write its evidence",
                 },
             },
             "required": ["clip", "allow_network"],
@@ -181,11 +187,18 @@ def _call_review(params: dict[str, Any]) -> dict[str, Any]:
     if key is not None:
         replayed = _replayed_result(key, params)
         if replayed is not None:
+            envelope, write_fault = replayed
+            if write_fault is not None:
+                # The first attempt submitted, billed, and then failed to
+                # persist its evidence. `handle_frame` renders the replay
+                # exactly as it rendered the original: the same fault, the
+                # same envelope, and no second submission.
+                raise EvidenceWriteError(write_fault, document=envelope)
             # The first attempt's verdict, verbatim: a duplicate call must not
             # submit the media again, and must not invent a second envelope
             # either. `created_utc` and `review_id` in the payload are the
             # first attempt's, which is what makes the replay auditable.
-            return replayed
+            return envelope
 
     def notify(line: str) -> None:
         # The CLI's disclosure contract carries over verbatim: what will
@@ -193,19 +206,24 @@ def _call_review(params: dict[str, Any]) -> dict[str, Any]:
         # stdout stays protocol-only.
         print(line, file=sys.stderr)
 
-    envelope = run_review_core(
-        Path(params["clip"]),
-        provider=PROVIDERS[provider_name](),
-        intent_path=Path(params["intent"]) if params.get("intent") else None,
-        intent_text=params.get("intent_text"),
-        model=params.get("model"),
-        allow_network=True,
-        timeout_seconds=timeout,
-        keep_raw_response=keep_raw_response,
-        output=output,
-        force=force,
-        notify=notify,
-    )
+    try:
+        envelope = run_review_core(
+            Path(params["clip"]),
+            provider=PROVIDERS[provider_name](),
+            intent_path=Path(params["intent"]) if params.get("intent") else None,
+            intent_text=params.get("intent_text"),
+            model=params.get("model"),
+            allow_network=True,
+            timeout_seconds=timeout,
+            keep_raw_response=keep_raw_response,
+            output=output,
+            force=force,
+            notify=notify,
+        )
+    except EvidenceWriteError as exc:
+        if key is not None:
+            _remember_result(key, params, exc.document, write_fault=str(exc))
+        raise
     if key is not None:
         _remember_result(key, params, envelope)
     return envelope
@@ -239,12 +257,13 @@ def _call_fingerprint(params: dict[str, Any]) -> str:
     return sha256_bytes(json.dumps(call, sort_keys=True).encode("utf-8"))
 
 
-def _replayed_result(key: str, params: dict[str, Any]) -> dict[str, Any] | None:
-    """The first attempt's envelope for `key`, or None when there is none."""
+def _replayed_result(key: str, params: dict[str, Any]) -> tuple[dict[str, Any], str | None] | None:
+    """The first attempt's envelope for `key` and its evidence-write fault,
+    or None when there is none."""
     entry = _COMPLETED.get(key)
     if entry is None:
         return None
-    fingerprint, envelope = entry
+    fingerprint, envelope, write_fault = entry
     if fingerprint != _call_fingerprint(params):
         # Returning the earlier envelope here would attribute one operation's
         # verdict to another's request, and re-running would bill a second
@@ -254,12 +273,14 @@ def _replayed_result(key: str, params: dict[str, Any]) -> dict[str, Any] | None:
             "arguments; a key names one logical operation, so pass a new one"
         )
     _COMPLETED.move_to_end(key)
-    return envelope
+    return envelope, write_fault
 
 
-def _remember_result(key: str, params: dict[str, Any], envelope: dict[str, Any]) -> None:
+def _remember_result(
+    key: str, params: dict[str, Any], envelope: dict[str, Any], *, write_fault: str | None = None
+) -> None:
     """Record a completed review under `key`, evicting the oldest past the bound."""
-    _COMPLETED[key] = (_call_fingerprint(params), envelope)
+    _COMPLETED[key] = (_call_fingerprint(params), envelope, write_fault)
     _COMPLETED.move_to_end(key)
     while len(_COMPLETED) > _IDEMPOTENCY_LEDGER_ENTRIES:
         _COMPLETED.popitem(last=False)
