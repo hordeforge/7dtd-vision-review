@@ -18,6 +18,7 @@ Usage:
 
 from __future__ import annotations
 
+import contextlib
 import pathlib
 import sys
 
@@ -28,10 +29,27 @@ SERVER_BINARY = "7DaysToDieServer.x86_64"
 USAGE = "usage: playtest_detect.py PLAYTEST_ROOT {game|compat PATH|server}"
 
 
+def _bind_utf8_output() -> None:
+    """Print an install path on any host.
+
+    A Steam library lives under the account's home directory, so a non-ASCII
+    username is a routine path, not an exotic one. Under a C or POSIX locale
+    `print` encodes with ASCII and raises; the e2e would report "no client
+    found" for a host that has one. Same rationale as `deadeye._streams`,
+    which the library binds for itself; this script runs against the sibling
+    checkout's own environment, where deadeye is not importable.
+    """
+    reconfigure = getattr(sys.stdout, "reconfigure", None)
+    if callable(reconfigure):
+        with contextlib.suppress(ValueError, OSError):
+            reconfigure(encoding="utf-8", errors="backslashreplace")
+
+
 def main(argv: list[str]) -> int:
     if len(argv) < 3:
         print(USAGE, file=sys.stderr)
         return 2
+    _bind_utf8_output()
     root, command, arguments = pathlib.Path(argv[1]), argv[2], argv[3:]
     if command not in ("game", "compat", "server") or len(arguments) != (
         1 if command == "compat" else 0

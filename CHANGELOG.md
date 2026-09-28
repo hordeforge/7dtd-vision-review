@@ -182,6 +182,19 @@ required (`CONTRIBUTING.md`, "Changing a contract").
   (`x-api-key`) that the envelope's copy did not, so a credential under one of
   those names no longer reaches stored usage. No envelope, schema, or result
   change; the stored document for an honest payload is identical.
+- `DEADEYE_CONFIG_DIR` now expands a leading `~`, the way
+  `XDG_CONFIG_HOME` already did. A quoted `DEADEYE_CONFIG_DIR="~/deadeye"` is
+  a shell that never expanded it, and the literal `~` directory the tool
+  looked for instead produced the "names a directory holding neither
+  config.toml nor config.local.toml" note, on every platform.
+- The e2e's helper scripts (`doctor_query.py`, `e2e_report.py`,
+  `playtest_detect.py`) now bind stdout to UTF-8 with `backslashreplace`, as
+  the CLI itself does. They run under a bare `python3` with no deadeye on the
+  path, so the library's binding never reached them: on a C-locale host
+  (cron, a service unit) printing a review verdict raised
+  `UnicodeEncodeError` after the submission had been billed. `doctor_query.py`
+  also decodes the doctor's UTF-8 stdout explicitly rather than leaving the
+  decode to the reading process's locale.
 - The MCP idempotency ledger is now bounded by retained bytes as well as by
   entry count: at most 32 MiB of envelopes, oldest evicted, whichever bound
   the next entry crosses first. An entry's size is the client's to choose

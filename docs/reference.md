@@ -237,8 +237,9 @@ Command-line options override their configured equivalents. Credentials prefer
 the environment, then the merged configuration; all other settings come from
 the merged configuration. In that merge, `config.local.toml` wins over
 `config.toml`, and built-in defaults apply when no value is configured.
-Discovery (first directory holding any config file wins): `DEADEYE_CONFIG_DIR`,
-then the current directory, then `$XDG_CONFIG_HOME/deadeye/` when
+Discovery (first directory holding any config file wins): `DEADEYE_CONFIG_DIR`
+(a leading `~` is expanded), then the current directory, then
+`$XDG_CONFIG_HOME/deadeye/` when
 `XDG_CONFIG_HOME` is set, otherwise `~/Library/Application Support/deadeye/` on
 macOS and `~/.config/deadeye/` everywhere else. A key may be top-level
 (`api_key = "nvapi-..."`, like llm-proxy) or per provider

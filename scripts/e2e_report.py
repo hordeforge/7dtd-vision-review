@@ -16,6 +16,7 @@ failing the run: a partial envelope is still worth showing.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import sys
 from pathlib import Path
@@ -24,6 +25,21 @@ from typing import Any
 USAGE = "usage: e2e_report.py {suite PROVIDER_JSON|size PATH|summary EVIDENCE CLIP}"
 UNKNOWN = "?"
 MAX_REPORTED_ISSUES = 5
+
+
+def _bind_utf8_output() -> None:
+    """Print a verdict on any host.
+
+    The summary quotes a model's own words, so it carries whatever the model
+    wrote. Under a C or POSIX locale `print` encodes with ASCII and raises
+    after the review was billed; the run would close on a traceback instead of
+    the verdict. Same rationale as `deadeye._streams`, which the library binds
+    for itself; this script runs under a bare `python3` with no deadeye import.
+    """
+    reconfigure = getattr(sys.stdout, "reconfigure", None)
+    if callable(reconfigure):
+        with contextlib.suppress(ValueError, OSError):
+            reconfigure(encoding="utf-8", errors="backslashreplace")
 
 
 def _load(path: str) -> dict[str, Any]:
@@ -72,6 +88,7 @@ def main(argv: list[str]) -> int:
         print(USAGE, file=sys.stderr)
         return 2
     command, arguments = argv[1], argv[2:]
+    _bind_utf8_output()
     if command == "suite" and len(arguments) == 1:
         print(_text(_load(arguments[0]).get("suite"), ""))
     elif command == "size" and len(arguments) == 1:

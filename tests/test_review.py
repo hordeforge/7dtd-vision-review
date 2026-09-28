@@ -499,6 +499,15 @@ def test_a_published_envelope_is_never_reclaimed_however_old_it_is(tmp_path) -> 
     assert json.loads(output.read_text(encoding="utf-8"))["kind"] == "deadeye-review"
 
 
+def _payload(document) -> bytes:
+    """The bytes `write_evidence` hands `_atomic_write`.
+
+    The publish hashes and writes the same buffer, so a direct call has to
+    encode too; passing text here is the type error the writer would refuse.
+    """
+    return json.dumps(document, indent=2, sort_keys=True).encode("utf-8")
+
+
 def test_reclaiming_a_stale_placeholder_never_unlinks_a_review_published_after_the_check(
     tmp_path, monkeypatch
 ) -> None:
@@ -532,9 +541,7 @@ def test_reclaiming_a_stale_placeholder_never_unlinks_a_review_published_after_t
     # `_atomic_write` directly: the reclaiming writer is past the preflight,
     # so the patched stat is the one the reclaim itself makes.
     with pytest.raises(DeadeyeError, match="already holds an earlier review"):
-        evidence._atomic_write(
-            output, json.dumps({"kind": "deadeye-review"}).encode("utf-8"), force=False
-        )
+        evidence._atomic_write(output, _payload({"kind": "deadeye-review"}), force=False)
 
     assert json.loads(output.read_text(encoding="utf-8"))["kind"] == "theirs"
     assert list(tmp_path.glob("*.tmp")) == []
@@ -563,7 +570,7 @@ def test_a_failed_write_never_unlinks_another_writers_review_from_its_placeholde
         identity = real_reserve(path)
         # Another process publishes into the name we still hold, then this
         # write fails before its own replace.
-        evidence._atomic_write(path, json.dumps({"kind": "theirs"}).encode("utf-8"), force=True)
+        evidence._atomic_write(path, _payload({"kind": "theirs"}), force=True)
         assert json.loads(output.read_text(encoding="utf-8"))["kind"] == "theirs"
 
         def boom(self, target):
@@ -626,10 +633,11 @@ def test_two_writers_that_both_pass_the_preflight_keep_exactly_one_envelope(
 
     def gate(original):
         def gated(path, payload, *, force):
-            if b"second" in payload:
+            document = json.loads(payload)
+            if document["kind"] == "second":
                 assert published.wait(timeout=5), "the first writer never published"
             result = original(path, payload, force=force)
-            if b"first" in payload:
+            if document["kind"] == "first":
                 published.set()
             return result
 

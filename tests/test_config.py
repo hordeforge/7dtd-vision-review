@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from deadeye import config
+from deadeye.config import CONFIG_ENV
 from deadeye.errors import DeadeyeError
 from deadeye.providers.base import MediaPayload, ReviewRequest
 from deadeye.providers.nvidia import build_body
@@ -301,6 +302,22 @@ def test_macos_still_honors_an_explicit_xdg_config_home(tmp_path, monkeypatch) -
     loaded = config.load()
     assert loaded.directory == dest
     assert config.value(("timeout_seconds",)) == 13
+
+
+def test_explicit_config_dir_expands_a_leading_tilde(isolated_config, monkeypatch) -> None:
+    """`DEADEYE_CONFIG_DIR="~/x"` is quoted in every shell, so the tilde arrives
+    literal. `XDG_CONFIG_HOME` expands one; the explicit override must not be
+    the one spelling that silently misses the directory it names."""
+    config.reset()
+    home = isolated_config / "home"
+    dest = home / "deadeye"
+    dest.mkdir(parents=True)
+    (dest / "config.toml").write_text('default_provider = "fake"\n', encoding="utf-8")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv(CONFIG_ENV, "~/deadeye")
+    loaded = config.load()
+    assert loaded.directory == dest
+    assert config.value(("default_provider",)) == "fake"
 
 
 def test_explicit_config_dir_without_files_is_reported_not_silent(

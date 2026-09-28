@@ -14,7 +14,8 @@ then fall back to their built-in defaults.
 Discovery (the first directory holding any config file wins, so a checkout
 that carries one shadows the home one):
 
-1. `DEADEYE_CONFIG_DIR` — an explicit directory.
+1. `DEADEYE_CONFIG_DIR` — an explicit directory; a leading `~` in it is
+   expanded, as it is in `XDG_CONFIG_HOME`.
 2. The current working directory (`./config.toml`, `./config.local.toml`).
 3. `$XDG_CONFIG_HOME/deadeye/` when `XDG_CONFIG_HOME` is set, otherwise
    `~/Library/Application Support/deadeye/` on macOS and `~/.config/deadeye/`
@@ -201,7 +202,11 @@ def _user_config_dir() -> Path:
 def _discover() -> Path | None:
     """The config directory to use, or None when no config file exists anywhere."""
     explicit = os.environ.get(CONFIG_ENV, "").strip()
-    candidates = [Path(explicit)] if explicit else [Path.cwd(), _user_config_dir()]
+    # `~` is expanded here for the same reason `_user_config_dir` expands it in
+    # `XDG_CONFIG_HOME`: a quoted `DEADEYE_CONFIG_DIR="~/deadeye"` is a shell
+    # that never expanded it, and a literal `~` directory is a silent miss on
+    # every platform, not only the one where `~` is not a home alias.
+    candidates = [Path(explicit).expanduser()] if explicit else [Path.cwd(), _user_config_dir()]
     for directory in candidates:
         if (directory / BASE_NAME).is_file() or (directory / LOCAL_NAME).is_file():
             return directory

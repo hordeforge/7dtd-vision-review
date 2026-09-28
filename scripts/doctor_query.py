@@ -17,12 +17,43 @@ Every command prints one line (nothing when the answer is "none") and exits
 
 from __future__ import annotations
 
+import contextlib
 import json
 import sys
 from typing import Any
 
 USAGE = "usage: doctor_query.py {select [NAME]|state NAME|detail NAME} < doctor.json"
 FAKE_PROVIDER = "fake"
+
+
+def _read_doctor_output() -> str:
+    """The doctor's stdout as text, decoded the way it was written.
+
+    `deadeye doctor --json` binds its own stdout to UTF-8, so these bytes are
+    UTF-8 whatever the reading process's locale is. Decoding them through
+    `sys.stdin` hands the choice to that locale instead; under C or POSIX
+    that is ASCII, and the decode the interpreter installs there turns an
+    invalid byte into a lone surrogate that resurfaces as a mangled provider
+    name rather than as the fault it is. UTF-8, strictly, refuses it here.
+    """
+    source = getattr(sys.stdin, "buffer", None)
+    raw = source.read() if source is not None else sys.stdin.read()
+    return raw.decode("utf-8") if isinstance(raw, bytes) else raw
+
+
+def _bind_utf8_output() -> None:
+    """Print a non-ASCII answer on any host.
+
+    A provider name and its credential detail come from a config file, so they
+    carry whatever that file carries, and a caller reads the answer from a
+    pipe with no view of this process's locale. Same rationale as
+    `deadeye._streams`, which the library binds for itself; this script runs
+    under a bare `python3` with no deadeye import, so it carries its own.
+    """
+    reconfigure = getattr(sys.stdout, "reconfigure", None)
+    if callable(reconfigure):
+        with contextlib.suppress(ValueError, OSError):
+            reconfigure(encoding="utf-8", errors="backslashreplace")
 
 
 def _states(raw: str) -> list[dict[str, Any]]:
@@ -53,9 +84,10 @@ def main(argv: list[str]) -> int:
         print(USAGE, file=sys.stderr)
         return 2
     command, arguments = argv[1], argv[2:]
+    _bind_utf8_output()
     try:
-        states = _states(sys.stdin.read())
-    except json.JSONDecodeError as exc:
+        states = _states(_read_doctor_output())
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         print(f"doctor_query.py: doctor output is not JSON: {exc}", file=sys.stderr)
         return 1
 
