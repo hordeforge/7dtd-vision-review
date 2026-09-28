@@ -496,7 +496,9 @@ def test_reclaiming_a_stale_placeholder_never_unlinks_a_review_published_after_t
     # `_atomic_write` directly: the reclaiming writer is past the preflight,
     # so the patched stat is the one the reclaim itself makes.
     with pytest.raises(DeadeyeError, match="already holds an earlier review"):
-        evidence._atomic_write(output, json.dumps({"kind": "deadeye-review"}), force=False)
+        evidence._atomic_write(
+            output, json.dumps({"kind": "deadeye-review"}).encode("utf-8"), force=False
+        )
 
     assert json.loads(output.read_text(encoding="utf-8"))["kind"] == "theirs"
     assert list(tmp_path.glob("*.tmp")) == []
@@ -525,7 +527,7 @@ def test_a_failed_write_never_unlinks_another_writers_review_from_its_placeholde
         identity = real_reserve(path)
         # Another process publishes into the name we still hold, then this
         # write fails before its own replace.
-        evidence._atomic_write(path, json.dumps({"kind": "theirs"}), force=True)
+        evidence._atomic_write(path, json.dumps({"kind": "theirs"}).encode("utf-8"), force=True)
         assert json.loads(output.read_text(encoding="utf-8"))["kind"] == "theirs"
 
         def boom(self, target):
@@ -588,10 +590,10 @@ def test_two_writers_that_both_pass_the_preflight_keep_exactly_one_envelope(
 
     def gate(original):
         def gated(path, payload, *, force):
-            if "second" in payload:
+            if b"second" in payload:
                 assert published.wait(timeout=5), "the first writer never published"
             result = original(path, payload, force=force)
-            if "first" in payload:
+            if b"first" in payload:
                 published.set()
             return result
 

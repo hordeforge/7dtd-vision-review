@@ -148,6 +148,11 @@ def validate_result(data: dict[str, Any]) -> dict[str, Any]:
     validated as diagnostics in 0-5 or an explicit null; a null should be
     explained under `limitations` by convention, but the shape alone does not
     enforce that.
+
+    `data` is read, never rewritten: the alias and start/end normalizations
+    below run on a copy of each issue, so the model payload the caller still
+    holds is the model payload, and validating the same answer twice cannot
+    normalize it twice.
     """
     origin = "model response"
     if not isinstance(data, dict):
@@ -188,11 +193,14 @@ def validate_result(data: dict[str, Any]) -> dict[str, Any]:
             # `frame` / `seconds` as often as the canonical `at_frame` /
             # `at_seconds`; normalize them before the shape check so a real
             # verdict is not thrown away for a naming variant. A canonical
-            # key already present wins over an alias.
-            if "frame" in entry:
-                entry.setdefault("at_frame", entry.pop("frame"))
-            if "seconds" in entry:
-                entry.setdefault("at_seconds", entry.pop("seconds"))
+            # key already present wins over an alias. The normalization runs
+            # on a copy, so the caller's model payload keeps the names the
+            # model actually wrote.
+            normalized = dict(entry)
+            if "frame" in normalized:
+                normalized.setdefault("at_frame", normalized.pop("frame"))
+            if "seconds" in normalized:
+                normalized.setdefault("at_seconds", normalized.pop("seconds"))
             # Start/end pairs: {"start_frame": 9, "end_frame": 11} is the
             # same moment as {"at_frame": [9, 11]}. A lone half names a
             # boundary with no other, and dropping it would silently lose
@@ -202,27 +210,27 @@ def validate_result(data: dict[str, Any]) -> dict[str, Any]:
                 ("start_frame", "end_frame", "at_frame"),
                 ("start_seconds", "end_seconds", "at_seconds"),
             ):
-                start = entry.pop(start_key, None)
-                end = entry.pop(end_key, None)
+                start = normalized.pop(start_key, None)
+                end = normalized.pop(end_key, None)
                 if start is not None and end is not None:
-                    entry.setdefault(canonical, [start, end])
+                    normalized.setdefault(canonical, [start, end])
                 elif start is not None or end is not None:
                     problems.append(f"issue #{index + 1} needs {start_key} and {end_key} together")
             if len(problems) > marked:
                 continue
-            unexpected = sorted(set(entry) - {"description", "at_seconds", "at_frame"})
+            unexpected = sorted(set(normalized) - {"description", "at_seconds", "at_frame"})
             if unexpected:
                 problems.append(
                     f"issue #{index + 1} has unexpected key(s): {', '.join(unexpected)}"
                 )
                 continue
-            description = entry["description"]
+            description = normalized["description"]
             if not isinstance(description, str) or not description.strip():
                 problems.append(f"issue #{index + 1} needs a non-empty description")
                 continue
             issue: dict[str, Any] = {"description": description.strip()}
-            seconds = _moment(entry.get("at_seconds"), non_negative=False)
-            if entry.get("at_seconds") is not None and seconds is None:
+            seconds = _moment(normalized.get("at_seconds"), non_negative=False)
+            if normalized.get("at_seconds") is not None and seconds is None:
                 problems.append(
                     f"issue #{index + 1} at_seconds must be [start, end] numbers "
                     "with start <= end, or a single second"
@@ -230,8 +238,8 @@ def validate_result(data: dict[str, Any]) -> dict[str, Any]:
                 continue
             if seconds is not None:
                 issue["at_seconds"] = seconds
-            frame = _moment(entry.get("at_frame"), non_negative=True)
-            if entry.get("at_frame") is not None and frame is None:
+            frame = _moment(normalized.get("at_frame"), non_negative=True)
+            if normalized.get("at_frame") is not None and frame is None:
                 problems.append(
                     f"issue #{index + 1} at_frame must be [start, end] non-negative "
                     "numbers with start <= end, or a single frame index"

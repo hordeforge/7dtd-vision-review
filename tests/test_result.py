@@ -158,6 +158,30 @@ def test_start_end_pairs_normalize_to_moment_ranges() -> None:
     assert result["issues"][0]["at_seconds"] == [1.0, 3.5]
 
 
+def test_normalizing_never_rewrites_the_model_payload() -> None:
+    """The aliases and start/end pairs are normalized on a copy.
+
+    `data` is the parsed model response, which the caller may still hold (to
+    keep beside a preserved raw response, or to re-validate). Validating must
+    not consume the names the model wrote, and re-validating the same dict
+    must give the same answer.
+    """
+    payload = {
+        **VALID,
+        "issues": [{"description": "pops", "frame": 9, "start_seconds": 1.0, "end_seconds": 3.5}],
+    }
+    first = validate_result(payload)
+    assert payload["issues"] == [
+        {"description": "pops", "frame": 9, "start_seconds": 1.0, "end_seconds": 3.5}
+    ]
+    assert first["issues"][0] == {
+        "description": "pops",
+        "at_frame": [9.0, 9.0],
+        "at_seconds": [1.0, 3.5],
+    }
+    assert validate_result(payload) == first
+
+
 def test_a_lone_half_of_a_start_end_pair_is_refused_not_dropped() -> None:
     """A boundary with no other says nothing about a moment; discarding it
     would silently lose where the model pointed."""

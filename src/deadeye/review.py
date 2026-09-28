@@ -96,35 +96,43 @@ def run_review(
         )
 
     # The sampling decision and the whole-request budget are settled here,
-    # before the disclosure, so what the operator is told about leaving the
-    # machine is what the provider is actually sent.
-    submission, parts = _assemble(
+    # before the disclosure and before a single byte is read, so what the
+    # operator is told about leaving the machine is what the provider is
+    # actually sent, and the media decision never costs a second read of the
+    # files it settles between.
+    plan = _plan(
         media,
         intent,
         provider.limits,
         provider_name=provider.name,
         video_capable=provider.limits.accepts_video,
     )
-    if (
-        _took_video(submission)
-        and media.frames
-        and _over_budget(_request_wire_bytes(submission, parts), provider.limits)
-    ):
-        # `sampling.sample` already falls back to the frame sequence when the
-        # video is over the provider's own video bound. This is the same
-        # decision against the bound that actually decides, the whole request
-        # with the prompt riding it: without it a video that misses the
-        # request cap by the size of the prompt is refused outright, with the
-        # frames that would have fitted sitting in the same directory.
-        frames = _note_frames_instead(
-            _prepare_submission(
-                media, intent, provider.limits, provider_name=provider.name, video_capable=False
-            ),
-            media,
-        )
-        frame_parts = _prompt_parts(frames, intent)
-        if not _over_budget(_request_wire_bytes(frames, frame_parts), provider.limits):
-            submission, parts = frames, frame_parts
+    if _took_video(plan) and media.frames:
+        parts = _prompt_parts(plan.record, plan.total_bytes, intent)
+        if _over_budget(_request_wire_bytes(plan, parts), provider.limits):
+            # `sampling.sample` already falls back to the frame sequence when
+            # the video is over the provider's own video bound. This is the
+            # same decision against the bound that actually decides, the whole
+            # request with the prompt riding it: without it a video that misses
+            # the request cap by the size of the prompt is refused outright,
+            # with the frames that would have fitted sitting in the same
+            # directory.
+            frames = _plan(
+                media,
+                intent,
+                provider.limits,
+                provider_name=provider.name,
+                video_capable=False,
+                note_prefix=_video_over_request_budget(media, plan),
+            )
+            frame_parts = _prompt_parts(frames.record, frames.total_bytes, intent)
+            if not _over_budget(_request_wire_bytes(frames, frame_parts), provider.limits):
+                plan = frames
+    # One read per file, after the decision: the plan above is sized from
+    # metadata, so what is finally hashed and submitted is the same set of
+    # paths, read once.
+    submission = _materialize(plan, provider.limits, provider.name)
+    parts = _prompt_parts(submission.record, submission.total_bytes, intent)
 
     if notify is not None:
         notify(f"provider: {provider.name} ({provider.endpoint_mode})")
@@ -265,37 +273,28 @@ def _payload(path: str, kind: sampling.MediaKind, data: bytes) -> MediaPayload:
     )
 
 
-def _assemble(
-    media: sampling.ClipMedia,
-    intent: ReviewIntent,
-    limits: ProviderLimits,
-    *,
-    provider_name: str,
-    video_capable: bool,
-) -> tuple[_Submission, PromptParts]:
-    """One candidate submission: the media it sends, and the prompt riding it."""
-    submission = _prepare_submission(
-        media, intent, limits, provider_name=provider_name, video_capable=video_capable
-    )
-    return submission, _prompt_parts(submission, intent)
-
-
-def _prompt_parts(submission: _Submission, intent: ReviewIntent) -> PromptParts:
+def _prompt_parts(
+    record: sampling.SamplingRecord, total_bytes: int, intent: ReviewIntent
+) -> PromptParts:
     """The reviewer instruction for a planned submission, from what it sends."""
     return build_prompt_parts(
         intent,
-        media_summary=_media_summary(submission.record, submission.total_bytes),
-        frame_timing_note=_frame_timing_note(submission.record),
+        media_summary=_media_summary(record, total_bytes),
+        frame_timing_note=_frame_timing_note(record),
     )
 
 
-def _took_video(submission: _Submission) -> bool:
-    return bool(submission.files) and submission.files[0][1] == "video"
+def _took_video(plan: _Plan) -> bool:
+    return bool(plan.files) and plan.files[0][1] == "video"
 
 
-def _request_wire_bytes(submission: _Submission, parts: PromptParts) -> int:
-    """What the request carries on the wire: encoded media plus encoded prompt."""
-    return submission.wire_bytes + _json_string_bytes(parts.system) + _json_string_bytes(parts.user)
+def _request_wire_bytes(sized: _Plan | _Submission, parts: PromptParts) -> int:
+    """What the request carries on the wire: encoded media plus encoded prompt.
+
+    Sized from a plan while the media is still being decided, and from the
+    submission once its bytes are known: both answer the same question.
+    """
+    return sized.wire_bytes + _json_string_bytes(parts.system) + _json_string_bytes(parts.user)
 
 
 def _over_budget(wire_bytes: int, limits: ProviderLimits) -> bool:
@@ -303,19 +302,15 @@ def _over_budget(wire_bytes: int, limits: ProviderLimits) -> bool:
     return limits.max_bytes is not None and wire_bytes > limits.max_bytes
 
 
-def _note_frames_instead(submission: _Submission, media: sampling.ClipMedia) -> _Submission:
-    """Record why the muxed video was dropped for the frame sequence."""
+def _video_over_request_budget(media: sampling.ClipMedia, plan: _Plan) -> str:
+    """Why the muxed video is dropped for the frame sequence, in evidence words."""
     video = media.video
     if video is None:  # unreachable: only called for a plan that took the video
         raise DeadeyeError(f"{media.source} holds no muxed video to replace")
-    reason = (
+    return (
         f"muxed video {sampling.flat_label_text(video.name)} is "
-        f"{sampling.file_size(video)} bytes, over the provider's whole-request "
+        f"{plan.sizes[0]} bytes, over the provider's whole-request "
         "budget once the prompt rides with it; sampled frames instead"
-    )
-    return replace(
-        submission,
-        record=replace(submission.record, note=f"{reason}; {submission.record.note}"),
     )
 
 
@@ -330,8 +325,33 @@ def _evidence_write_fault(exc: DeadeyeError, document: dict[str, Any]) -> Eviden
 
 
 @dataclass(frozen=True)
+class _Plan:
+    """A decided submission, sized from metadata and not yet read.
+
+    Planning is metadata only, so the media decision (muxed video or sampled
+    frames) costs no disk read and no retained bytes, and the files a rejected
+    candidate named are never opened at all.
+    """
+
+    record: sampling.SamplingRecord
+    files: tuple[tuple[str, sampling.MediaKind], ...]
+    """(path, kind) per file sent, clip media first, then references."""
+    sizes: tuple[int, ...]
+    """The stat size of every file in `files`, parallel to it."""
+
+    @property
+    def total_bytes(self) -> int:
+        return sum(self.sizes)
+
+    @property
+    def wire_bytes(self) -> int:
+        """The same total as the media reach the wire as, once base64-encoded."""
+        return sum(base64_wire_bytes(size) for size in self.sizes)
+
+
+@dataclass(frozen=True)
 class _Submission:
-    """What a submission would send: the sampling decision and every entry."""
+    """What a submission will send: the sampling decision and every entry."""
 
     record: sampling.SamplingRecord
     files: tuple[tuple[str, sampling.MediaKind], ...]
@@ -345,20 +365,23 @@ class _Submission:
     """Cached file contents, one per entry, read during hashing."""
 
 
-def _prepare_submission(
+def _plan(
     media: sampling.ClipMedia,
     intent: ReviewIntent,
     limits: ProviderLimits,
     *,
     provider_name: str,
     video_capable: bool,
-) -> _Submission:
-    """The local-only phase before anything is contacted.
+    note_prefix: str | None = None,
+) -> _Plan:
+    """The local-only decision phase, before anything is contacted or read.
 
-    Reference checks, sampling to the provider's declared limits, hashing, and
-    the total-size budget all happen here, so every refusal is cheap and no
-    byte is hashed twice. `video_capable` is the caller's decision to consider
-    the muxed video at all; `False` plans the frame sequence beside it.
+    Reference checks, sampling to the provider's declared limits, and the
+    whole-request size budget all happen here, so every refusal is cheap and
+    no attachment is opened to make it. `video_capable` is the caller's
+    decision to consider the muxed video at all; `False` plans the frame
+    sequence beside it. `note_prefix` records in the sampling note why this
+    plan is the one that was chosen.
     """
     for reference in intent.references:
         if not reference.path.is_file():
@@ -379,29 +402,33 @@ def _prepare_submission(
         max_video_bytes=limits.max_video_bytes,
         reserved_wire_bytes=sum(base64_wire_bytes(size) for size in reference_sizes),
     )
-    files: list[tuple[str, sampling.MediaKind]] = [
+    files: tuple[tuple[str, sampling.MediaKind], ...] = (
         *record.submitted_files,
         *((str(reference.path), "reference") for reference in intent.references),
-    ]
+    )
     # Reject an impossible request before reading any attachment. In
     # particular, references may total far more than a hosted provider's
     # request limit; retaining all of them just to refuse the request wastes
     # disk I/O and can create a large, avoidable memory spike.
     submitted_sizes = [sampling.file_size(Path(path)) for path, _ in record.submitted_files]
-    declared_sizes = submitted_sizes + reference_sizes
-    _enforce_request_budget(declared_sizes, limits.max_bytes, provider_name)
+    _enforce_request_budget([*submitted_sizes, *reference_sizes], limits.max_bytes, provider_name)
+    if note_prefix is not None:
+        record = replace(record, note=f"{note_prefix}; {record.note}")
+    return _Plan(record=record, files=files, sizes=(*submitted_sizes, *reference_sizes))
+
+
+def _materialize(plan: _Plan, limits: ProviderLimits, provider_name: str) -> _Submission:
+    """Read and hash the decided files, once each.
+
+    The budget is checked again against the bytes actually read: the files can
+    change between the metadata preflight and this read, and a raw byte count
+    would pass a submission the provider refuses after the upload. The
+    disclosure reports those raw bytes, the files' true sizes.
+    """
     # Per entry, not per unique path: the same file listed twice (a repeated
     # reference, a reference inside the clip) is uploaded twice, and the
     # disclosure must count every byte that leaves the machine.
-    hashed = [sha256_file(Path(path)) for path, _ in files]
-    total_bytes = sum(size for _, size, _ in hashed)
-    cached_bytes = tuple(data for _, _, data in hashed)
-    # Adapters submit inline base64 (3 raw bytes become 4 on the wire), so
-    # the per-request budget is compared against the encoded total: a raw
-    # byte count would pass a submission the provider refuses after the
-    # upload. The disclosure still reports raw bytes, the files' true sizes.
-    # The files can change between the metadata preflight and their reads.
-    # Validate the bytes actually retained and submitted as well.
+    hashed = [sha256_file(Path(path)) for path, _ in plan.files]
     _enforce_request_budget([size for _, size, _ in hashed], limits.max_bytes, provider_name)
     entries = [
         {
@@ -411,15 +438,15 @@ def _prepare_submission(
             "mime_type": mime_for_suffix(Path(path).suffix),
             "kind": kind,
         }
-        for (path, kind), (digest, size, _) in zip(files, hashed, strict=True)
+        for (path, kind), (digest, size, _) in zip(plan.files, hashed, strict=True)
     ]
     return _Submission(
-        record=record,
-        files=tuple(files),
+        record=plan.record,
+        files=plan.files,
         entries=tuple(entries),
-        total_bytes=total_bytes,
+        total_bytes=sum(size for _, size, _ in hashed),
         wire_bytes=sum(base64_wire_bytes(size) for _, size, _ in hashed),
-        file_bytes=cached_bytes,
+        file_bytes=tuple(data for _, _, data in hashed),
     )
 
 
