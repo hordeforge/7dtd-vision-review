@@ -11,7 +11,7 @@ and handed to sec-review.
   named security owner and a review cadence; neither is defined in this
   repository yet. Re-review after any new provider adapter, any change to the
   MCP stdio transport ([mcp-server.md](mcp-server.md)), or any change to
-  `config.py`, `review.py`, or `intent.py`.
+  `config.py`, `review.py`, or `redaction.py`.
 
 ## Risk-ranked summary
 

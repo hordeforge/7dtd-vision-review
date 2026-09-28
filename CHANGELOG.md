@@ -170,6 +170,18 @@ required (`CONTRIBUTING.md`, "Changing a contract").
   anything: the concurrent-writer and stale-placeholder guarantees were
   untested while the suite reported green around them. They now pass the
   bytes the real caller passes.
+- The evidence envelope's redaction walk no longer crashes on a deeply nested
+  provider payload. Two copies of the redaction backstop existed, one bounded
+  at `MAX_REDACT_DEPTH` and one not, and the envelope reached the unbounded
+  one: a `usageMetadata` block nested past the interpreter's recursion limit
+  raised `RecursionError` out of `build_envelope`, after the submission had
+  already been billed, instead of the one-error-line refusal every other fault
+  gets. Both copies now live in `redaction.py` with the bound, so the evidence
+  path and the raw-response path cannot drift apart again. The copy that was
+  hardened also dropped format-character and hyphenated header key names
+  (`x-api-key`) that the envelope's copy did not, so a credential under one of
+  those names no longer reaches stored usage. No envelope, schema, or result
+  change; the stored document for an honest payload is identical.
 - The MCP idempotency ledger is now bounded by retained bytes as well as by
   entry count: at most 32 MiB of envelopes, oldest evicted, whichever bound
   the next entry crosses first. An entry's size is the client's to choose

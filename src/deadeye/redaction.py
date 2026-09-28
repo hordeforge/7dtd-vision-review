@@ -12,7 +12,11 @@ evidence envelope runs `redact` over request parameters and usage, and the
 intent parser refuses fence markers. Colocating it with any of those would
 have the other two import a parsing module to reach a security primitive.
 Every consumer takes the backstop from here; a second copy in a parsing
-module would be a control that answers to whichever path reached it.
+module would be a control that answers to whichever path reached it. Two
+copies of this walk existed once, one bounded and one not; the unbounded one
+is what the evidence path called on the provider's own usage block, so a
+usage document nested past the interpreter's recursion limit crashed a
+submission that had already been billed. One home, one bound.
 """
 
 from __future__ import annotations
