@@ -263,4 +263,5 @@ dist-verify: dist
 clean:
 	@rm -rf "$(DIST)" "$(VERIFY_DIST)" "$(VERIFY_PATH)"
 	@rm -rf src/*.egg-info build
+	@rm -f .coverage
 	@find src tests scripts -name __pycache__ -type d -prune -exec rm -rf {} +

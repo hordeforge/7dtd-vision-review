@@ -165,9 +165,10 @@ class GeminiProvider(CredentialedProvider):
             )
         candidate = candidates[0]
         if not isinstance(candidate, dict):
-            raise NoVerdictError(
-                "provider 'gemini' returned an invalid candidate; no verdict was produced"
-            )
+            # The provider answered, so the submission is spent: this is a
+            # spent submission with no verdict, not a preflight refusal, and
+            # the type is what tells a deduplicating caller the difference.
+            raise no_verdict(self.name, "returned an invalid candidate")
         content = response_object(
             candidate, key="content", item_name="candidate", provider_name=self.name
         )
