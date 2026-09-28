@@ -29,7 +29,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .errors import DeadeyeError
+from .errors import DeadeyeError, UsageError
 
 INTENT_SCHEMA_VERSION = 1
 
@@ -264,7 +264,7 @@ def load_intent(path: Path | None, text: str | None) -> tuple[ReviewIntent, byte
     wordings.
     """
     if path is not None and text is not None:
-        raise DeadeyeError("takes exactly one of --intent PATH or --intent-text JSON, never both")
+        raise UsageError("takes exactly one of --intent PATH or --intent-text JSON, never both")
     if path is not None:
         origin = f"intent file {path}"
         try:
@@ -276,7 +276,7 @@ def load_intent(path: Path | None, text: str | None) -> tuple[ReviewIntent, byte
         origin = "--intent-text"
         raw = text.encode("utf-8")
     else:
-        raise DeadeyeError(
+        raise UsageError(
             "needs exactly one of --intent PATH (the reproducible route) or --intent-text JSON"
         )
     if len(raw) > MAX_INTENT_BYTES:

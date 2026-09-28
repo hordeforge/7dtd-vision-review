@@ -14,8 +14,13 @@ deadeye review <clip-dir> --intent <intent.json> --provider <name> \
 ```
 
 - exit `0` — stdout is the full evidence envelope (JSON).
-- exit non-zero — stderr carries one `ERROR: ...` line; no envelope was
-  produced, and no partial verdict may be treated as a completed review.
+- exit `2` — the command line was wrong (no `--intent` / `--intent-text`, an
+  unknown flag, an unusable `--timeout`). Nothing was submitted, so retrying
+  with a corrected command costs nothing; the usage line and the reason are on
+  stderr.
+- exit non-zero, anything else — stderr carries one `ERROR: ...` line; no
+  envelope was produced, and no partial verdict may be treated as a completed
+  review.
 
 `--allow-network` is required; a consumer surfaces it as its own consent flag
 (`shamway review-video`'s `--allow-network`, for example). Disclosure lines

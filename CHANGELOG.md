@@ -32,12 +32,31 @@ required (`CONTRIBUTING.md`, "Changing a contract").
   while the file's author believed the setting applied. After: `deadeye review`
   refuses with a non-zero exit naming the offending dotted path, before any
   provider is contacted, and `deadeye doctor` names the fault as
-  `config error: ...` (`ERROR: ...` on stderr in `--json`) with its own exit
-  code unchanged at 0. To upgrade, correct the name or delete the line, then
+  `ERROR: ...` on stderr, in both the human and the `--json` form, with its own
+  exit code unchanged at 0. To upgrade, correct the name or delete the line, then
   run `deadeye doctor` to confirm the settings that loaded. Every key
   `docs/reference.md` lists still loads unchanged, and a released config is
   unaffected unless it carried a key deadeye never read. No envelope, schema,
   or result change.
+- A command line that names no intent route, or both, now exits `2` like the
+  rest of the usage refusals, and a `--timeout` that is not a positive number
+  of seconds is refused at parse time with the same status. Before: both
+  exited `1` with an `ERROR:` line, the status a caller reads as "the review
+  failed", and neither printed a usage line. After: the subcommand's usage
+  line and an argparse-style `deadeye review: error: ...` on stderr, exit `2`,
+  stdout empty. To upgrade, a script that treated any non-zero exit as a
+  failed review should branch on `2` first; nothing was submitted either way,
+  so a corrected retry costs nothing. The consent gate still runs first, so a
+  review without `--allow-network` still refuses with exit `1` and never
+  reaches this check. No envelope, schema, or result change.
+- `deadeye doctor`'s human report now carries a config fault on stderr as
+  `ERROR: ...`, and says `config: unreadable` rather than claiming no config
+  file exists. Before: the fault printed on stdout as `config error: ...`,
+  under a `config: none (copy ...)` line that pointed the reader at a template
+  to copy when the config that was found was already on disk and unreadable.
+  After: stdout carries the report, stderr carries the fault, in the same
+  words the `--json` form already used, and doctor's exit code stays `0`.
+  A script reading the human form should read the fault from stderr.
 - `--timeout` (and the `timeout_seconds` it overrides) is now a budget on the
   whole provider call, where before it was urllib's per-socket-operation
   timeout. Before: a provider trickling a few bytes per read reset the timeout
@@ -201,6 +220,11 @@ required (`CONTRIBUTING.md`, "Changing a contract").
   fails is reported as a failed write (`cannot write evidence file ...`)
   rather than swallowed. The error text on such a failure is new; the write
   itself is unchanged on a filesystem that syncs.
+- Every Gemini review raised `NameError: name 'provider_name' is not defined`
+  while building the request body, so the adapter could not submit at all. The
+  generation settings passed a name that was never bound in scope; the
+  `maxOutputTokens` beside it named the provider literally, and so does
+  `temperature` now.
 - A retry under the same MCP `idempotency_key` could still bill the same
   media twice. The ledger recorded only a review that returned a verdict, so
   a submission the provider answered with nothing usable (a timeout, a

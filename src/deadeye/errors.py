@@ -14,6 +14,17 @@ class DeadeyeError(Exception):
     """A refusal or fault with a single user-actionable message."""
 
 
+class UsageError(DeadeyeError):
+    """A refusal about how the tool was invoked, not about the review.
+
+    A caller that supplied no intent, or both intent routes, typed the command
+    wrong: that is usage misuse, and the CLI exits 2 for it, the status
+    argparse already uses for an unknown flag or a bad choice. It stays a
+    `DeadeyeError` because the MCP server refuses the same invocation the same
+    way, and it has no exit code to carry.
+    """
+
+
 class NoVerdictError(DeadeyeError):
     """A submission that reached the provider and produced no usable verdict.
 

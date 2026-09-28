@@ -110,7 +110,13 @@ def test_a_malformed_config_fails_loudly_and_doctor_reports_it(isolated_config, 
     from deadeye.cli import main
 
     assert main(["doctor"]) == 0
-    assert "config error:" in capsys.readouterr().out
+    captured = capsys.readouterr()
+    # The human form carries the fault on stderr in the same words the JSON
+    # form uses: stdout is the report, stderr is what went wrong.
+    assert "ERROR: cannot read config file" in captured.err
+    # It must not claim no config file exists: one was found and refused.
+    assert "config: unreadable" in captured.out
+    assert "copy " not in captured.out
 
 
 def test_doctor_json_reports_a_malformed_config_on_stderr(isolated_config, capsys) -> None:

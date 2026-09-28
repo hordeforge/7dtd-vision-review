@@ -43,7 +43,9 @@ stdio; see [docs/mcp-server.md](mcp-server.md).
 The machine contract is the exit code and the JSON on stdout: `review --json`
 prints the evidence envelope, and every refusal exits non-zero with one
 `ERROR: ...` line on stderr. Disclosure lines go to stderr so a programmatic
-caller's stdout stays parseable. Usage misuse (argparse) exits 2, an interrupt
+caller's stdout stays parseable. Usage misuse exits 2, whether argparse caught
+it (an unknown flag, a bad choice, a `--timeout` that is not a positive number
+of seconds) or the command omitted its intent route; an interrupt
 (SIGINT) 130, a closed stdout pipe 141. `python -m deadeye` honors the same
 exit codes as the console script.
 

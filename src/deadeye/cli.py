@@ -3,8 +3,9 @@
 The machine contract is the exit code and the JSON on stdout: `review --json`
 prints the full evidence envelope, and every refusal exits non-zero with one
 `ERROR: ...` line on stderr. Human-facing disclosure lines go to stderr so a
-programmatic caller's stdout stays parseable. Usage misuse exits 2 (argparse),
-an interrupt 130, a closed stdout pipe 141.
+programmatic caller's stdout stays parseable. Usage misuse exits 2, whether
+argparse caught it or a `UsageError` arrived from the shared refusal rules,
+an interrupt exits 130, and a closed stdout pipe exits 141.
 
 This module owns argument parsing and presentation only. The answers both
 transports share (the provider registry, doctor states, the schema document,
@@ -17,6 +18,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
+import math
 import os
 import sys
 from pathlib import Path
@@ -24,7 +26,7 @@ from typing import Any
 
 from . import __version__, config
 from ._streams import bind_process_output
-from .errors import DeadeyeError, EvidenceWriteError
+from .errors import DeadeyeError, EvidenceWriteError, UsageError
 from .review import run_review
 from .surface import (
     PROVIDERS,
@@ -36,7 +38,34 @@ from .surface import (
 )
 
 
-def _build_parser() -> argparse.ArgumentParser:
+def _positive_seconds(raw: str) -> float:
+    """`--timeout` as a positive number of seconds, refused at parse time.
+
+    A value argparse accepts but the tool cannot use is usage misuse, so it
+    exits 2 with the usage line rather than 1 with a bare ERROR line: the
+    caller typed the command wrong, the review never started, and nothing was
+    submitted. `resolve_timeout` keeps the same check for the value that comes
+    from a config file or the MCP server, which has no argv to be wrong about.
+    """
+    try:
+        seconds = float(raw)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"must be a positive number of seconds, not {raw!r}"
+        ) from None
+    if not math.isfinite(seconds) or seconds <= 0:
+        raise argparse.ArgumentTypeError(f"must be a positive number of seconds, not {raw!r}")
+    return seconds
+
+
+def _build_parser() -> tuple[argparse.ArgumentParser, dict[str, argparse.ArgumentParser]]:
+    """The root parser, and each subcommand's own parser keyed by its name.
+
+    A usage refusal names the subcommand the caller got wrong: `deadeye
+    review: error: ...` over `review`'s usage line, exactly as argparse's own
+    refusals read. `main` needs the subcommand's parser for that, so both are
+    returned rather than reached for through argparse internals.
+    """
     parser = argparse.ArgumentParser(
         prog="deadeye",
         description=(
@@ -108,7 +137,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     review.add_argument(
         "--timeout",
-        type=float,
+        type=_positive_seconds,
         default=None,
         metavar="SECONDS",
         help=(
@@ -219,7 +248,13 @@ def _build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     mcp.set_defaults(handler=_handle_mcp)
-    return parser
+    return parser, {
+        "review": review,
+        "doctor": doctor,
+        "schema": schema,
+        "prompt": prompt,
+        "mcp": mcp,
+    }
 
 
 def _handle_mcp(args: argparse.Namespace) -> int:
@@ -233,7 +268,7 @@ def main(argv: list[str] | None = None) -> int:
     # must not die in `print` under a C or POSIX locale, after a billable
     # submission has already produced the verdict (see `_streams`).
     bind_process_output()
-    parser = _build_parser()
+    parser, subcommand_parsers = _build_parser()
     args = parser.parse_args(argv)
     try:
         return int(args.handler(args))
@@ -259,6 +294,12 @@ def main(argv: list[str] | None = None) -> int:
             finally:
                 os.close(devnull)
         return 141
+    except UsageError as exc:
+        # Misuse of the command line, not a fault in the review: it exits with
+        # the status argparse uses for an unknown flag or a bad choice, in
+        # argparse's own wording, so every usage refusal reads the same and a
+        # script can tell "I typed it wrong" from "the review failed".
+        subcommand_parsers[args.command].error(str(exc))
     except (DeadeyeError, ValueError, OSError) as exc:
         # One refusal contract for every failure, tracebacks included. An
         # unreadable clip, intent, or evidence path lands here too, as OSError:
@@ -350,10 +391,17 @@ def _handle_doctor(args: argparse.Namespace) -> int:
             print(f"{state['name']}: {state['state']} ({state['detail']})")
         if sources:
             print("config: " + ", ".join(str(path) for path in sources))
+        elif load_failure:
+            # A file was found and refused, so "none (copy the example)" would
+            # send the reader after a config file that is already there.
+            print("config: unreadable, see the ERROR line on stderr")
         else:
             print(f"config: none (copy {config.EXAMPLE_PATH} to config.local.toml)")
         if load_failure:
-            print(f"config error: {load_failure}")
+            # The same fault, on the same channel, in the same words as the
+            # JSON form above: stdout carries the report, stderr carries what
+            # went wrong.
+            print(f"ERROR: {load_failure}", file=sys.stderr)
         note = config.discovery_note()
         if note:
             print(f"config note: {note}")

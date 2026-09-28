@@ -37,10 +37,39 @@ def test_review_requires_allow_network(clip_dir, minimal_intent, capsys) -> None
 
 
 def test_review_refuses_missing_intent(clip_dir, capsys) -> None:
-    code, out, err = _run(_review_argv(clip_dir, None, "--allow-network", "--json"), capsys)
-    assert code == 1
-    assert out == ""
-    assert "exactly one of --intent" in err
+    """A missing intent route is usage misuse, not a failed review: exit 2, in
+    argparse's own wording, and nothing on stdout."""
+    with pytest.raises(SystemExit) as exc_info:
+        main(_review_argv(clip_dir, None, "--allow-network", "--json"))
+    assert exc_info.value.code == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "deadeye review: error: needs exactly one of --intent" in captured.err
+
+
+def test_review_refuses_two_intent_routes(clip_dir, minimal_intent, capsys) -> None:
+    """Both routes at once is the same misuse, refused before anything runs."""
+    with pytest.raises(SystemExit) as exc_info:
+        main(
+            _review_argv(
+                clip_dir,
+                minimal_intent,
+                "--intent-text",
+                '{"purpose": "p"}',
+                "--allow-network",
+            )
+        )
+    assert exc_info.value.code == 2
+    assert "never both" in capsys.readouterr().err
+
+
+def test_an_unusable_timeout_is_refused_at_parse_time(clip_dir, minimal_intent) -> None:
+    """A --timeout the tool cannot use exits 2 with the usage line, so a
+    script can tell a mistyped flag from a review that failed."""
+    for raw in ("-5", "0", "nan", "soon"):
+        with pytest.raises(SystemExit) as exc_info:
+            main(_review_argv(clip_dir, minimal_intent, "--allow-network", "--timeout", raw))
+        assert exc_info.value.code == 2, raw
 
 
 def test_an_io_fault_meets_the_one_error_line_contract(
@@ -324,9 +353,10 @@ def test_prompt_derives_the_media_summary_from_a_clip(clip_dir, tmp_path, capsys
 
 
 def test_prompt_requires_an_intent(capsys) -> None:
-    code, _, err = _run(["prompt"], capsys)
-    assert code == 1
-    assert "exactly one of --intent" in err
+    with pytest.raises(SystemExit) as exc_info:
+        main(["prompt"])
+    assert exc_info.value.code == 2
+    assert "deadeye prompt: error: needs exactly one of --intent" in capsys.readouterr().err
 
 
 def test_python_dash_m_honors_the_exit_contract(tmp_path: Path) -> None:
@@ -347,7 +377,33 @@ def test_python_dash_m_honors_the_exit_contract(tmp_path: Path) -> None:
     assert schema["result"]["keys"]
 
     missing = tmp_path / "no-such-clip"
+    intent = tmp_path / "intent.json"
+    intent.write_text('{"purpose": "p"}', encoding="utf-8")
     failed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "deadeye",
+            "review",
+            str(missing),
+            "--intent",
+            str(intent),
+            "--provider",
+            "fake",
+            "--allow-network",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert failed.returncode == 1
+    assert failed.stderr.startswith("ERROR:")
+    assert failed.stdout == ""
+
+    # Misuse of the command line is a different status again, so a script can
+    # branch on it without parsing the message. The consent gate is crossed
+    # first, so the misuse here is the missing intent, not the missing flag.
+    misused = subprocess.run(
         [
             sys.executable,
             "-m",
@@ -362,9 +418,8 @@ def test_python_dash_m_honors_the_exit_contract(tmp_path: Path) -> None:
         text=True,
         check=False,
     )
-    assert failed.returncode == 1
-    assert failed.stderr.startswith("ERROR:")
-    assert failed.stdout == ""
+    assert misused.returncode == 2
+    assert misused.stdout == ""
 
 
 def test_an_interrupt_exits_130_without_a_traceback(clip_dir, minimal_intent, capsys, monkeypatch):
