@@ -224,24 +224,28 @@ def validate_result(data: dict[str, Any]) -> dict[str, Any]:
                 problems.append(f"issue #{index + 1} needs a non-empty description")
                 continue
             issue: dict[str, Any] = {"description": description.strip()}
-            seconds = _moment(normalized.get("at_seconds"), non_negative=False)
-            if normalized.get("at_seconds") is not None and seconds is None:
-                problems.append(
-                    f"issue #{index + 1} at_seconds must be [start, end] numbers "
-                    "with start <= end, or a single second"
-                )
+            # Both moments are the same check over one key: the same
+            # single-value-or-pair rule, the same refusal for a present value
+            # that is neither. `at_frame` additionally refuses a negative
+            # index, which has no meaning in a frame list.
+            rejected = False
+            for key, non_negative, expectation in (
+                ("at_seconds", False, "[start, end] numbers with start <= end, or a single second"),
+                (
+                    "at_frame",
+                    True,
+                    "[start, end] non-negative numbers with start <= end, or a single frame index",
+                ),
+            ):
+                moment = _moment(normalized.get(key), non_negative=non_negative)
+                if normalized.get(key) is not None and moment is None:
+                    problems.append(f"issue #{index + 1} {key} must be {expectation}")
+                    rejected = True
+                    break
+                if moment is not None:
+                    issue[key] = moment
+            if rejected:
                 continue
-            if seconds is not None:
-                issue["at_seconds"] = seconds
-            frame = _moment(normalized.get("at_frame"), non_negative=True)
-            if normalized.get("at_frame") is not None and frame is None:
-                problems.append(
-                    f"issue #{index + 1} at_frame must be [start, end] non-negative "
-                    "numbers with start <= end, or a single frame index"
-                )
-                continue
-            if frame is not None:
-                issue["at_frame"] = frame
             issues.append(issue)
 
     known = {item.key for item in BASE_RUBRIC}

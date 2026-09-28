@@ -239,18 +239,17 @@ class Config:
         self._origins: dict[tuple[str, ...], str] = {}
         if directory is None:
             return
-        base = directory / BASE_NAME
-        local = directory / LOCAL_NAME
-        if base.is_file():
-            base_data = _load_file(base)
-            self._reject_unread(base, base_data)
-            _record_origins(base_data, self._origins, BASE_NAME)
-            self.data = _merge(self.data, base_data)
-        if local.is_file():
-            local_data = _load_file(local)
-            self._reject_unread(local, local_data)
-            _record_origins(local_data, self._origins, LOCAL_NAME)
-            self.data = _merge(self.data, local_data)
+        # Base then local, so the local file wins on conflict. Both go through
+        # the same four steps, and the order the loop runs in is the order
+        # every other reader of this class assumes.
+        for name in (BASE_NAME, LOCAL_NAME):
+            path = directory / name
+            if not path.is_file():
+                continue
+            data = _load_file(path)
+            self._reject_unread(path, data)
+            _record_origins(data, self._origins, name)
+            self.data = _merge(self.data, data)
 
     @staticmethod
     def _reject_unread(path: Path, data: dict[str, Any]) -> None:

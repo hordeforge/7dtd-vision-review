@@ -228,7 +228,7 @@ def build_body(request: ReviewRequest) -> dict[str, object]:
             "maxOutputTokens": int_setting(
                 "gemini", "max_output_tokens", DEFAULT_MAX_OUTPUT_TOKENS, minimum=1
             ),
-            "temperature": float_setting(provider_name, "temperature", DEFAULT_TEMPERATURE),
+            "temperature": float_setting("gemini", "temperature", DEFAULT_TEMPERATURE),
         },
     }
     if request.system_prompt:

@@ -96,44 +96,7 @@ def run_review(
             f"provider {provider.name!r} is not configured: {provider.configuration_hint()}"
         )
 
-    # The sampling decision and the whole-request budget are settled here,
-    # before the disclosure and before a single byte is read, so what the
-    # operator is told about leaving the machine is what the provider is
-    # actually sent, and the media decision never costs a second read of the
-    # files it settles between.
-    plan = _plan(
-        media,
-        intent,
-        provider.limits,
-        provider_name=provider.name,
-        video_capable=provider.limits.accepts_video,
-    )
-    if _took_video(plan) and media.frames:
-        parts = _prompt_parts(plan.record, plan.total_bytes, intent)
-        if _over_budget(_request_wire_bytes(plan, parts), provider.limits):
-            # `sampling.sample` already falls back to the frame sequence when
-            # the video is over the provider's own video bound. This is the
-            # same decision against the bound that actually decides, the whole
-            # request with the prompt riding it: without it a video that misses
-            # the request cap by the size of the prompt is refused outright,
-            # with the frames that would have fitted sitting in the same
-            # directory.
-            frames = _plan(
-                media,
-                intent,
-                provider.limits,
-                provider_name=provider.name,
-                video_capable=False,
-                note_prefix=_video_over_request_budget(media, plan),
-            )
-            frame_parts = _prompt_parts(frames.record, frames.total_bytes, intent)
-            if not _over_budget(_request_wire_bytes(frames, frame_parts), provider.limits):
-                plan = frames
-    # One read per file, after the decision: the plan above is sized from
-    # metadata, so what is finally hashed and submitted is the same set of
-    # paths, read once.
-    submission = _materialize(plan, provider.limits, provider.name)
-    parts = _prompt_parts(submission.record, submission.total_bytes, intent)
+    submission, parts = _decide_submission(media, intent, provider.limits, provider.name)
 
     if notify is not None:
         notify(f"provider: {provider.name} ({provider.endpoint_mode})")
@@ -274,6 +237,51 @@ def run_review(
             raise _evidence_write_fault(exc, document) from exc
         document["evidence"] = {"path": str(evidence_path), "sha256": evidence_sha256}
     return document
+
+
+def _decide_submission(
+    media: sampling.ClipMedia,
+    intent: ReviewIntent,
+    limits: ProviderLimits,
+    provider_name: str,
+) -> tuple[_Submission, PromptParts]:
+    """The media this review will send, and the prompt it will send with it.
+
+    The sampling decision and the whole-request budget are settled here,
+    before the disclosure and before a single byte is read, so what the
+    operator is told about leaving the machine is what the provider is
+    actually sent, and the media decision never costs a second read of the
+    files it settles between.
+    """
+    plan = _plan(
+        media, intent, limits, provider_name=provider_name, video_capable=limits.accepts_video
+    )
+    if _took_video(plan) and media.frames:
+        planned_parts = _prompt_parts(plan.record, plan.total_bytes, intent)
+        if _over_budget(_request_wire_bytes(plan, planned_parts), limits):
+            # `sampling.sample` already falls back to the frame sequence when
+            # the video is over the provider's own video bound. This is the
+            # same decision against the bound that actually decides, the whole
+            # request with the prompt riding it: without it a video that misses
+            # the request cap by the size of the prompt is refused outright,
+            # with the frames that would have fitted sitting in the same
+            # directory.
+            frames = _plan(
+                media,
+                intent,
+                limits,
+                provider_name=provider_name,
+                video_capable=False,
+                note_prefix=_video_over_request_budget(media, plan),
+            )
+            frame_parts = _prompt_parts(frames.record, frames.total_bytes, intent)
+            if not _over_budget(_request_wire_bytes(frames, frame_parts), limits):
+                plan = frames
+    # One read per file, after the decision: the plan above is sized from
+    # metadata, so what is finally hashed and submitted is the same set of
+    # paths, read once.
+    submission = _materialize(plan, limits, provider_name)
+    return submission, _prompt_parts(submission.record, submission.total_bytes, intent)
 
 
 def _payload(path: str, kind: sampling.MediaKind, data: bytes) -> MediaPayload:
