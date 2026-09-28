@@ -2,12 +2,22 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from pathlib import Path, PurePath
 
 import pytest
 
 from deadeye.errors import DeadeyeError
-from deadeye.sampling import MIME_BY_SUFFIX, ClipMedia, discover, mime_for_suffix, sample
+from deadeye.sampling import (
+    IMAGE_SUFFIXES,
+    LOG_SUFFIXES,
+    MIME_BY_SUFFIX,
+    VIDEO_SUFFIXES,
+    ClipMedia,
+    _role_for_name,
+    discover,
+    mime_for_suffix,
+    sample,
+)
 
 
 def test_discover_reads_a_playtest_clip_directory(clip_dir_with_video) -> None:
@@ -63,6 +73,69 @@ def test_discover_orders_ties_by_name_not_by_readdir_order(clip_dir) -> None:
         "frame-0003.jpg",
         "frame-0003.png",
     ]
+
+
+def test_discover_ignores_a_dotfile_and_an_extensionless_entry(clip_dir) -> None:
+    """Only a real suffix makes an entry media, whatever else its name says.
+
+    A name that merely ends in a media extension is not one: a leading dot is
+    the whole name, so `.png` is a dotfile the way `.gitignore` is, and the
+    clip beside it still holds exactly its own frames.
+    """
+    (clip_dir / ".png").write_bytes(b"x")
+    (clip_dir / "frame-0010").write_bytes(b"x")
+
+    media = discover(clip_dir)
+
+    assert [frame.name for frame in media.frames] == [
+        f"frame-{index:04d}.png" for index in range(10)
+    ]
+
+
+def test_the_scan_classifies_exactly_what_pathlib_would() -> None:
+    """The scan's own suffix reading must agree with `Path.suffix`, always.
+
+    The scan classifies a directory entry from its name rather than building a
+    `Path` for it, which is what keeps a clip with hundreds of frames off the
+    `pathlib` parse path. That shortcut is only sound while it answers exactly
+    what `Path.suffix` answers, so the two are compared over names chosen to
+    hit where they part: a leading dot, a doubled dot, a name that is nothing
+    but a dot, a trailing dot, mixed case, and non-ASCII.
+    """
+    roles = {
+        **dict.fromkeys(IMAGE_SUFFIXES, "image"),
+        **dict.fromkeys(VIDEO_SUFFIXES, "video"),
+        **dict.fromkeys(LOG_SUFFIXES, "log"),
+    }
+
+    for name in (
+        "",
+        ".",
+        "..",
+        "...",
+        ".png",
+        ".log",
+        "a.png",
+        "a.PNG",
+        "a.Log",
+        "a.tar.gz",
+        "a.",
+        "....png",
+        ".a.log",
+        "no-extension",
+        "frame-0001.png",
+        "frame-1.JPEG",
+        "frame-1.webp",
+        "frame-1.WEBP",
+        "frame-0001.png.txt",
+        "a.png.log",
+        "a.mp4",
+        "a.MOV",
+        "a.webm",
+        "a space.mp4",
+        "ünïcode.PNG",
+    ):
+        assert _role_for_name(name) == roles.get(PurePath(name).suffix.lower()), name
 
 
 def test_discover_orders_an_unnumbered_frame_sequence_by_name(tmp_path) -> None:

@@ -42,6 +42,16 @@ VIDEO_SUFFIXES = tuple(
 )
 LOG_SUFFIXES = (".log",)
 
+# Lowered extension (no dot) -> the role that suffix gives the entry. One dict
+# for the three membership tests, so a directory is classified by a single
+# lookup per entry and the three suffix tuples stay the only place a suffix is
+# declared.
+_ROLE_BY_EXTENSION: dict[str, str] = {
+    **{suffix[1:]: "video" for suffix in VIDEO_SUFFIXES},
+    **{suffix[1:]: "log" for suffix in LOG_SUFFIXES},
+    **{suffix[1:]: "image" for suffix in IMAGE_SUFFIXES},
+}
+
 _FRAME_RE = re.compile(r"^frame-(\d+)\.(?:png|jpe?g|webp)$", re.IGNORECASE)
 
 MediaKind = Literal["frame", "video", "reference"]
@@ -132,6 +142,29 @@ def discover(source: Path) -> ClipMedia:
     return ClipMedia(frames=tuple(frames), video=video, log=log, source=source)
 
 
+def _role_for_name(name: str) -> str | None:
+    """What a directory entry's name makes it: 'image', 'video', 'log', or nothing.
+
+    The one place a directory entry's suffix is read, and it reads the name
+    rather than a `Path`, because `Path` parses its whole string on
+    construction and again for `.suffix`. A clip directory holding hundreds of
+    entries paid three parses per entry to learn a role the entry name already
+    states, and a capture directory holding unrelated files paid that parse on
+    every one of them.
+
+    It answers exactly what `Path.suffix` answers, which is the whole reason
+    the shortcut is sound. A name whose last dot leads it has no suffix
+    (`.png` is a dotfile, as `.gitignore` is), and so has a name with no dot
+    at all: both leave the split with an empty head, which is what this
+    refuses on. A name carrying several dots takes the one after the last,
+    the same place `Path.suffix` reads its suffix from.
+    """
+    head, _, extension = name.rpartition(".")
+    if not head:
+        return None
+    return _ROLE_BY_EXTENSION.get(extension.lower())
+
+
 def _scan_directory(directory: Path) -> tuple[list[Path], Path | None, Path | None]:
     """Single-pass directory scan: find frames, muxed video, and log file.
 
@@ -143,53 +176,71 @@ def _scan_directory(directory: Path) -> tuple[list[Path], Path | None, Path | No
     the order never depends on how the filesystem happened to hand the entries
     over), and the rare video and log lists are sorted by name so the refusal
     naming a duplicate lists them the same way every run.
+
+    The classification is `_role_for_name` over the entry's own name, and a
+    `Path` is built only for the entries that turn out to belong to the clip.
+    The name the classification used rides along with the path, so the ordering
+    below never reads a name back off a `Path` either.
     """
-    numbered: list[tuple[int, str, Path]] = []
-    fallback_images: list[Path] = []
-    videos: list[Path] = []
-    logs: list[Path] = []
+    numbered: list[tuple[int, str]] = []
+    fallback_images: list[tuple[str, str]] = []
+    videos: list[tuple[str, str]] = []
+    logs: list[tuple[str, str]] = []
 
     with os.scandir(directory) as entries:
         for entry in entries:
             if not entry.is_file():
                 continue
-            candidate = Path(entry.path)
-            suffix = candidate.suffix.lower()
-            if suffix in VIDEO_SUFFIXES:
-                videos.append(candidate)
-            elif suffix in LOG_SUFFIXES:
-                logs.append(candidate)
-            elif suffix in IMAGE_SUFFIXES:
-                fallback_images.append(candidate)
-                # The pattern ends in one of the image suffixes, so a match is
-                # impossible for any other entry: a directory that also holds
-                # a muxed clip, a client log, and hundreds of unrelated files
-                # spent a regex match on each of them for nothing.
-                match = _FRAME_RE.match(entry.name)
-                if match:
-                    numbered.append((int(match.group(1)), entry.name, candidate))
+            name = entry.name
+            role = _role_for_name(name)
+            if role is None:
+                continue
+            if role != "image":
+                (videos if role == "video" else logs).append((name, entry.path))
+                continue
+            # The pattern ends in one of the image suffixes, so a match is
+            # impossible for any other entry: a directory that also holds
+            # a muxed clip, a client log, and hundreds of unrelated files
+            # spent a regex match on each of them for nothing.
+            match = _FRAME_RE.match(name)
+            if match is None:
+                # Only the images the frame pattern rejected reach the
+                # fallback. Recording every image there as well stored each
+                # entry twice for a clip of numbered frames, and the whole
+                # list is discarded the moment one of them matches.
+                fallback_images.append((name, entry.path))
+            else:
+                numbered.append((int(match.group(1)), entry.path))
 
     if numbered:
-        numbered.sort(key=lambda item: (item[0], item[1]))
-        frames = [path for _, _, path in numbered]
+        numbered.sort()
+        frames = [Path(path) for _, path in numbered]
     else:
-        frames = sorted(fallback_images, key=lambda path: path.name)
-    videos.sort(key=lambda path: path.name)
-    logs.sort(key=lambda path: path.name)
+        fallback_images.sort()
+        frames = [Path(path) for _, path in fallback_images]
+    videos.sort()
+    logs.sort()
 
     video = _require_single(videos, directory, "muxed video", "review one clip at a time")
     log = _require_single(logs, directory, "log file", "keep the clip self-contained")
     return frames, video, log
 
 
-def _require_single(matches: list[Path], directory: Path, what: str, remedy: str) -> Path | None:
-    """Zero or one match, or a refusal."""
+def _require_single(
+    matches: list[tuple[str, str]], directory: Path, what: str, remedy: str
+) -> Path | None:
+    """Zero or one match, or a refusal.
+
+    `matches` is the caller's (name, path) pairs already sorted by name, so the
+    refusal names a duplicate the same way every run without this re-reading a
+    name off a path.
+    """
     if len(matches) > 1:
         raise DeadeyeError(
-            f"{directory} holds more than one {what} "
-            f"({', '.join(p.name for p in matches)}); {remedy}"
+            f"{directory} holds more than one {what} ({', '.join(name for name, _ in matches)}); "
+            f"{remedy}"
         )
-    return matches[0] if matches else None
+    return Path(matches[0][1]) if matches else None
 
 
 def file_size(path: Path) -> int:
