@@ -71,6 +71,11 @@ the same family the audio-review pipeline uses (`summary`, `strengths`,
 `issues`, `recommended_changes`, `rubric_scores`, `confidence`,
 `limitations`), so a caller handling both review kinds reads one shape.
 
+Validation is type, shape, and size: a verdict larger than one review is a
+real review is worth (20,000 characters per text value, 200 entries per array,
+`result.py`) is refused, not trimmed, because a cut list is a list the model
+never said.
+
 **Credentials never travel or land.** They come from the environment or from
 `config.local.toml` (the gitignored local config; see `config.py` for the
 precedence, which is per setting: command-line review options override their

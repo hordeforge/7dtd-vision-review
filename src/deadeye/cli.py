@@ -27,6 +27,7 @@ from typing import Any
 from . import __version__, config
 from ._streams import bind_process_output
 from .errors import DeadeyeError, EvidenceWriteError, UsageError
+from .prompt_text import flat_label_text
 from .review import run_review
 from .surface import (
     PROVIDERS,
@@ -352,7 +353,13 @@ def _present_review(args: argparse.Namespace, envelope: dict[str, Any]) -> None:
         reported = envelope["provider"]["model_reported"]
         requested = envelope["provider"]["model_requested"]
         print(f"model: {reported or requested}")
-        print(f"summary: {result['summary']}")
+        # The summary is the one line here a model wrote, and a terminal
+        # reads a carriage return, an escape, or an OSC sequence as an
+        # instruction to rewrite the screen rather than as text. Every other
+        # line below is a value this tool composed. Flattened the same way a
+        # filename is before it reaches a prompt: the prose is shown, the
+        # control characters are not.
+        print(f"summary: {flat_label_text(result['summary'])}")
         print(f"issues: {len(result['issues'])}")
         evidence = envelope.get("evidence") or {}
         if evidence.get("path"):

@@ -5,7 +5,13 @@ from __future__ import annotations
 import pytest
 
 from deadeye.errors import DeadeyeError
-from deadeye.result import RESULT_KEYS, parse_model_json, validate_result
+from deadeye.result import (
+    MAX_LIST_ITEMS,
+    MAX_TEXT_CHARS,
+    RESULT_KEYS,
+    parse_model_json,
+    validate_result,
+)
 
 VALID = {
     "summary": "reads well in motion",
@@ -78,6 +84,41 @@ def test_scores_are_diagnostic_0_5_or_null() -> None:
 def test_confidence_must_be_between_0_and_1() -> None:
     with pytest.raises(DeadeyeError, match="confidence must be"):
         validate_result({**VALID, "confidence": 1.5})
+
+
+def test_a_verdict_holding_more_than_its_share_is_refused() -> None:
+    """A model that filled the box instead of answering is refused, not trimmed.
+
+    The transport bounds the whole response and the generation cap bounds the
+    tokens, but nothing bounded what one verdict was: a multi-megabyte summary
+    or thousands of issues passed every type check and reached the evidence
+    file, stdout, and the MCP ledger, where a person reads it."""
+    assert validate_result(VALID)["summary"] == "reads well in motion"
+
+    with pytest.raises(DeadeyeError, match="summary must be at most"):
+        validate_result({**VALID, "summary": "x" * (MAX_TEXT_CHARS + 1)})
+
+    with pytest.raises(DeadeyeError, match="issue #1 description must be at most"):
+        validate_result({**VALID, "issues": [{"description": "x" * (MAX_TEXT_CHARS + 1)}]})
+
+    with pytest.raises(DeadeyeError, match="strengths must hold at most"):
+        validate_result({**VALID, "strengths": ["holds"] * (MAX_LIST_ITEMS + 1)})
+
+    with pytest.raises(DeadeyeError, match="issues must hold at most"):
+        validate_result({**VALID, "issues": [{"description": "clips"}] * (MAX_LIST_ITEMS + 1)})
+
+    with pytest.raises(DeadeyeError, match="limitations entries longer than"):
+        validate_result({**VALID, "limitations": ["x" * (MAX_TEXT_CHARS + 1)]})
+
+
+def test_a_verdict_at_the_cap_still_normalizes() -> None:
+    """The caps refuse; they never cut. A value exactly at the limit is a real
+    answer and must survive unchanged, so the boundary is inclusive."""
+    summary = "x" * MAX_TEXT_CHARS
+    assert validate_result({**VALID, "summary": summary})["summary"] == summary
+    entry = "holds"
+    at_cap = {**VALID, "strengths": [entry] * MAX_LIST_ITEMS}
+    assert len(validate_result(at_cap)["strengths"]) == MAX_LIST_ITEMS
 
 
 def test_model_json_is_extracted_from_fences_and_refuses_non_json() -> None:

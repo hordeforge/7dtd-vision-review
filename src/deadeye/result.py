@@ -48,6 +48,23 @@ ADVISORY_NOTE = (
 _FENCED_JSON_RE = re.compile(r"```(?:json)?\s*(\{.*\})\s*```", re.DOTALL)
 """The fenced-JSON form a model wraps its verdict in, compiled once at import."""
 
+# What one accepted verdict may hold. The provider response is already bounded
+# at 8 MiB by the transport and at `max_output_tokens` by the generation cap,
+# but nothing bounded what one verdict *is*: a 7 MiB summary, or fifty
+# thousand issues, passed every check below and then reached the evidence file,
+# stdout, and the MCP ledger, where a human reads it. These are refusal
+# thresholds, not trimming thresholds, for the reason the rest of this module
+# refuses rather than coerces: a cut list is a list the model never said. They
+# sit far above a real review (a 12-dimension rubric with a paragraph per
+# score is a few thousand characters) and far below the transport bound, so
+# what they catch is a model that stopped answering the question and started
+# filling the box.
+MAX_TEXT_CHARS = 20_000
+"""Longest single free-text value in a verdict, in characters."""
+
+MAX_LIST_ITEMS = 200
+"""Longest array in a verdict, in entries (issues, strengths, changes, limits)."""
+
 
 @dataclass(frozen=True)
 class RubricDimension:
@@ -174,16 +191,30 @@ def validate_result(data: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
             problems.append(f"{key} must be an array of strings")
             return []
+        if len(value) > MAX_LIST_ITEMS:
+            problems.append(f"{key} must hold at most {MAX_LIST_ITEMS} entries")
+            return []
+        oversized = [index for index, item in enumerate(value, 1) if len(item) > MAX_TEXT_CHARS]
+        if oversized:
+            problems.append(
+                f"{key} entries longer than {MAX_TEXT_CHARS} characters: "
+                + ", ".join(f"#{index}" for index in oversized[:5])
+            )
+            return []
         return [item for item in value if item.strip()]
 
     summary = data["summary"]
     if not isinstance(summary, str) or not summary.strip():
         problems.append("summary must be a non-empty string")
+    elif len(summary) > MAX_TEXT_CHARS:
+        problems.append(f"summary must be at most {MAX_TEXT_CHARS} characters")
 
     issues: list[dict[str, Any]] = []
     raw_issues = data["issues"]
     if not isinstance(raw_issues, list):
         problems.append("issues must be an array")
+    elif len(raw_issues) > MAX_LIST_ITEMS:
+        problems.append(f"issues must hold at most {MAX_LIST_ITEMS} entries")
     else:
         for index, entry in enumerate(raw_issues):
             if not isinstance(entry, dict) or "description" not in entry:
@@ -227,6 +258,11 @@ def validate_result(data: dict[str, Any]) -> dict[str, Any]:
             description = normalized["description"]
             if not isinstance(description, str) or not description.strip():
                 problems.append(f"issue #{index + 1} needs a non-empty description")
+                continue
+            if len(description) > MAX_TEXT_CHARS:
+                problems.append(
+                    f"issue #{index + 1} description must be at most {MAX_TEXT_CHARS} characters"
+                )
                 continue
             issue: dict[str, Any] = {"description": description.strip()}
             # Both moments are the same check over one key: the same

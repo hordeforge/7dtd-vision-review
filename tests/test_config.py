@@ -256,6 +256,34 @@ def test_endpoint_override_refuses_a_credential_in_the_url(isolated_config) -> N
     assert "hunter2" not in problem and "must not carry a credential" in problem
 
 
+def test_endpoint_override_refuses_a_credential_before_the_scheme(isolated_config) -> None:
+    """A plain-http, non-loopback URL carrying userinfo is refused for the
+    credential, not for its scheme. The scheme refusal quotes the value it was
+    given, so a `http://operator:hunter2@proxy.internal/v1` that fell through
+    to it printed the password to stderr and into `doctor`'s answer."""
+    _write(
+        isolated_config,
+        "config.local.toml",
+        '[providers.nvidia]\nendpoint = "http://operator:hunter2@proxy.example.com/v1"\n',
+    )
+    keys = ("providers", "nvidia", "endpoint")
+    with pytest.raises(DeadeyeError, match="must not carry a credential") as excinfo:
+        config.endpoint(keys, "https://fallback")
+    assert "hunter2" not in str(excinfo.value)
+    problem = config.endpoint_problem(keys)
+    assert problem is not None
+    assert "hunter2" not in problem and "must not carry a credential" in problem
+    # An http override with no userinfo is still refused for the scheme, and
+    # still quotes its value so the operator can see what to fix.
+    _write(
+        isolated_config,
+        "config.local.toml",
+        '[providers.nvidia]\nendpoint = "http://proxy.example.com/v1"\n',
+    )
+    with pytest.raises(DeadeyeError, match=r"proxy\.example\.com"):
+        config.endpoint(keys, "https://fallback")
+
+
 def test_endpoint_override_refuses_a_url_it_cannot_read(isolated_config) -> None:
     """A bracketed IPv6 literal that is never closed: `urlsplit` raises rather
     than returning a host, and that refusal is this reader's, named like every
