@@ -31,7 +31,7 @@ from . import config, sampling
 from .errors import DeadeyeError, EvidenceWriteError, did_not_answer
 from .evidence import build_envelope, ensure_writable, sha256_file, write_evidence
 from .intent import ReviewIntent, load_intent, redact_json_text
-from .prompt import build_prompt
+from .prompt import FRAME_TIMING_NOTE, build_prompt
 from .providers import MediaPayload, ProviderLimits, ReviewRequest
 from .result import parse_model_json, validate_result
 from .sampling import base64_wire_bytes, mime_for_suffix
@@ -399,8 +399,4 @@ def _media_summary(
 def _frame_timing_note(record: sampling.SamplingRecord) -> str:
     if not record.submitted_files or record.submitted_files[0][1] != "frame":
         return ""
-    return (
-        "Frames arrive in the order listed; an issue's at_frame index refers to "
-        "that order (0 = the first submitted frame), while at_seconds refers to "
-        "seconds from the clip's start."
-    )
+    return FRAME_TIMING_NOTE

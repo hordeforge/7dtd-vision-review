@@ -12,6 +12,13 @@ from .intent import ReviewIntent
 from .result import BASE_RUBRIC
 from .sampling import ClipMedia, flat_label_text
 
+FRAME_TIMING_NOTE = (
+    "Frames arrive in the order listed; an issue's at_frame index refers to "
+    "that order (0 = the first submitted frame), while at_seconds refers to "
+    "seconds from the clip's start."
+)
+"""How to read the frame attachments' timing; one text for both prompt routes."""
+
 
 def preview_media(media: ClipMedia | None) -> tuple[str, str]:
     """(media_summary, frame_timing_note) for a prompt rendered without a submission.
@@ -26,8 +33,7 @@ def preview_media(media: ClipMedia | None) -> tuple[str, str]:
         return f"a single muxed video file ({flat_label_text(media.video.name)})", ""
     return (
         f"{len(media.frames)} frame image(s) of the clip's {len(media.frames)} frames",
-        "Frames arrive in the order listed; an issue's at_frame index refers to "
-        "that order, while at_seconds refers to seconds from the clip's start.",
+        FRAME_TIMING_NOTE,
     )
 
 

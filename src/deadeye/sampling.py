@@ -200,6 +200,7 @@ def sample(
     the cap, refusing the submission outright where the frame sequence would
     have fit.
     """
+    messages: list[str] = []
     if media.video is not None and video_capable:
         size = file_size(media.video)
         # The budget names what the request carries, and the request carries
@@ -220,7 +221,7 @@ def sample(
                     f"{max_video_bytes}-byte video budget, and there are no "
                     "frames to sample instead; shorten or recompress the clip"
                 )
-            note = (
+            messages.append(
                 f"muxed video {flat_label_text(media.video.name)} is {size} bytes "
                 f"({figures}), over "
                 f"the provider's {max_video_bytes}-byte video budget; sampled frames instead"
@@ -233,8 +234,6 @@ def sample(
                 submitted_files=((str(media.video), "video"),),
                 note=f"submitted muxed video {flat_label_text(media.video.name)} ({size} bytes)",
             )
-    else:
-        note = ""
 
     frames = list(media.frames)
     available = len(frames)
@@ -249,7 +248,6 @@ def sample(
             "no frames are available to sample; the provider does not meet this "
             "capability"
         )
-    messages = [note] if note else []
     if max_frames is not None and available > max_frames:
         selected = _evenly_spaced(frames, max_frames)
         messages.append(

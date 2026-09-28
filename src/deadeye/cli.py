@@ -251,13 +251,10 @@ def main(argv: list[str] | None = None) -> int:
             finally:
                 os.close(devnull)
         return 141
-    except (DeadeyeError, ValueError) as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
-        return 1
-    except OSError as exc:
-        # An unreadable clip, intent, or evidence path must meet the same
-        # one-line refusal contract as every other failure, not a traceback:
-        # the OS message already names the path and the reason.
+    except (DeadeyeError, ValueError, OSError) as exc:
+        # One refusal contract for every failure. An unreadable clip, intent, or
+        # evidence path lands here too: the OS message already names the path
+        # and the reason, so a traceback would add nothing.
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
 

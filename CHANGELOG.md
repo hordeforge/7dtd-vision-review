@@ -76,6 +76,10 @@ left to be discovered by a failing parse downstream.
   while its author believes the file applied. A misspelled top-level key, a
   misspelled provider table, and a misspelled per-provider knob are all named
   in the error. Every documented key loads unchanged.
+- `deadeye prompt` on a frame clip now renders the same frame-timing note a
+  real review sends (`0 = the first submitted frame`), so a preview matches
+  the submission it previews. The review prompt itself is unchanged;
+  `prompt_version` still reads "2".
 
 ## [0.1.1] - 2026-09-20
 
