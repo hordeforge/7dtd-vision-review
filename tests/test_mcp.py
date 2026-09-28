@@ -851,6 +851,36 @@ def test_a_billed_review_the_provider_answered_nothing_usable_for_occupies_its_k
     assert "structural validation" in first["result"]["content"][0]["text"]
 
 
+def test_a_billed_review_the_adapter_found_unusable_occupies_its_key(tmp_path, monkeypatch) -> None:
+    """A refusal the adapter itself raises, after the provider answered, spends
+    the key like any other unusable answer.
+
+    The adapters' own post-submission refusals (no candidate, empty text, a
+    generation cut short) are `NoVerdictError` for this reason. A plain
+    `DeadeyeError` reads to the ledger as a request the provider never saw, and
+    the client's retry then pays a second time for the same bytes.
+    """
+    from deadeye import mcp
+    from deadeye.errors import NoVerdictError
+    from deadeye.providers.fake import FakeProvider
+
+    class UnusableProvider(FakeProvider):
+        def review(self, request):
+            self.requests.append(request)
+            raise NoVerdictError("provider 'fake' returned no candidate; no verdict was produced")
+
+    provider = UnusableProvider()
+    monkeypatch.setitem(mcp.PROVIDERS, "fake", lambda: provider)
+    arguments = _review_arguments(tmp_path, idempotency_key="job-47")
+
+    first = _call("tools/call", {"name": "review", "arguments": arguments})
+    second = _call("tools/call", {"name": "review", "arguments": arguments})
+
+    assert len(provider.requests) == 1, "the retry must not reach the provider a second time"
+    assert first["result"]["isError"] is True
+    assert first["result"] == second["result"]
+
+
 def test_a_billed_review_with_no_usable_verdict_leaves_no_envelope_to_replay(
     tmp_path, monkeypatch
 ) -> None:

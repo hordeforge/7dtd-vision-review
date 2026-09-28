@@ -288,6 +288,32 @@ required (`CONTRIBUTING.md`, "Changing a contract").
 - `build_body` in the gemini adapter passed an undefined `provider_name` where
   the provider's name belongs, so every gemini submission raised `NameError`
   while assembling its generation config.
+- A refusal the adapter itself raises after the provider answered now counts as
+  a spent submission, so an MCP client that retries it under the same
+  `idempotency_key` replays the first refusal instead of paying for the same
+  media twice. Before: "no candidate", "no text content", and a generation cut
+  short were plain `DeadeyeError`, which the idempotency ledger reads as a
+  request the provider never saw, leaving the key free to reuse. After: every
+  refusal raised past a successful submission is `NoVerdictError`, the type the
+  ledger already spent for a connection that died mid-body and for a verdict
+  the result schema rejected. Local refusals (no credential, an unusable config
+  knob, a bad endpoint override) still happen before anything is sent and are
+  still safe to resend. No envelope, schema, or result change.
+- A Gemini answer carrying no text is refused by the adapter, naming the
+  provider and, when the generation stopped at the output cap, the
+  `providers.gemini.max_output_tokens` setting that raises it. Before: the
+  empty string reached the result parser and surfaced as "invalid structure
+  (not JSON): Expecting value: line 1 column 1 (char 0)", which says nothing
+  about the provider having sent nothing. After: "provider 'gemini' returned
+  no text content (finishReason MAX_TOKENS); no verdict was produced; raise
+  providers.gemini.max_output_tokens if the generation was cut short by the
+  output cap". The exit code and the MCP `isError` flag are unchanged.
+- The non-finite-number walk on the provider boundary is depth-bounded like
+  the redaction walk beside it. `json.loads` accepts nesting thousands of
+  levels deep at the default recursion limit, so a hostile or malformed
+  envelope made the unbounded walk raise `RecursionError` in a caller that had
+  already been billed; a container past the bound is now null, the same rule
+  `redact` already applied.
 - A provider's error body was decoded as UTF-8 with `errors="replace"`, where
   the success body has always honored the charset the response declares. A
   `charset=latin-1` 429 or 5xx body therefore had every non-ASCII character of

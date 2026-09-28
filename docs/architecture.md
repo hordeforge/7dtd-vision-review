@@ -22,6 +22,16 @@ then disclosure, then submission, then structural validation, then evidence. A
 failure at any step raises one user-actionable message and preserves no
 partial verdict as a completed review.
 
+**A refusal is classified by where it falls, not by what it says.** Anything
+raised before the submission reaches the provider is a plain `DeadeyeError`:
+nothing was sent, so a caller may resend it for free. Anything raised after
+the provider answered is a `NoVerdictError`: the media crossed the network and
+the attempt is billed, so a transport holding an `idempotency_key` records
+the call as spent and replays the refusal rather than paying twice for the
+same bytes. That split runs through the shared envelope readers in
+`providers/base.py` and through each adapter's own refusals, not only the
+structural validation in `review.py`.
+
 ## Boundaries that must not blur
 
 **The prompt is built for you, not by you.** The gateway assembles the

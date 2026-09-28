@@ -14,6 +14,15 @@ literal to Python as an `int` of any size (`tomllib` included), and
 represent rather than answering. Every number arriving from a parse boundary
 is admitted through it, so an unparseable size is refused with the message
 that names the field instead of unwinding the refusal path on a traceback.
+
+The walk is depth-bounded for the same reason `redact`'s is. `json.loads`
+accepts nesting thousands of levels deep at the default recursion limit,
+while a recursive Python walk over that tree runs out of stack and raises
+`RecursionError` past its caller. On the provider boundary the caller is
+`_http.post_json`, which maps that to a refusal; in `redact_json_text` the
+caller is the evidence write for an already-billed submission. A container
+past the limit is replaced by null, for the reason `redact` gives: a walk
+that cannot finish cannot prove what the subtree holds.
 """
 
 from __future__ import annotations
@@ -21,6 +30,13 @@ from __future__ import annotations
 import math
 from typing import Any
 
+# How deep the walk descends before it stops. Real provider payloads (usage
+# metadata, a model verdict) are three or four levels deep, so this is far
+# above any honest structure. It matches `redaction.MAX_REDACT_DEPTH`, and the
+# two must match: `redact_json_text` runs this over `redact`'s output, so a
+# bound here that were lower than that one would truncate a document the
+# redactor had already accepted whole.
+MAX_WALK_DEPTH = 64
 
 def finite_float(value: Any) -> float | None:
     """`value` as a finite float, or None when it is not one.
@@ -42,12 +58,16 @@ def finite_float(value: Any) -> float | None:
     return number if math.isfinite(number) else None
 
 
-def strict_json_numbers(value: Any) -> Any:
+def strict_json_numbers(value: Any, _depth: int = 0) -> Any:
     """`value` with every non-finite float leaf replaced by None."""
     if isinstance(value, float) and not math.isfinite(value):
         return None
     if isinstance(value, dict):
-        return {key: strict_json_numbers(item) for key, item in value.items()}
+        if _depth >= MAX_WALK_DEPTH:
+            return None
+        return {key: strict_json_numbers(item, _depth + 1) for key, item in value.items()}
     if isinstance(value, list):
-        return [strict_json_numbers(item) for item in value]
+        if _depth >= MAX_WALK_DEPTH:
+            return None
+        return [strict_json_numbers(item, _depth + 1) for item in value]
     return value

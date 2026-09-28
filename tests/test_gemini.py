@@ -148,14 +148,35 @@ def test_a_refused_review_closes_the_error_body(monkeypatch, http_opener) -> Non
 
 def test_a_null_content_block_does_not_crash_the_adapter(monkeypatch, http_opener) -> None:
     """Gemini can answer `content: null` under a safety block; the adapter
-    reads it as an empty candidate instead of dying on AttributeError."""
+    refuses it by name instead of dying on AttributeError.
+
+    Handing the empty text on instead would reach the result parser as an
+    empty string, whose JSONDecodeError reads as "invalid structure (not
+    JSON): Expecting value: line 1 column 1 (char 0)" and never mentions the
+    provider that sent nothing. The refusal is `NoVerdictError` because the
+    submission was already billed when the empty candidate arrived."""
     import json as json_module
 
     monkeypatch.setenv("GEMINI_API_KEY", "k")
     envelope = {"candidates": [{"finishReason": "STOP", "content": None}]}
     http_opener(lambda request, timeout: _FakeResponse(json_module.dumps(envelope).encode()))
-    response = GeminiProvider().review(_review_request())
-    assert response.raw_text == ""
+    with pytest.raises(NoVerdictError, match="returned no text content"):
+        GeminiProvider().review(_review_request())
+
+
+def test_a_generation_cut_short_by_the_output_cap_names_the_knob(monkeypatch, http_opener) -> None:
+    """An empty answer that stopped at the output cap is a setting the
+    operator can change, so the refusal names the setting instead of leaving
+    it to be guessed from a JSON parse complaint."""
+    import json as json_module
+
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    envelope = {
+        "candidates": [{"finishReason": "MAX_TOKENS", "content": {"parts": []}}],
+    }
+    http_opener(lambda request, timeout: _FakeResponse(json_module.dumps(envelope).encode()))
+    with pytest.raises(NoVerdictError, match="max_output_tokens"):
+        GeminiProvider().review(_review_request())
 
 
 @pytest.mark.parametrize(

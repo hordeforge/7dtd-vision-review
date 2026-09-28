@@ -31,7 +31,7 @@ import base64
 import urllib.parse
 
 from .. import config
-from ..errors import DeadeyeError, no_verdict
+from ..errors import DeadeyeError, NoVerdictError, no_verdict
 from ..result import BASE_RUBRIC, RESULT_KEYS
 from ._http import post_json
 from .base import (
@@ -165,7 +165,7 @@ class GeminiProvider(CredentialedProvider):
             )
         candidate = candidates[0]
         if not isinstance(candidate, dict):
-            raise DeadeyeError(
+            raise NoVerdictError(
                 "provider 'gemini' returned an invalid candidate; no verdict was produced"
             )
         content = response_object(
@@ -182,6 +182,24 @@ class GeminiProvider(CredentialedProvider):
         finish = candidate.get("finishReason")
         if finish and finish not in ("STOP", "MAX_TOKENS"):
             raise no_verdict(self.name, f"ended the response early (finishReason {finish})")
+        if not text:
+            # Named here rather than left to the result parser: an empty
+            # candidate reaches `parse_model_json` as `""`, whose JSONDecodeError
+            # reads as "invalid structure (not JSON): Expecting value: line 1
+            # column 1" and says nothing about the provider having sent no
+            # text at all. A generation stopped at the output cap is the usual
+            # cause, and it is a setting the operator can change.
+            raise NoVerdictError(
+                "provider 'gemini' returned no text content"
+                + (f" (finishReason {finish})" if finish else "")
+                + "; no verdict was produced"
+                + (
+                    "; raise providers.gemini.max_output_tokens if the generation "
+                    "was cut short by the output cap"
+                    if finish == "MAX_TOKENS"
+                    else ""
+                )
+            )
         usage = envelope.get("usageMetadata")
         return ReviewResponse(
             raw_text=text,

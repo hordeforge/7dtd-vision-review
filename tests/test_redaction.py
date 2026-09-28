@@ -10,6 +10,7 @@ from typing import Any
 
 from deadeye.evidence import build_envelope
 from deadeye.intent import ReviewIntent
+from deadeye.json_safe import MAX_WALK_DEPTH, strict_json_numbers
 from deadeye.redaction import (
     MAX_REDACT_DEPTH,
     SENSITIVE_KEY_PARTS,
@@ -64,6 +65,51 @@ def test_redact_stops_descending_at_the_depth_bound() -> None:
     assert levels == MAX_REDACT_DEPTH
     assert node is None
     assert "secret" not in json.dumps(cleaned)
+
+
+def test_the_number_walk_stops_at_the_same_depth_the_redactor_does() -> None:
+    # The provider boundary calls `strict_json_numbers` on whatever
+    # `json.loads` accepted, and `json.loads` accepts nesting thousands of
+    # levels deep at the default recursion limit. An unbounded recursive walk
+    # over that tree raised `RecursionError` in a caller that had already been
+    # billed, so the walk carries the same bound `redact` does, and a
+    # container past it is null rather than a truncated crash.
+    deep: Any = float("nan")
+    for _ in range(MAX_WALK_DEPTH + 4):
+        deep = {"nested": deep}
+    sanitized = strict_json_numbers(deep)
+    levels = 0
+    node = sanitized
+    while isinstance(node, dict) and "nested" in node:
+        node = node["nested"]
+        levels += 1
+    assert levels == MAX_WALK_DEPTH
+    assert node is None
+    # The two bounds cannot drift: `redact_json_text` runs this walk over
+    # `redact`'s output, so a lower bound here would truncate a document the
+    # redactor had already accepted whole.
+    assert MAX_WALK_DEPTH == MAX_REDACT_DEPTH
+
+
+def test_the_number_walk_leaves_an_ordinary_envelope_untouched() -> None:
+    # The bound is far above any real payload, so nothing honest is lost: a
+    # provider usage block and a model verdict are three or four levels deep.
+    envelope = {
+        "usageMetadata": {
+            "promptTokenCount": 12,
+            "candidatesTokenCount": float("inf"),
+            "modelVersion": "gemini-2.5-flash",
+        },
+        "candidates": [{"content": {"parts": [{"text": "{}"}], "finishReason": "STOP"}}],
+    }
+    assert strict_json_numbers(envelope) == {
+        "usageMetadata": {
+            "promptTokenCount": 12,
+            "candidatesTokenCount": None,
+            "modelVersion": "gemini-2.5-flash",
+        },
+        "candidates": [{"content": {"parts": [{"text": "{}"}], "finishReason": "STOP"}}],
+    }
 
 
 def test_the_sensitive_key_match_is_case_folded_not_normalized() -> None:
