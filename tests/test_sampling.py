@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from deadeye.errors import DeadeyeError
-from deadeye.sampling import ClipMedia, discover, mime_for_suffix, sample
+from deadeye.sampling import MIME_BY_SUFFIX, ClipMedia, discover, mime_for_suffix, sample
 
 
 def test_discover_reads_a_playtest_clip_directory(clip_dir_with_video) -> None:
@@ -283,3 +283,17 @@ def test_a_video_that_cannot_be_inspected_is_refused_with_its_path(tmp_path) -> 
     (clip / "clip.mp4").unlink()
     with pytest.raises(DeadeyeError, match=r"cannot inspect file .*clip\.mp4"):
         sample(media, max_frames=8, video_capable=True, max_video_bytes=None)
+
+
+def test_every_provider_accepts_every_format_discovery_accepts() -> None:
+    """The accepted-suffix table has one home, `MIME_BY_SUFFIX`, and the
+    provider registry is the one place a new adapter is added. A provider
+    carrying a hand-kept list diverges from discovery the moment a format is
+    added, and the offline lane stops standing in for a real submission."""
+    from deadeye.surface import PROVIDERS
+
+    for name, constructor in sorted(PROVIDERS.items()):
+        accepted = set(constructor().limits.suffixes)
+        assert set(MIME_BY_SUFFIX) <= accepted, f"{name} refuses a format discovery accepts"
+        for suffix in accepted:
+            assert mime_for_suffix(suffix) is not None

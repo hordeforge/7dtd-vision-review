@@ -101,7 +101,10 @@ Providers differ in what they can ingest. The adapter declares its limits
 (`ProviderLimits`); the sampling layer asks before submitting and records what
 it did. A muxed video goes inline when the provider takes video and the file
 fits; otherwise the frame sequence is sampled down with even spacing, always
-keeping the first and last frame. The evidence's `sampling` block names
+keeping the first and last frame. The budget that decides is the whole
+request's, prompt included, so a video that clears the provider's video
+budget and still will not fit beside the prompt is replaced by the frame
+sequence rather than refused outright. The evidence's `sampling` block names
 exactly which files went and what was dropped, so a review that saw only eight
 of forty frames says so. A provider that cannot ingest actual media at all is
 refused as an adapter, not worked around.

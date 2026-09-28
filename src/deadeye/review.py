@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import json
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -31,7 +31,7 @@ from . import config, sampling
 from .errors import DeadeyeError, EvidenceWriteError, did_not_answer
 from .evidence import build_envelope, ensure_writable, sha256_file, write_evidence
 from .intent import ReviewIntent, load_intent, redact_json_text
-from .prompt import FRAME_TIMING_NOTE, build_prompt_parts
+from .prompt import FRAME_TIMING_NOTE, PromptParts, build_prompt_parts
 from .providers import MediaPayload, ProviderLimits, ReviewRequest
 from .result import parse_model_json, validate_result
 from .sampling import base64_wire_bytes, mime_for_suffix
@@ -95,7 +95,36 @@ def run_review(
             f"provider {provider.name!r} is not configured: {provider.configuration_hint()}"
         )
 
-    submission = _prepare_submission(media, intent, provider.limits, provider_name=provider.name)
+    # The sampling decision and the whole-request budget are settled here,
+    # before the disclosure, so what the operator is told about leaving the
+    # machine is what the provider is actually sent.
+    submission, parts = _assemble(
+        media,
+        intent,
+        provider.limits,
+        provider_name=provider.name,
+        video_capable=provider.limits.accepts_video,
+    )
+    if (
+        _took_video(submission)
+        and media.frames
+        and _over_budget(_request_wire_bytes(submission, parts), provider.limits)
+    ):
+        # `sampling.sample` already falls back to the frame sequence when the
+        # video is over the provider's own video bound. This is the same
+        # decision against the bound that actually decides, the whole request
+        # with the prompt riding it: without it a video that misses the
+        # request cap by the size of the prompt is refused outright, with the
+        # frames that would have fitted sitting in the same directory.
+        frames = _note_frames_instead(
+            _prepare_submission(
+                media, intent, provider.limits, provider_name=provider.name, video_capable=False
+            ),
+            media,
+        )
+        frame_parts = _prompt_parts(frames, intent)
+        if not _over_budget(_request_wire_bytes(frames, frame_parts), provider.limits):
+            submission, parts = frames, frame_parts
 
     if notify is not None:
         notify(f"provider: {provider.name} ({provider.endpoint_mode})")
@@ -109,16 +138,13 @@ def run_review(
             "governed by that provider's terms, so send only assets you may disclose"
         )
 
-    media_summary = _media_summary(submission.record, submission.total_bytes)
-    frame_note = _frame_timing_note(submission.record)
-    parts = build_prompt_parts(intent, media_summary=media_summary, frame_timing_note=frame_note)
     # The budget names the whole request, and both prompt halves ride the same
     # request as the media: count their encoded bytes too. A media-only total
     # waves through a submission the provider refuses with 400 after the full
     # upload has already crossed the network.
     _enforce_wire_budget(
         submission.total_bytes,
-        submission.wire_bytes + _json_string_bytes(parts.system) + _json_string_bytes(parts.user),
+        _request_wire_bytes(submission, parts),
         provider.limits.max_bytes,
         provider.name,
         detail="as submitted base64, prompt included",
@@ -239,6 +265,60 @@ def _payload(path: str, kind: sampling.MediaKind, data: bytes) -> MediaPayload:
     )
 
 
+def _assemble(
+    media: sampling.ClipMedia,
+    intent: ReviewIntent,
+    limits: ProviderLimits,
+    *,
+    provider_name: str,
+    video_capable: bool,
+) -> tuple[_Submission, PromptParts]:
+    """One candidate submission: the media it sends, and the prompt riding it."""
+    submission = _prepare_submission(
+        media, intent, limits, provider_name=provider_name, video_capable=video_capable
+    )
+    return submission, _prompt_parts(submission, intent)
+
+
+def _prompt_parts(submission: _Submission, intent: ReviewIntent) -> PromptParts:
+    """The reviewer instruction for a planned submission, from what it sends."""
+    return build_prompt_parts(
+        intent,
+        media_summary=_media_summary(submission.record, submission.total_bytes),
+        frame_timing_note=_frame_timing_note(submission.record),
+    )
+
+
+def _took_video(submission: _Submission) -> bool:
+    return bool(submission.files) and submission.files[0][1] == "video"
+
+
+def _request_wire_bytes(submission: _Submission, parts: PromptParts) -> int:
+    """What the request carries on the wire: encoded media plus encoded prompt."""
+    return submission.wire_bytes + _json_string_bytes(parts.system) + _json_string_bytes(parts.user)
+
+
+def _over_budget(wire_bytes: int, limits: ProviderLimits) -> bool:
+    """Whether a whole request is over what the provider accepts; no refusal."""
+    return limits.max_bytes is not None and wire_bytes > limits.max_bytes
+
+
+def _note_frames_instead(submission: _Submission, media: sampling.ClipMedia) -> _Submission:
+    """Record why the muxed video was dropped for the frame sequence."""
+    video = media.video
+    if video is None:  # unreachable: only called for a plan that took the video
+        raise DeadeyeError(f"{media.source} holds no muxed video to replace")
+    reason = (
+        f"muxed video {sampling.flat_label_text(video.name)} is "
+        f"{sampling.file_size(video)} bytes, over the provider's whole-request "
+        "budget once the prompt rides with it; sampled frames instead"
+    )
+    return replace(
+        submission,
+        record=replace(submission.record, note=f"{reason}; {submission.record.note}"),
+    )
+
+
 def _evidence_write_fault(exc: DeadeyeError, document: dict[str, Any]) -> EvidenceWriteError:
     """Wrap a failed evidence write so the billed verdict survives the refusal."""
     return EvidenceWriteError(
@@ -271,12 +351,14 @@ def _prepare_submission(
     limits: ProviderLimits,
     *,
     provider_name: str,
+    video_capable: bool,
 ) -> _Submission:
     """The local-only phase before anything is contacted.
 
     Reference checks, sampling to the provider's declared limits, hashing, and
     the total-size budget all happen here, so every refusal is cheap and no
-    byte is hashed twice.
+    byte is hashed twice. `video_capable` is the caller's decision to consider
+    the muxed video at all; `False` plans the frame sequence beside it.
     """
     for reference in intent.references:
         if not reference.path.is_file():
@@ -293,7 +375,7 @@ def _prepare_submission(
     record = sampling.sample(
         media,
         max_frames=limits.max_frames,
-        video_capable=limits.accepts_video,
+        video_capable=video_capable,
         max_video_bytes=limits.max_video_bytes,
         reserved_wire_bytes=sum(base64_wire_bytes(size) for size in reference_sizes),
     )

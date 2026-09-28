@@ -723,3 +723,85 @@ def test_an_over_budget_request_is_refused_before_any_attachment_is_read(
             intent_path=intent_path,
             allow_network=True,
         )
+
+
+class _WholeRequestBudgetFake(FakeProvider):
+    """A request budget that fits the muxed video's own media and nothing else.
+
+    `max_video_bytes` stays the fake's generous default, so the sampling layer
+    picks the video; `max_bytes` is where the test puts it, which is the only
+    shape in which the whole-request budget is what refuses.
+    """
+
+    def __init__(self, max_bytes: int) -> None:
+        self._max_bytes = max_bytes
+        super().__init__()
+
+    @property
+    def limits(self) -> ProviderLimits:
+        declared = self._limits
+        return ProviderLimits(
+            suffixes=declared.suffixes,
+            max_bytes=self._max_bytes,
+            max_frames=declared.max_frames,
+            accepts_video=declared.accepts_video,
+            max_video_bytes=declared.max_video_bytes,
+        )
+
+
+_VIDEO_RAW_BYTES = 256 * 1024
+_VIDEO_WIRE_BYTES = 4 * ((_VIDEO_RAW_BYTES + 2) // 3)
+_FRAMES_WIRE_BYTES = 64  # the fake's 8 sampled frames of 4 raw bytes each
+
+
+def _prompt_wire_bytes(clip_dir, intent_path) -> int:
+    """What the prompt costs on the wire, measured from a real submission."""
+    from deadeye.review import _json_string_bytes
+
+    provider = FakeProvider()
+    run_review(clip_dir, provider=provider, intent_path=intent_path, allow_network=True)
+    request = provider.requests[-1]
+    return _json_string_bytes(request.system_prompt) + _json_string_bytes(request.prompt)
+
+
+def test_a_video_that_only_the_prompt_pushes_over_falls_back_to_the_frames(
+    clip_dir, intent_path
+) -> None:
+    """The muxed video clears the provider's own video budget and the frames
+    beside it are a fraction of its size, so the whole-request cap is the only
+    thing that refuses, and only by the prompt riding beside the media. A
+    gateway that picks the video and then refuses outright throws away a
+    review the frames in the same directory would have carried; the evidence
+    has to say which bytes were actually sent."""
+    (clip_dir / "clip.mp4").write_bytes(b"\x00" * _VIDEO_RAW_BYTES)
+    # One byte below what the video plus the prompt costs, and exactly what
+    # the sampled frames plus that same prompt cost.
+    provider = _WholeRequestBudgetFake(
+        _VIDEO_WIRE_BYTES + _prompt_wire_bytes(clip_dir, intent_path) - _FRAMES_WIRE_BYTES
+    )
+    envelope = run_review(clip_dir, provider=provider, intent_path=intent_path, allow_network=True)
+
+    submitted = {payload.kind for payload in provider.requests[-1].media}
+    assert submitted == {"frame"}, "the video must not ride the request that was sent"
+    assert envelope["sampling"]["frames_submitted"] == 8
+    assert "sampled frames instead" in envelope["sampling"]["note"]
+    assert envelope["media"][0]["path"].endswith(".png")
+    assert envelope["disclosure"]["total_bytes"] == 8 * 4
+
+
+def test_a_video_only_the_prompt_pushes_over_still_refuses_without_frames(
+    clip_dir_with_video, intent_path
+) -> None:
+    """The fallback needs frames to fall back to. With none beside the video
+    the honest answer is the refusal, and it is raised before the submission
+    rather than after a billed upload the provider would reject."""
+    for index in range(10):
+        (clip_dir_with_video / f"frame-{index:04d}.png").unlink()
+    provider = _WholeRequestBudgetFake(
+        20 + _prompt_wire_bytes(clip_dir_with_video, intent_path) - 1
+    )
+    with pytest.raises(DeadeyeError, match="prompt included"):
+        run_review(
+            clip_dir_with_video, provider=provider, intent_path=intent_path, allow_network=True
+        )
+    assert provider.requests == []
