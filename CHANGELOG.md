@@ -17,6 +17,11 @@ left to be discovered by a failing parse downstream.
 
 ### Added
 
+- Property-based fuzz targets for the response-body and prompt-flattening
+  boundaries: a raw provider body must decode under its declared charset or
+  UTF-8 and refuse by name otherwise, a sanitized envelope must re-serialize
+  for a strict JSON reader, and a filename must not survive flattening with
+  a line separator in it. Internal only; no shipped behavior changes.
 - The MCP `review` tool takes an optional `idempotency_key`. A client that
   retries its own call with the same key and the same arguments now receives
   the first attempt's envelope without submitting the media a second time.
@@ -91,6 +96,12 @@ left to be discovered by a failing parse downstream.
   result and envelope without submitting again. A refusal that happens before
   the submission (missing clip, occupied evidence path, no consent) still
   leaves the key free, and the CLI is unchanged.
+- A provider answering `Content-Type: application/json; charset=undefined`
+  crashed the review with a bare `UnicodeError` past the adapters' fault
+  mapping, after the submission had already been made. A declared charset
+  that resolves to a codec raising anything under `UnicodeError` now takes
+  the same fall back to UTF-8 as a charset this interpreter does not know,
+  and refuses by name if the body decodes under neither.
 - `deadeye doctor --json` no longer hides a malformed config. A config that
   fails to parse makes every provider report `unavailable`, so the array on
   stdout was byte-identical to a missing API key; the fault now rides stderr

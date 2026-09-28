@@ -145,16 +145,16 @@ No run ledger exists (noted for readiness; o11y-review owns log structure).
 **Information disclosure.** Key leakage paths (stdout, evidence, raw
 response) all funnel through one name-based backstop — T3. Provider error
 bodies (≤300 chars) surface in refusal messages
-(`providers/_http.py:135-162`). `--intent-text` content is visible in process
+(`providers/_http.py:140-167`). `--intent-text` content is visible in process
 listings (authored context, not credentials).
 
 **Denial of service.** Local and bounded: byte budget enforced before any
 read-for-submission (`review.py:321-330`), frame caps via sampling
-(`sampling.py:243-252`), default timeout 120s (`config.py:43`, resolved at
+(`sampling.py:238-267`), default timeout 120s (`config.py:43`, resolved at
 `surface.py:58-75`), no retry loops. That default is enforced as a whole-call
 monotonic deadline rather than a per-socket-read timeout, so the response
 reader also carries an overall deadline for the whole submission
-(`providers/_http.py:104-133`): a body that keeps trickling bytes ends the
+(`providers/_http.py:109-138`): a body that keeps trickling bytes ends the
 read instead of holding the long-lived MCP server open. Residual cost
 amplification via intent size is T4. There is no remote trigger for resource
 exhaustion; the CLI does nothing until a human runs it.
@@ -174,7 +174,7 @@ the verdict rather than over the process.
 | Header-only credential transport | URL/access-log leakage (I) | `gemini.py:132-134`, `nvidia.py:117-119` |
 | Name-based redaction backstop on params, usage, raw response | secret landing in evidence/stdout (I) | `intent.py:300-327` (`redact`), `intent.py:329-350` (`redact_json_text`); applied at `evidence.py:128,138`, `review.py:188,214`; pinned by `tests/test_intent.py:202-295` |
 | Vendor payload validated, refuse-not-coerce | hostile/malformed responses (T) | `result.py:104-134,137-287`; adapters extract text only |
-| Local limits before submission: suffix allowlist, byte budget, frame cap | oversized/unexpected uploads (D) | `base.py:26-39`; `sampling.py:80-107,180-259`; `review.py:264-271,292-293,307` |
+| Local limits before submission: suffix allowlist, byte budget, frame cap | oversized/unexpected uploads (D) | `base.py:26-39`; `sampling.py:80-107,179-267`; `review.py:264-271,292-293,307` |
 | Bounded HTTP success (8 MiB) and error-body (300-character) reads; socket closed on the fault path | unbounded provider payload retained in the MCP process (D) | `providers/_http.py` `_read_response_body` (`109-124`) / `_read_fault_body` (`127-154`) |
 | MCP stdio frames capped at 1 MiB, discarded through the next newline | unbounded JSON-RPC line on the long-lived server (D) | `mcp.py` `_MAX_FRAME_BYTES` |
 | Intent document capped at 64 KiB at the read, then per-field caps | huge intent file filling the process (D) | `intent.py` `MAX_INTENT_BYTES` |
@@ -182,9 +182,9 @@ the verdict rather than over the process.
 | Endpoint override validated: https only, plain http loopback-only, refused before submission | cleartext credential egress via config (part of T1) | `config.py` `endpoint()`; pinned by `tests/test_config.py` endpoint tests |
 | Config values validated at resolution: unknown `default_provider` and unusable timeout refused with named errors | silent wrong-provider / wrong-timeout operation (misconfiguration) | `surface.py` `_resolve_provider`/`_resolve_timeout`; pinned by `tests/test_config.py`, `tests/test_mcp.py` |
 | Doctor reports presence only, never contacts a provider | capability probing used as an oracle (I) | `base.py:89-95`; `cli.py:302-344` |
-| Author statement in the user turn, fenced, declared data-only by the system instruction, and any field carrying a fence marker refused | intent text escaping the author-statement block and posing as instruction (part of T6) | `prompt.py` `build_prompt_parts`; `intent.py:70-71` (`_carries_fence_marker`), applied at `intent.py:133,155,192,203` |
-| Reviewer instruction sent as the provider's system instruction, never concatenated into the authored turn | intent text occupying or restating the instruction's slot (part of T6) | `gemini.py` `build_body` (`systemInstruction`); `nvidia.py` `build_body` (`role: system`) |
-| Filenames flattened to printable characters before they enter prompt text | a crafted filename forging extra label or instruction lines (part of T6) | `sampling.py:264-274` (`flat_label_text`); used at `prompt.py:52,158` |
+| Author statement in the user turn, fenced, declared data-only by the system instruction, and any field carrying a fence marker refused | intent text escaping the author-statement block and posing as instruction (part of T6) | `prompt.py:69` (`build_prompt_parts`); `intent.py:82` (`_carries_fence_marker`), applied at `intent.py:145,167,205,215` |
+| Reviewer instruction sent as the provider's system instruction, never concatenated into the authored turn | intent text occupying or restating the instruction's slot (part of T6) | `gemini.py:196` (`build_body`, `systemInstruction`); `nvidia.py:180` (`build_body`, `role: system`) |
+| Filenames flattened to printable characters before they enter prompt text | a crafted filename forging extra label or instruction lines (part of T6) | `sampling.py:287-297` (`flat_label_text`); used at `prompt.py:62,164` |
 | MCP control flags must be literal JSON booleans | a client string `"false"` becoming `force` or `keep_raw_response` (T/R/I) | `mcp.py:120-135` (`_optional_boolean`) |
 | Prompt version and rubric version recorded on every submission | an answer attributed to an instruction the model never received (R) | `result.py` `PROMPT_VERSION`; evidence records the versions |
 | Zero runtime dependencies, bandit (S) lint rules armed | supply-chain surface | `pyproject.toml` |

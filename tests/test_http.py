@@ -247,6 +247,28 @@ def test_an_unknown_declared_charset_falls_back_to_utf8(http_opener) -> None:
     assert envelope["modelVersion"] == "m"
 
 
+def test_a_declared_charset_whose_codec_raises_is_a_fault_not_a_crash(http_opener) -> None:
+    """`charset=undefined` resolves to a codec whose decode raises plain
+    UnicodeError, which is neither a UnicodeDecodeError nor a LookupError. It
+    must take the same fall-back-to-UTF-8 path as a codec that is not known
+    at all, not escape as a bare traceback past the fault mapping after a
+    billed submission."""
+
+    def answering_open(request, timeout):
+        return _CharsetResponse(b'{"modelVersion": "m"}', "application/json; charset=undefined")
+
+    http_opener(answering_open)
+    envelope = post_json(
+        "gemini",
+        "https://generativelanguage.googleapis.com/v1beta/models/m:generateContent",
+        body={},
+        headers={"x-goog-api-key": "k"},
+        timeout_seconds=1.0,
+        credential_env="GEMINI_API_KEY",
+    )
+    assert envelope["modelVersion"] == "m"
+
+
 def test_a_trickling_response_body_is_cut_off_at_the_overall_deadline(
     http_opener, monkeypatch
 ) -> None:
