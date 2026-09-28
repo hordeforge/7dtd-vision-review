@@ -76,11 +76,11 @@ MAX_TOP_P = 1.0
 def generation_settings() -> dict[str, object]:
     """The generation parameters one submission sends, resolved from configuration.
 
-    The one home for these four values, read by `build_body` when it builds
-    the request and by the evidence envelope when it records the run, so the
-    parameters a review is attributed to are the parameters it was sent with
-    rather than a second reading of the same configuration that could differ
-    from the request between the two.
+    Read once per submission: the core resolves it before building the request,
+    `build_body` sends the mapping it was handed, and the evidence envelope
+    records that same mapping. Two reads of the same configuration are two
+    answers to one question, and the config cache reloads on a source-file
+    change, so the second could differ from the request that was sent.
     """
     return {
         "max_tokens": int_setting("nvidia", "max_tokens", DEFAULT_MAX_TOKENS, minimum=1),
@@ -234,6 +234,6 @@ def build_body(request: ReviewRequest) -> dict[str, object]:
     return {
         "messages": messages,
         "model": request.model,
-        **generation_settings(),
+        **request.generation,
         "stream": False,
     }

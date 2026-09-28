@@ -120,11 +120,11 @@ _RESPONSE_SCHEMA: dict[str, object] = {
 def generation_settings() -> dict[str, object]:
     """The `generationConfig` one submission sends, resolved from configuration.
 
-    The one home for these values, read by `build_body` when it builds the
-    request and by the evidence envelope when it records the run, so the
-    parameters a review is attributed to are the parameters it was sent with
-    rather than a second reading of the same configuration that could differ
-    from the request between the two.
+    Read once per submission: the core resolves it before building the request,
+    `build_body` sends the mapping it was handed, and the evidence envelope
+    records that same mapping. Two reads of the same configuration are two
+    answers to one question, and the config cache reloads on a source-file
+    change, so the second could differ from the request that was sent.
     """
     return {
         "response_mime_type": "application/json",
@@ -279,7 +279,7 @@ def build_body(request: ReviewRequest) -> dict[str, object]:
         )
     body: dict[str, object] = {
         "contents": [{"role": "user", "parts": parts}],
-        "generationConfig": generation_settings(),
+        "generationConfig": request.generation,
     }
     if request.system_prompt:
         body["systemInstruction"] = {"parts": [{"text": request.system_prompt}]}

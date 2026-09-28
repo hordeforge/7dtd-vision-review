@@ -96,7 +96,9 @@ because an endpoint that echoes a request it refused would otherwise put the
 key on stderr; and an `endpoint` override carrying userinfo is refused
 without quoting the value, for the same reason. A provider usage block is
 redacted with the full sensitive-name list plus an allowlist of the billing
-counters, so `totalTokenCount` survives and `access_token` does not.
+counters, so `totalTokenCount` survives and `access_token` does not. The
+allowlist matches whole names, not fragments, so a key that merely contains a
+billing name (`access_token_total_tokens`) is dropped with the rest.
 
 **Text is not ASCII by construction.** A model's prose, an author's intent, and
 a filename are all non-ASCII by nature, and every encoding decision in the
@@ -149,7 +151,10 @@ fits; otherwise the frame sequence is sampled down with even spacing, always
 keeping the first and last frame. The budget that decides is the whole
 request's, prompt included, so a video that clears the provider's video
 budget and still will not fit beside the prompt is replaced by the frame
-sequence rather than refused outright. The evidence's `sampling` block names
+sequence rather than refused outright. The frame path spends the same budget
+the same way: a frame sequence that will not fit is sampled down to the
+largest even-spaced run that will, and only a clip no sample can bring under
+the cap is refused. The evidence's `sampling` block names
 exactly which files went and what was dropped, so a review that saw only eight
 of forty frames says so. The record also carries each submitted frame's
 position in the clip's own frame order, so an issue's `at_frame` resolves to a

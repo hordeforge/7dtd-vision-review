@@ -68,13 +68,18 @@ def redact(
     replaced by null, because a walk that cannot finish cannot prove the
     subtree carries no credential.
 
-    `exceptions` are folded substrings that are never treated as sensitive.
-    They exist for one caller: a provider's usage block reports its cost as
-    `totalTokenCount` and friends, so the usage path cannot drop every
-    token-shaped key, and dropping the whole `token` part instead is what
-    lets `access_token`, `id_token`, and `refresh_token` through a backstop
-    meant to catch them. An allowlist of the billing names keeps the counts
-    and closes the rest.
+    `exceptions` are folded key names that are never treated as sensitive,
+    matched in full rather than as substrings. They exist for one caller: a
+    provider's usage block reports its cost as `totalTokenCount` and friends,
+    so the usage path cannot drop every token-shaped key, and dropping the
+    whole `token` part instead is what lets `access_token`, `id_token`, and
+    `refresh_token` through a backstop meant to catch them. An allowlist of
+    the billing names keeps the counts and closes the rest.
+
+    Whole-name matching is what keeps the allowlist from reopening the hole
+    it closes: every billing name is a complete key (`totalTokenCount`,
+    `prompt_tokens`), so a key that merely contains one (`access_token_total_tokens`)
+    is still a credential-shaped key and is still dropped.
     """
     if isinstance(value, dict):
         if _depth >= MAX_REDACT_DEPTH:
@@ -109,7 +114,11 @@ def _is_sensitive_key(key: str, parts: tuple[str, ...], exceptions: tuple[str, .
     # ASCII key cannot hide one and skips the per-character category walk,
     # which is the inner loop of every redacted document.
     folded = key.casefold() if key.isascii() else _strip_format_characters(key).casefold()
-    if any(exception in folded for exception in exceptions):
+    # Whole-name, not substring: `parts` below is a substring test (a key
+    # spelled `x-api-key` is a credential), but `exceptions` is an allowlist
+    # and a substring test there is a hole rather than a convenience. Every
+    # billing name is a complete key, so exact matching keeps them all.
+    if folded in exceptions:
         return False
     return folded == "key" or any(part in folded for part in parts)
 

@@ -24,6 +24,7 @@ from deadeye.providers.nvidia import (
     DEFAULT_MODEL,
     NvidiaProvider,
     build_body,
+    generation_settings,
 )
 
 pytestmark = pytest.mark.usefixtures("isolated_config")
@@ -48,7 +49,13 @@ def test_credential_presence_never_contacts_the_provider(monkeypatch) -> None:
 
 def test_review_without_credential_refuses_locally(monkeypatch) -> None:
     monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
-    request = ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0)
+    request = ReviewRequest(
+        prompt="p",
+        media=(),
+        model="m",
+        timeout_seconds=1.0,
+        generation=generation_settings(),
+    )
     with pytest.raises(DeadeyeError, match="no credential"):
         NvidiaProvider().review(request)
 
@@ -68,7 +75,11 @@ def test_the_request_body_carries_frames_as_data_urls_never_paths() -> None:
     )
     body = build_body(
         ReviewRequest(
-            prompt="review this", media=(frame, reference), model="m", timeout_seconds=1.0
+            prompt="review this",
+            media=(frame, reference),
+            model="m",
+            timeout_seconds=1.0,
+            generation=generation_settings(),
         )
     )
     content = body["messages"][0]["content"]
@@ -146,12 +157,28 @@ def test_an_attachment_name_carrying_a_fence_marker_is_refused_before_submission
         data=b"",
     )
     with pytest.raises(DeadeyeError, match="fence marker"):
-        build_body(ReviewRequest(prompt="p", media=(hostile,), model="m", timeout_seconds=1.0))
+        build_body(
+            ReviewRequest(
+                prompt="p",
+                media=(hostile,),
+                model="m",
+                timeout_seconds=1.0,
+                generation=generation_settings(),
+            )
+        )
 
 
 def test_a_muxed_video_travels_as_a_single_video_url_part() -> None:
     video = MediaPayload(name="clip.mp4", mime_type="video/mp4", kind="video", data=b"mp4-bytes")
-    body = build_body(ReviewRequest(prompt="p", media=(video,), model="m", timeout_seconds=1.0))
+    body = build_body(
+        ReviewRequest(
+            prompt="p",
+            media=(video,),
+            model="m",
+            timeout_seconds=1.0,
+            generation=generation_settings(),
+        )
+    )
     content = body["messages"][0]["content"]
     assert isinstance(content, list)
     video_parts = [part for part in content if part.get("type") == "video_url"]
@@ -166,7 +193,15 @@ def test_a_muxed_video_travels_as_a_single_video_url_part() -> None:
 def test_a_non_media_payload_is_refused_at_body_build_time() -> None:
     audio = MediaPayload(name="beep.wav", mime_type="audio/wav", kind="reference", data=b"w")
     with pytest.raises(DeadeyeError, match="images and video only"):
-        build_body(ReviewRequest(prompt="p", media=(audio,), model="m", timeout_seconds=1.0))
+        build_body(
+            ReviewRequest(
+                prompt="p",
+                media=(audio,),
+                model="m",
+                timeout_seconds=1.0,
+                generation=generation_settings(),
+            )
+        )
 
 
 def test_a_non_positive_output_cap_is_refused_before_submission(isolated_config: Path) -> None:
@@ -180,7 +215,15 @@ def test_a_non_positive_output_cap_is_refused_before_submission(isolated_config:
         )
         config.reset()
         with pytest.raises(DeadeyeError, match="at least 1"):
-            build_body(ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0))
+            build_body(
+                ReviewRequest(
+                    prompt="p",
+                    media=(),
+                    model="m",
+                    timeout_seconds=1.0,
+                    generation=generation_settings(),
+                )
+            )
 
 
 def test_the_instruction_travels_in_its_own_system_message() -> None:
@@ -195,6 +238,7 @@ def test_the_instruction_travels_in_its_own_system_message() -> None:
             media=(frame,),
             model="m",
             timeout_seconds=1.0,
+            generation=generation_settings(),
         )
     )
     messages = body["messages"]
@@ -206,7 +250,15 @@ def test_the_instruction_travels_in_its_own_system_message() -> None:
 
 
 def test_a_caller_with_no_system_instruction_sends_one_message() -> None:
-    body = build_body(ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0))
+    body = build_body(
+        ReviewRequest(
+            prompt="p",
+            media=(),
+            model="m",
+            timeout_seconds=1.0,
+            generation=generation_settings(),
+        )
+    )
     assert [message["role"] for message in body["messages"]] == ["user"]
 
 
@@ -216,7 +268,13 @@ def test_a_connection_fault_mid_response_is_a_refusal_not_a_crash(monkeypatch, h
     import http.client
 
     monkeypatch.setenv("NVIDIA_API_KEY", "k")
-    request = ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0)
+    request = ReviewRequest(
+        prompt="p",
+        media=(),
+        model="m",
+        timeout_seconds=1.0,
+        generation=generation_settings(),
+    )
     faults = [
         ConnectionResetError("connection reset by peer"),
         http.client.IncompleteRead(b"partial", 100),
@@ -261,7 +319,15 @@ def test_a_refused_review_closes_the_error_body(monkeypatch, http_opener) -> Non
 
     http_opener(refused_urlopen)
     with pytest.raises(DeadeyeError, match="rejected the credential"):
-        NvidiaProvider().review(ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0))
+        NvidiaProvider().review(
+            ReviewRequest(
+                prompt="p",
+                media=(),
+                model="m",
+                timeout_seconds=1.0,
+                generation=generation_settings(),
+            )
+        )
     assert body.closed
 
 
@@ -282,7 +348,15 @@ def test_the_credential_travels_as_a_header_and_never_in_the_url(monkeypatch, ht
         return io.BytesIO(body)
 
     http_opener(answering_open)
-    NvidiaProvider().review(ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0))
+    NvidiaProvider().review(
+        ReviewRequest(
+            prompt="p",
+            media=(),
+            model="m",
+            timeout_seconds=1.0,
+            generation=generation_settings(),
+        )
+    )
 
     assert len(sent) == 1
     request = sent[0]
@@ -317,7 +391,15 @@ def test_a_truncated_generation_is_a_refusal_not_a_half_verdict(monkeypatch, htt
         },
     )
     with pytest.raises(NoVerdictError, match="ended the response early"):
-        NvidiaProvider().review(ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0))
+        NvidiaProvider().review(
+            ReviewRequest(
+                prompt="p",
+                media=(),
+                model="m",
+                timeout_seconds=1.0,
+                generation=generation_settings(),
+            )
+        )
 
 
 def test_a_complete_generation_reports_usage_and_the_model_it_came_from(
@@ -336,7 +418,13 @@ def test_a_complete_generation_reports_usage_and_the_model_it_came_from(
         },
     )
     response = NvidiaProvider().review(
-        ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0)
+        ReviewRequest(
+            prompt="p",
+            media=(),
+            model="m",
+            timeout_seconds=1.0,
+            generation=generation_settings(),
+        )
     )
     assert response.raw_text == '{"confidence": 0.9}'
     assert response.model_reported == "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
@@ -359,7 +447,13 @@ def test_a_usage_block_that_is_not_an_object_is_dropped_not_wrapped(
         },
     )
     response = NvidiaProvider().review(
-        ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0)
+        ReviewRequest(
+            prompt="p",
+            media=(),
+            model="m",
+            timeout_seconds=1.0,
+            generation=generation_settings(),
+        )
     )
     assert response.usage is None
     assert response.raw_text
@@ -376,7 +470,15 @@ def test_an_invalid_choice_list_is_a_refusal_not_an_attribute_error(
     http_opener(lambda request, timeout: io.BytesIO(json.dumps({"choices": choices}).encode()))
 
     with pytest.raises(DeadeyeError, match=r"invalid choice|no choice"):
-        NvidiaProvider().review(ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0))
+        NvidiaProvider().review(
+            ReviewRequest(
+                prompt="p",
+                media=(),
+                model="m",
+                timeout_seconds=1.0,
+                generation=generation_settings(),
+            )
+        )
 
 
 def test_a_refusal_on_an_answer_that_arrived_says_the_attempt_may_have_billed(
@@ -401,7 +503,15 @@ def test_a_refusal_on_an_answer_that_arrived_says_the_attempt_may_have_billed(
         },
     )
     with pytest.raises(NoVerdictError, match="not a retry of this one"):
-        NvidiaProvider().review(ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0))
+        NvidiaProvider().review(
+            ReviewRequest(
+                prompt="p",
+                media=(),
+                model="m",
+                timeout_seconds=1.0,
+                generation=generation_settings(),
+            )
+        )
 
 
 @pytest.mark.skipif(
@@ -432,15 +542,19 @@ def test_live_nvidia_reviews_a_frame_sequence(tmp_path, solid_png) -> None:
     assert response.model_reported
 
 
-def test_the_recorded_generation_settings_are_the_ones_sent() -> None:
+def test_the_body_sends_the_settings_the_caller_resolved() -> None:
     # The envelope attributes a verdict to the parameters it was generated
-    # at. A second reading of the same configuration would be a second
-    # answer to the same question, and the two could differ from the request
-    # the adapter actually built.
-    body = build_body(ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0))
-    recorded = NvidiaProvider().generation_settings()
-    assert {key: body[key] for key in recorded} == recorded
-    assert recorded["max_tokens"] == DEFAULT_MAX_TOKENS
+    # at, so the body must carry the mapping the core resolved rather than
+    # reading the configuration again. A second read is a second answer to
+    # one question, and the config cache reloads on a source-file change, so
+    # the envelope could otherwise name parameters the request never carried.
+    sent = {"max_tokens": 7, "temperature": 0.1, "top_p": 0.5, "reasoning_budget": 3}
+    body = build_body(
+        ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0, generation=sent)
+    )
+    assert {key: body[key] for key in sent} == sent
+    # The built-in defaults still resolve to the values a bare review sends.
+    assert generation_settings()["max_tokens"] == DEFAULT_MAX_TOKENS
 
 
 def test_an_answer_in_a_content_parts_array_is_not_discarded(monkeypatch, http_opener) -> None:
@@ -468,7 +582,13 @@ def test_an_answer_in_a_content_parts_array_is_not_discarded(monkeypatch, http_o
         },
     )
     response = NvidiaProvider().review(
-        ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0)
+        ReviewRequest(
+            prompt="p",
+            media=(),
+            model="m",
+            timeout_seconds=1.0,
+            generation=generation_settings(),
+        )
     )
     assert response.raw_text == '{"confidence": 0.9}'
 
@@ -487,4 +607,12 @@ def test_a_generation_cut_short_at_the_token_cap_names_the_knob(monkeypatch, htt
         },
     )
     with pytest.raises(NoVerdictError, match="max_tokens"):
-        NvidiaProvider().review(ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0))
+        NvidiaProvider().review(
+            ReviewRequest(
+                prompt="p",
+                media=(),
+                model="m",
+                timeout_seconds=1.0,
+                generation=generation_settings(),
+            )
+        )
