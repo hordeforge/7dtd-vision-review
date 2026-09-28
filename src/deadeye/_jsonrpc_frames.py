@@ -72,6 +72,12 @@ def _split_stdio_frames(
     carried: _Line = empty
     # Bytes banked in `segments`, and whether the frame in hand has already
     # been refused for running past the cap with no newline in sight.
+    #
+    # Counted with `_frame_size` rather than `len`, because `len` counts
+    # characters on a text frame and the cap is named in bytes: a frame of
+    # four-byte characters is four times the size `len` says it is.
+    # `_iter_pre_split_frames` already measures that way, and one cap has to
+    # mean one thing at both doors.
     banked = 0
     oversize = False
     for chunk in chain((first,), _read_chunks(read)):
@@ -84,7 +90,7 @@ def _split_stdio_frames(
             line = window[start:index]
             # The frame is every segment banked from earlier reads plus what
             # this window contributes, not this window's slice alone.
-            frame_bytes = banked + len(line)
+            frame_bytes = banked + _frame_size(line)
             if oversize:
                 # The newline ends the frame already refused for exceeding
                 # the cap; the next line opens a fresh one.
@@ -105,9 +111,10 @@ def _split_stdio_frames(
         tail = window[start:]
         carried = tail[len(tail) - edge :] if edge else empty
         if len(tail) > edge:
-            banked += len(tail) - edge
-            segments.append(tail[: len(tail) - edge])
-        if not oversize and banked + len(carried) > max_bytes:
+            piece = tail[: len(tail) - edge]
+            banked += _frame_size(piece)
+            segments.append(piece)
+        if not oversize and banked + _frame_size(carried) > max_bytes:
             # Over the cap with no newline in this window, so the frame runs
             # into the next read: answer once for it and keep none of it.
             oversize = True

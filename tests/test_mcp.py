@@ -1334,15 +1334,22 @@ def test_the_frame_cap_counts_bytes_on_a_text_transport(monkeypatch) -> None:
     so a text frame reaching the same cap through a test double or an
     already-split iterable must be measured in bytes too. Counting code
     points there admitted a frame of four-byte characters at four times the
-    intended size."""
+    intended size.
+
+    The frame is valid JSON on purpose: admitted, it would be answered as a
+    request, so the parse error below is proof it was refused on its size and
+    not merely on its being unparseable."""
     import io
 
     from deadeye import _jsonrpc_frames
 
     monkeypatch.setattr(_jsonrpc_frames, "MAX_FRAME_BYTES", 64)
-    # 22 characters, 66 UTF-8 bytes: over the cap as bytes, under it as
+    # 30 characters, 90 UTF-8 bytes: over the cap as bytes, under it as
     # characters. The next frame must still be served.
-    oversized_text = "\U0001f600" * 22
+    oversized_text = json.dumps(
+        {"id": 1, "method": "ping", "p": "\U0001f600" * 15}, ensure_ascii=False
+    )
+    assert len(oversized_text) < 64 <= len(oversized_text.encode("utf-8"))
     stdin = io.StringIO(
         oversized_text + "\n" + '{"jsonrpc":"2.0","id":3,"method":"ping","params":{}}\n'
     )
@@ -1350,6 +1357,8 @@ def test_the_frame_cap_counts_bytes_on_a_text_transport(monkeypatch) -> None:
     assert mcp.serve(stdin, stdout) == 0
     lines = [json.loads(line) for line in stdout.getvalue().splitlines()]
     assert lines[0]["error"]["code"] == -32700
+    assert lines[0]["id"] is None
+    assert [line.get("id") for line in lines] == [None, 3]
     assert lines[1]["id"] == 3 and lines[1]["result"] == {}
 
 
@@ -1387,3 +1396,32 @@ def test_a_frame_with_an_oversized_integer_literal_is_answered_not_fatal() -> No
     assert [frame.get("id") for frame in answered] == [None, 2]
     assert answered[0]["error"]["code"] == -32700
     assert answered[1]["result"] == {}
+
+
+def test_the_frame_cap_counts_bytes_across_chunked_text_reads(monkeypatch) -> None:
+    """The cap is enforced as bytes on a text frame split across reads, not
+    only when the whole frame arrives in one. The `banked + carried` test is
+    the only one that runs when a frame spans reads, and a `len` there counts
+    characters the same way."""
+    import io
+
+    from deadeye import _jsonrpc_frames
+
+    class _Trickle(io.StringIO):
+        """A text source that hands over one character per read."""
+
+        def read(self, size: int = -1) -> str:
+            return super().read(1)
+
+    monkeypatch.setattr(_jsonrpc_frames, "MAX_FRAME_BYTES", 64)
+    oversized_text = json.dumps(
+        {"id": 1, "method": "ping", "p": "\U0001f600" * 15}, ensure_ascii=False
+    )
+    stdin = _Trickle(
+        oversized_text + "\n" + '{"jsonrpc":"2.0","id":3,"method":"ping","params":{}}\n'
+    )
+    stdout = io.StringIO()
+    assert mcp.serve(stdin, stdout) == 0
+    lines = [json.loads(line) for line in stdout.getvalue().splitlines()]
+    assert lines[0]["error"]["code"] == -32700
+    assert [line.get("id") for line in lines] == [None, 3]

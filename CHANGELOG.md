@@ -21,6 +21,15 @@ the Keep a Changelog order: `Added`, `Changed`, `Fixed`, `Security`. While the
 version is 0.x a breaking change may ride a minor bump; the heading is still
 required (`CONTRIBUTING.md`, "Changing a contract").
 
+## [Unreleased]
+
+### Fixed
+
+- The MCP stdio frame cap counts bytes on a text source that delivers a
+  frame over several reads. It counted characters there, so a frame of
+  four-byte characters was admitted at up to four times the cap. A bytes
+  stdin was already measured correctly.
+
 ## [0.2.0] - 2026-09-28
 
 ### Breaking
