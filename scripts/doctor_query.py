@@ -17,13 +17,23 @@ Every command prints one line (nothing when the answer is "none") and exits
 
 from __future__ import annotations
 
-import contextlib
 import json
 import sys
 from typing import Any
 
+from _utf8_output import bind_process_output
+
 USAGE = "usage: doctor_query.py {select [NAME]|state NAME|detail NAME} < doctor.json"
 FAKE_PROVIDER = "fake"
+
+# How many arguments each command takes, as `USAGE` publishes it. The one
+# place a command is recognized, so a name that is not here and a call that
+# gives the wrong number of arguments are refused the same way.
+_ARGUMENT_COUNTS: dict[str, tuple[int, ...]] = {
+    "select": (0, 1),
+    "state": (1,),
+    "detail": (1,),
+}
 
 
 def _read_doctor_output() -> str:
@@ -39,21 +49,6 @@ def _read_doctor_output() -> str:
     source = getattr(sys.stdin, "buffer", None)
     raw = source.read() if source is not None else sys.stdin.read()
     return raw.decode("utf-8") if isinstance(raw, bytes) else raw
-
-
-def _bind_utf8_output() -> None:
-    """Print a non-ASCII answer on any host.
-
-    A provider name and its credential detail come from a config file, so they
-    carry whatever that file carries, and a caller reads the answer from a
-    pipe with no view of this process's locale. Same rationale as
-    `deadeye._streams`, which the library binds for itself; this script runs
-    under a bare `python3` with no deadeye import, so it carries its own.
-    """
-    reconfigure = getattr(sys.stdout, "reconfigure", None)
-    if callable(reconfigure):
-        with contextlib.suppress(ValueError, OSError):
-            reconfigure(encoding="utf-8", errors="backslashreplace")
 
 
 def _states(raw: str) -> list[dict[str, Any]]:
@@ -84,7 +79,14 @@ def main(argv: list[str]) -> int:
         print(USAGE, file=sys.stderr)
         return 2
     command, arguments = argv[1], argv[2:]
-    _bind_utf8_output()
+    # The command and its argument count settle together, before stdin is read:
+    # every command publishes one accepted count in `USAGE`, and a caller who
+    # got it wrong is answered with the usage line rather than by a question
+    # about the doctor's output it did not mean to ask.
+    if command not in _ARGUMENT_COUNTS or len(arguments) not in _ARGUMENT_COUNTS[command]:
+        print(USAGE, file=sys.stderr)
+        return 2
+    bind_process_output()
     try:
         states = _states(_read_doctor_output())
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
@@ -95,21 +97,14 @@ def main(argv: list[str]) -> int:
         print(_select(states, arguments[0] if arguments else ""))
         return 0
 
-    if command in ("state", "detail"):
-        if len(arguments) != 1:
-            print(USAGE, file=sys.stderr)
-            return 2
-        entry = _state(states, arguments[0])
-        if entry is None:
-            return 0
-        if command == "state":
-            print(entry.get("state", ""))
-        else:
-            print(entry.get("detail", "no credential configured"))
+    entry = _state(states, arguments[0])
+    if entry is None:
         return 0
-
-    print(USAGE, file=sys.stderr)
-    return 2
+    if command == "state":
+        print(entry.get("state", ""))
+    else:
+        print(entry.get("detail", "no credential configured"))
+    return 0
 
 
 if __name__ == "__main__":
