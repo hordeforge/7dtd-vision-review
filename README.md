@@ -168,7 +168,11 @@ fully offline: no network, no credentials, no model.
 builds the same tree a second time under a different clock, locale, timezone,
 and hash seed and a third time from a copy at a different absolute path, then
 diffs the bytes of all three, which is the same check the release job
-runs before it uploads. `make clean` removes the build outputs.
+runs before it uploads. `make dist-smoke` then installs the built wheel into
+a throwaway environment and runs its entry points, the check the release job
+also makes before it uploads: the suite imports the checkout, so a wheel that
+installs but cannot run would pass every other gate. `make clean` removes
+the build outputs.
 
 CI runs that suite on Ubuntu with Python 3.11–3.13 and on macOS with 3.13.
 The CLI itself is pure

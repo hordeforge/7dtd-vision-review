@@ -54,7 +54,8 @@ required (`CONTRIBUTING.md`, "Changing a contract").
   type-checked only, so a `top_p = 5` or a `temperature = -1` reached the
   endpoint and the submission was billed before the API rejected it. After:
   `deadeye review` refuses with a non-zero exit naming the key and the range
-  (`providers.nvidia.top_p must be a number from 0 to 1, not 5.0`), before any
+  (`config providers.nvidia.top_p must be a number from 0 to 1, not 5.0;
+  fix it in config.toml or config.local.toml`), before any
   provider is contacted, and the refusal is the same `int_setting` /
   `float_setting` validation every adapter already used for the wrong type.
   To upgrade, put each knob inside the range its provider documents:
@@ -167,6 +168,18 @@ required (`CONTRIBUTING.md`, "Changing a contract").
   and its retry paid twice for the same bytes. After: it is the same
   `no_verdict` refusal every other unusable answer from that adapter produces.
   Nothing changes on the CLI, which exited `1` for both.
+- An MCP frame naming a `jsonrpc` member other than `2.0` is now answered with
+  the spec's invalid-request error. Before: `"jsonrpc": "1.0"` was served as
+  though it were 2.0, so a client that stamped the wrong version got a
+  successful `result` and one stamped `null` was answered too. After: any
+  other version gets `{"error": {"code": -32600, "message": "Invalid
+  Request: the jsonrpc member must be '2.0'"}}`, and a frame that omits the
+  member is still served. A client that sends `2.0` (every conforming client)
+  is unaffected; the served answer for a wrong version was a protocol lie the
+  caller could not detect. This entry was filed under `Fixed` until the release
+  was cut, which is where it does not belong: a call that used to succeed now
+  answers with an error, which is the change the `### Breaking` heading exists
+  for. No envelope, schema, or result change.
 
 ### Added
 
@@ -234,6 +247,23 @@ required (`CONTRIBUTING.md`, "Changing a contract").
 
 ### Changed
 
+- `make dist-smoke` installs the built wheel into a throwaway environment and
+  runs its entry points, and the release runs it after `make dist-verify` and
+  before the upload. Before: every release check read the artifact's bytes
+  (the member lists, the `SHA256SUMS`, the rebuild diff) and the suite
+  imported the checkout, so a wheel that installs but cannot run passed the
+  whole gate and failed the consumer's first `uv tool install`. After: the
+  exact wheel a release publishes is installed and started first. The install
+  is `--offline` because the wheel declares no runtime dependency, and the
+  interpreter is whatever uv resolves, so neither needs keeping in step with
+  anything else. Release tooling only; no install or runtime change.
+- `make clean` removes the smoke environment with the rest of the build
+  outputs, and the README install URL is pinned by the release-contract suite.
+  The URL is where a reader copies a version out of the repository: it must
+  name a tag that exists and the newest one, so a release that renamed the
+  changelog section and bumped both version declarations without moving the
+  URL fails `make check test` instead of quietly handing every new reader the
+  previous release.
 - `make dist-verify` builds a third time, from a copy of the tree at a
   different absolute path, and compares the artifacts across all three runs.
   The clock, locale, timezone, and hash-seed rebuilds catch host state leaking
@@ -359,9 +389,6 @@ required (`CONTRIBUTING.md`, "Changing a contract").
   billed for. After: the refusal carries the provider and the reason in one
   message, exactly like every other spent submission, and the idempotency key
   stays marked as spent.
-- A JSON-RPC frame naming a protocol version other than `2.0` is now answered
-  with the spec's invalid-request error instead of being served as though it
-  were 2.0. A frame that omits the member entirely is still served.
 - A JSON-RPC batch (an array) is refused with a message that says batching is
   unsupported and to send one request per line, rather than a bare "Invalid
   Request" a client could read as a server fault and retry unchanged.

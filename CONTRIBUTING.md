@@ -148,14 +148,25 @@ fails on drift between them, so it surfaces in `make check test` rather
 than at tag time. The release sequence:
 
 1. Rename `## Unreleased` in [CHANGELOG.md](CHANGELOG.md) to the new
-   version, bump both version declarations, and land that on `main`.
+   version, bump both version declarations, point the README install URL at
+   the new tag, and land that on `main`. The README URL is where a reader
+   copies a version out of the repository, and
+   `tests/test_release_contract.py` fails when it names anything but the
+   newest changelog section, so the three edits land together or not at all.
 2. Push a matching `vX.Y.Z` tag. A tag that disagrees with the manifest or
    the mirror fails the release instead of publishing a mismatched artifact.
 3. The GitHub Release carries the tagged version's changelog section as its
    notes (`scripts/release_notes.py`). A version with no changelog section
    still publishes, but with a default note and a loud warning: add the
    entry before tagging so consumers read what changed where they look.
-4. The release uploads four artifacts built from the tagged tree: the
+4. Before anything is uploaded, the built wheel is installed into a throwaway
+   environment and its entry points are run (`make dist-smoke`, offline: the
+   wheel declares no runtime dependency). Every other release check reads the
+   artifact's bytes, and the suite imports the checkout, so a wheel that
+   installs but cannot run would otherwise be published and first noticed by
+   a consumer. `make clean` removes that environment with the rest of the
+   build outputs.
+5. The release uploads four artifacts built from the tagged tree: the
    wheel, the sdist, a CycloneDX SBOM of the locked resolution, and a
    `SHA256SUMS` naming all three. `make dist` writes the manifest over the
    wheel and the sdist; the release appends the SBOM, which is generated

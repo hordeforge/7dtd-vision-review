@@ -80,6 +80,15 @@ jobs:
         run: make dist
       - name: Verify the artifacts rebuild byte for byte
         run: make dist-verify
+      # Byte-identical bytes are not yet a working install: the suite above
+      # imports the checkout, so a module the package does not carry, a data
+      # file MANIFEST.in dropped, or an entry point naming something the wheel
+      # does not install all pass every other gate and fail the consumer's
+      # first `uv tool install`. Installing the wheel that is about to be
+      # uploaded and running its entry points is the last check before the
+      # release exists.
+      - name: Install the built wheel and run its entry points
+        run: make dist-smoke
 
       # A CycloneDX 1.5 inventory of exactly what the committed uv.lock
       # resolves to, attached beside the artifacts so consumers and

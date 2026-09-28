@@ -96,9 +96,9 @@ not a network one.
 | `scripts/e2e.sh` | `e2e.sh:63,105,125-130,205,277-285,302-307,317-320,326` | sibling checkout roots and tool paths, `E2E_OUT`/`E2E_MOD_DIR` write roots, and the one shell path that submits to a real provider (T9) |
 | `scripts/playtest_detect.py` | `playtest_detect.py:59-62` | puts `$PLAYTEST_ROOT/scripts` on `sys.path` and imports the sibling's module: a fourth environment-named code-execution path (T9) |
 | `scripts/bootstrap` | `bootstrap:16` | `uv sync --locked` from the committed lockfile (T9) |
-| `Makefile` build and verify targets | `Makefile:174-178,195,241,243,244,261,271` | `DIST`, `VERIFY_DIST`, and `VERIFY_PATH` are overridable from the environment and two targets `rm -rf` them; `dist-verify` also builds the tree it just extracted (T9) |
+| `Makefile` build and verify targets | `Makefile:184-188,205,251,253,254,271,289-293,309` | `DIST`, `VERIFY_DIST`, `VERIFY_PATH`, and `SMOKE_VENV` are overridable from the environment and three targets `rm -rf` them; `dist-verify` also builds the tree it just extracted, and `dist-smoke` installs the built wheel (T9) |
 | CI badge job | `.github/workflows/ci.yml:42-103` | a write-scoped `GITHUB_TOKEN`; publishes a generated SVG to a served branch (T9) |
-| Release workflow | `.github/workflows/release.yml:35-36,104,133-159` | the pipeline's other write-scoped token; `gh release upload --clobber` overwrites published assets, now behind a byte comparison (T9, T10) |
+| Release workflow | `.github/workflows/release.yml:35-36,112,141-168` | the pipeline's other write-scoped token; `gh release upload --clobber` overwrites published assets, now behind a byte comparison (T9, T10) |
 
 Note: `sampling.discover()` finds `client.log` beside the frames
 (`sampling.py:135-182`, `_scan_directory`; `ClipMedia.log` at
@@ -305,7 +305,7 @@ influence over the verdict rather than over the process.
 | `uv.lock` committed with a sha256 per sdist and wheel; `uv sync --locked` and `scripts/bootstrap` refuse a stale lock | a substituted or tampered artifact installing silently | `uv.lock`; `.github/actions/test-suite/action.yml` |
 | CI actions pinned by full commit SHA, tag in comment | a moved tag injecting code into the pipeline | `.github/actions/test-suite/action.yml`, `.github/workflows/release.yml` step pins |
 | CycloneDX 1.5 SBOM of the locked resolution attached to every release | a consumer or scanner unable to see what shipped | `.github/workflows/release.yml` sbom step |
-| SHA256SUMS over every published asset (wheel, sdist, SBOM), written by the same `make dist` a contributor runs, with the SBOM entry appended in the workflow after the manifest is written | a wheel fetched by release URL, which carries no index signature, installed without any check on its bytes | `Makefile` (`dist`, `Makefile:208`); `.github/workflows/release.yml:89-96` (the SBOM line); `tests/test_release_contract.py` |
+| SHA256SUMS over every published asset (wheel, sdist, SBOM), written by the same `make dist` a contributor runs, with the SBOM entry appended in the workflow after the manifest is written | a wheel fetched by release URL, which carries no index signature, installed without any check on its bytes | `Makefile` (`dist`, `Makefile:219`); `.github/workflows/release.yml:98-105` (the SBOM line); `tests/test_release_contract.py` |
 | Weekly Dependabot over the `uv` and `github-actions` ecosystems | pins drifting past security patches unnoticed | `.github/dependabot.yml` |
 | bandit (S) lint rules armed on the whole tree | `subprocess`, temp-file, and URL-scheme sinks in the adapters | `pyproject.toml` `[tool.ruff.lint]` |
 
@@ -537,18 +537,22 @@ carry their own entry points and had no entry here.
   `curl -LsSf ... | sh` (`bootstrap:12`); the script does not execute that, and
   the message is documentation of a manual step, not a supply-chain control.
 - **The `Makefile`** takes its build and verify roots from the environment
-  (`DIST`, `VERIFY_DIST`, `VERIFY_PATH`, `Makefile:174-178`) and the clean and
-  dist-verify targets delete all three: `rm -rf "$(DIST)"` at `Makefile:195`,
-  `rm -rf "$(VERIFY_PATH)"` at `Makefile:241`, and all three together at
-  `Makefile:271` (with a fourth variable-free recursive delete for `__pycache__`
-  at `Makefile:274`). The verify target then extracts a `git ls-files` archive
-  into `VERIFY_PATH` (`Makefile:243`) and shells out to `diffoscope` from
-  `PATH` (`Makefile:261`). An operator who exports one of these three variables
-  to a path they did not mean has turned a build target into a recursive
-  delete. One step further, the same target then runs `make -C
-  "$(VERIFY_PATH)" dist` (`Makefile:244`): it builds the tree it just
+  (`DIST`, `VERIFY_DIST`, `VERIFY_PATH`, `SMOKE_VENV`, `Makefile:184-188,289`)
+  and the dist, dist-verify, dist-smoke, and clean targets delete all four:
+  `rm -rf "$(DIST)"` at `Makefile:205`, `rm -rf "$(VERIFY_PATH)"` at
+  `Makefile:251`, `rm -rf "$(SMOKE_VENV)"` at `Makefile:293`, and all four
+  together at `Makefile:309` (with a variable-free recursive delete for
+  `__pycache__` at `Makefile:312`). The verify target then extracts a
+  `git ls-files` archive into `VERIFY_PATH` (`Makefile:253`) and shells out to
+  `diffoscope` from `PATH` (`Makefile:271`). An operator who exports one of
+  these four variables to a path they did not mean has turned a build target
+  into a recursive delete. One step further, the same target then runs
+  `make -C "$(VERIFY_PATH)" dist` (`Makefile:254`): it builds the tree it just
   extracted, so a hostile checkout's `Makefile` is a code-execution path in
-  `make dist-verify` exactly as the sibling roots are in the e2e.
+  `make dist-verify` exactly as the sibling roots are in the e2e. `make
+  dist-smoke` adds no new power: it creates and installs into
+  `SMOKE_VENV` and runs the wheel's own entry points, which is what a
+  consumer's `uv tool install` does.
 - **The shared test-suite action** both workflows and the badge job run fetches
   an interpreter (`uv python install`, `.github/actions/test-suite/action.yml:51`)
   and, on the macOS leg, installs `shellcheck` from Homebrew
@@ -572,9 +576,9 @@ carry their own entry points and had no entry here.
   naming because it is the one place deadeye produces content other humans
   load.
 - **The `release` workflow** holds the pipeline's other write-scoped token
-  (`release.yml:35-36`, used as `GH_TOKEN` at `release.yml:104`) and publishes
+  (`release.yml:35-36`, used as `GH_TOKEN` at `release.yml:112`) and publishes
   the wheel, sdist, SBOM, and checksum manifest with `gh release upload
-  --clobber` (`release.yml:159`). The overwrite itself is T10.
+  --clobber` (`release.yml:168`). The overwrite itself is T10.
 
 The remaining `scripts/` helpers (`doctor_query.py`, `e2e_report.py`,
 `release_notes.py`, `reproducible_artifacts.py`) read local files and format
@@ -585,7 +589,7 @@ badge`).
 ### T10: release upload overwrites published assets (Low, mitigated in the workflow)
 
 The release job creates the release if it is absent and then always uploads
-with `--clobber` (`release.yml:159`), so in principle a second `v*` tag
+with `--clobber` (`release.yml:168`), so in principle a second `v*` tag
 push replaces the wheel, sdist, and SBOM that people, caches, and downstream
 consumers have already downloaded, with no warning and no record on the tag of
 what changed. The job holds `contents: write` for the whole run
@@ -595,14 +599,14 @@ code but not the tag push that triggers it.
 
 The workflow already gets half of this right: a failed attempt that created
 the release must not wedge the next run on "already exists"
-(`release.yml:120-126`), so the upload is convergent by design. The gap was
+(`release.yml:128-134`), so the upload is convergent by design. The gap was
 that the same flag also replaced assets a completed release had already
 published, with no comparison of the bytes, and nothing local stood between "a
 tag was pushed" and "the published bytes were replaced".
 
 The upload path now closes that. Before `--clobber`, each asset the release
 already carries is downloaded and compared against the file that would replace
-it (`release.yml:133-152`); a difference exits non-zero with the asset named,
+it (`release.yml:141-160`); a difference exits non-zero with the asset named,
 and only a byte-identical set (the re-run after a partial failure) or an asset
 that was never published (the incomplete-release case) proceeds. Because
 `make dist-verify` runs in the same job and proves the build reproducible, the
@@ -686,7 +690,7 @@ not the default path.
   workflow-scoped `GITHUB_TOKEN`, confined to the separate badge-push job on
   main and scoped to `contents: write` there alone (`ci.yml:42-103`, see T9).
   The release workflow holds the pipeline's other `contents: write` token
-  (`release.yml:35-36,104`, see T9 and T10).
+  (`release.yml:35-36,112`, see T9 and T10).
   Live-provider tests are opt-in via `DEADEYE_NETWORK_TESTS` and
   excluded from the default suite.
 - A `--force` overwrite leaves no record that the earlier envelope existed:
