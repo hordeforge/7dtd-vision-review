@@ -21,6 +21,13 @@ that tag.
 - **`config.local.toml` is gitignored and must stay that way.** It is the only
   file in the tree expected to hold a secret. Committing one leaks a
   provider key.
+- **A config file in the current directory wins.** Discovery prefers
+  `DEADEYE_CONFIG_DIR`, then the working directory, then the user's config
+  directory (`src/deadeye/config.py`), so a checkout's own `config.toml`
+  shadows your home configuration. Run a review from a directory you trust,
+  and treat a per-provider `endpoint` override as a credential-egress
+  decision: it is where the authenticated request, the key, and all the media
+  go. The disclosure lines name the provider but not the host.
 - **Uploading media requires explicit consent.** No real provider is contacted
   without `--allow-network`; the `fake` provider is offline by construction.
   Sampled frames, muxed clips, and intent-declared reference media leave the
@@ -38,7 +45,23 @@ that tag.
   (`src/deadeye/intent.py`). That bounds the textual escape only: a clip
   carrying rendered instructions is pixels the model reads, so a hostile
   intent or hostile frame can still shape the critique. Nothing in the result
-  is a gate.
+  is a gate. The same content travels back to whoever reads the evidence
+  envelope, which carries the intent text and the rendered prompt verbatim, so
+  a reviewer reading a stored review is reading authored text with the
+  standing of recorded evidence.
+- **The evidence destination is the caller's choice, and `--force` is a real
+  overwrite.** `--output` / the MCP `output` argument is used as given: the
+  parent directories are created on demand and nothing confines the path to
+  the clip's tree (`src/deadeye/evidence.py`). Without `--force` an existing
+  envelope is never replaced; with it, the exclusive publish is skipped and
+  the file at that path is replaced, leaving no record of what was there.
+  Point `--output` somewhere only you can write.
+- **An MCP client holds the process's authority.** The `review` tool takes the
+  clip, the intent, the destination path, the overwrite flag, and the upload
+  consent as arguments of one call, and there is no second identity or path
+  confinement behind them (`src/deadeye/mcp.py`). Treat the stdio server as
+  granting whatever its client already has, and do not point an
+  automatically-driven client at paths you would not delete by hand.
 - **A verdict is advisory, never an acceptance.** `ADVISORY_NOTE` rides every
   result. A consuming repository that gates on a deadeye verdict alone has
   moved a human sign-off into a model, which is a security decision, not a
