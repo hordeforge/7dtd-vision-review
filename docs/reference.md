@@ -165,6 +165,12 @@ between the check and the unlink keeps its review, and the run that came to
 reclaim the name refuses instead. `--force` remains the only
 way to overwrite a published review.
 
+The age is measured against the smaller of the wall clock and this process's
+own monotonic time. A wall clock that steps forward (NTP, `date -s`, a
+restored VM) would otherwise make a placeholder a live writer reserved a
+moment ago look stranded, and the reclaim would free a name still in use; a
+step can only make the placeholder read fresher, so the run refuses.
+
 ## Running a review twice
 
 Every review is a new billable submission to a third party; deadeye itself

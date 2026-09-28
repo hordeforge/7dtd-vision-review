@@ -445,6 +445,42 @@ def test_a_live_placeholder_is_never_reclaimed_by_a_concurrent_writer(tmp_path) 
         evidence.write_evidence(output, {"kind": "deadeye-review"}, force=False)
 
 
+def test_a_forward_wall_clock_step_never_frees_a_live_placeholder(tmp_path, monkeypatch) -> None:
+    """A wall clock that jumps forward must not turn a reservation into a
+    reclaimable one.
+
+    An NTP correction, a manual `date -s`, or a VM restored from a snapshot
+    can move the clock hours ahead between one writer's reserve and the next
+    writer's preflight. The wall clock is the only clock that can be compared
+    with an on-disk mtime, so the reclaim reads it, but the age it computes is
+    held against this process's own monotonic time: a step can only make a
+    placeholder read fresher and the run refuse, never free the name a live
+    writer still holds."""
+    from deadeye import evidence
+
+    output = tmp_path / "evidence.json"
+    evidence._reserve_exclusive(output)
+    real_now = time.time()
+
+    stepped = real_now + 7200
+    assert stepped - output.stat().st_mtime > evidence._STALE_PLACEHOLDER_SECONDS
+    monkeypatch.setattr(evidence.time, "time", lambda: stepped)
+
+    with pytest.raises(DeadeyeError, match="write in progress"):
+        evidence.ensure_writable(output, force=False)
+    with pytest.raises(DeadeyeError, match="write in progress"):
+        evidence._reserve_exclusive(output)
+
+    # Crash recovery still works through the same step: a placeholder that was
+    # already stranded stays reclaimable, because its mtime predates the step
+    # by more than the threshold either way.
+    stranded = tmp_path / "stranded.json"
+    evidence._reserve_exclusive(stranded)
+    old = real_now - evidence._STALE_PLACEHOLDER_SECONDS - 1
+    os.utime(stranded, (old, old))
+    assert evidence._reserve_exclusive(stranded) is not None
+
+
 def test_a_published_envelope_is_never_reclaimed_however_old_it_is(tmp_path) -> None:
     """Only an empty placeholder is reclaimable. Real evidence, however old,
     still ends a rerun without --force: the age rule must not become a way to

@@ -157,6 +157,31 @@ def build_envelope(
 # earlier review where no review was ever published.
 _STALE_PLACEHOLDER_SECONDS = 60.0
 
+# The age of an on-disk file is only readable from the wall clock, so the
+# reclaim must measure it there. The wall clock can step while this process
+# runs (NTP, a manual `date -s`, a VM restored from a snapshot), and a forward
+# step makes a placeholder a live writer reserved a moment ago read as hours
+# old: the reclaim then unlinks that writer's reservation and both writers
+# publish, which is the one outcome the exclusive reserve exists to prevent.
+#
+# The process's own elapsed time is monotonic, so `wall_at_start +
+# (monotonic() - monotonic_at_start)` moves only as fast as real time has
+# passed since this module was imported. Taking the smaller of the two clocks
+# bounds `now` from below, so a step can only make a placeholder read fresher
+# than it is and the run refuses, never that a live writer's name is freed.
+# CLOCK_MONOTONIC stops during suspend, which pushes the bound further back
+# and fails the same way.
+_WALL_AT_IMPORT = time.time()
+_MONOTONIC_AT_IMPORT = time.monotonic()
+
+
+def _now_floor() -> float:
+    """A wall-clock reading that never runs ahead of this process's own time."""
+    return min(
+        time.time(),
+        _WALL_AT_IMPORT + (time.monotonic() - _MONOTONIC_AT_IMPORT),
+    )
+
 
 def _occupied_evidence_message(path: Path) -> str:
     return (
@@ -185,7 +210,7 @@ def _stale_placeholder_stat(path: Path) -> os.stat_result | None:
         return None
     if not stat.S_ISREG(occupied.st_mode) or occupied.st_size != 0:
         return None
-    if (time.time() - occupied.st_mtime) < _STALE_PLACEHOLDER_SECONDS:
+    if (_now_floor() - occupied.st_mtime) < _STALE_PLACEHOLDER_SECONDS:
         return None
     return occupied
 
