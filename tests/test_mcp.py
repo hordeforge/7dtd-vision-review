@@ -11,6 +11,7 @@ import errno
 import io
 import json
 import unicodedata
+import urllib.error
 from pathlib import Path
 
 from deadeye import mcp
@@ -1088,6 +1089,78 @@ def test_a_refusal_on_an_answer_the_provider_already_gave_spends_its_key(
     assert "not a retry of this one" in first["result"]["content"][0]["text"]
     assert mcp._COMPLETED["job-47"].envelope is None
     assert mcp._COMPLETED["job-47"].fault is not None
+
+
+def test_a_connection_lost_after_the_request_left_spends_its_key(
+    tmp_path, monkeypatch, http_opener
+) -> None:
+    """A transport fault after the media left the machine must not look free.
+
+    urllib reports a host that was never reached and a connection that dropped
+    with the request on the socket as the same `URLError`. Only the second can
+    have billed, and a client that retries a key the ledger left free is paying
+    twice for the same bytes, which is the whole promise the key makes. The
+    shared reader tells the two apart and raises the spent type, so this keys
+    the ledger the way an unusable verdict does.
+    """
+    from deadeye import mcp
+    from deadeye.providers import _http
+
+    submissions = 0
+
+    def lost_after_send(request, timeout):
+        nonlocal submissions
+        submissions += 1
+        _http._SUBMITTED.set(True)
+        raise urllib.error.URLError(TimeoutError("timed out writing the request body"))
+
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    http_opener(lost_after_send)
+    arguments = _review_arguments(tmp_path, idempotency_key="job-48", provider="gemini")
+
+    first = _call("tools/call", {"name": "review", "arguments": arguments})
+    second = _call("tools/call", {"name": "review", "arguments": arguments})
+
+    assert submissions == 1, "the retry must not reach the provider a second time"
+    assert first["result"]["isError"] is True
+    assert first["result"] == second["result"]
+    assert "not a retry of this one" in first["result"]["content"][0]["text"]
+    assert mcp._COMPLETED["job-48"].fault is not None
+
+
+def test_a_provider_that_was_never_reached_leaves_its_key_free(
+    tmp_path, monkeypatch, http_opener
+) -> None:
+    """The opposite case: nothing was submitted, so the key must stay retryable.
+
+    Refusing a connection is the one transport fault with no media behind it.
+    Marking its key spent would strand a client whose first attempt never left
+    the machine, and the corrected retry is exactly what the key is for.
+    """
+    from deadeye import mcp
+
+    submissions = 0
+
+    def unreachable(request, timeout):
+        nonlocal submissions
+        submissions += 1
+        raise urllib.error.URLError(ConnectionRefusedError("connection refused"))
+
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    http_opener(unreachable)
+    arguments = _review_arguments(tmp_path, idempotency_key="job-49", provider="gemini")
+
+    _call("tools/call", {"name": "review", "arguments": arguments})
+    assert "job-49" not in mcp._COMPLETED
+
+    def answered(request, timeout):
+        nonlocal submissions
+        submissions += 1
+        return io.BytesIO(b"{}")
+
+    http_opener(answered)
+    _call("tools/call", {"name": "review", "arguments": arguments})
+    assert submissions == 2, "a request that never left the machine is safe to resend"
 
 
 def test_the_idempotency_ledger_is_bounded(tmp_path, monkeypatch) -> None:

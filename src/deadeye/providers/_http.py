@@ -1,10 +1,13 @@
 """Shared stdlib HTTP submission for the hosted adapters.
 
 Both adapters POST one JSON document and read one JSON envelope back, and
-every fault maps to one DeadeyeError naming the provider. A timeout or a
-mid-body connection failure may still have completed and billed server-side,
-so those refusals say so explicitly: submitting again is a new billable
-review, never a retry.
+every fault maps to one DeadeyeError naming the provider. A timeout, a
+mid-body connection failure, or a request that died on a socket that had
+already connected may still have completed and billed server-side, so those
+refusals say so explicitly and raise `NoVerdictError`: submitting again is a
+new billable review, never a retry. A connection that never came up is the one
+transport fault with nothing spent behind it, and it stays a plain
+`DeadeyeError` so a deduplicating caller can still retry it for free.
 """
 
 from __future__ import annotations
@@ -15,6 +18,7 @@ import json
 import time
 import urllib.error
 import urllib.request
+from contextvars import ContextVar
 from typing import Any
 
 from ..errors import DeadeyeError, NoVerdictError, did_not_answer, no_verdict
@@ -61,7 +65,68 @@ class _NoRedirects(urllib.request.HTTPRedirectHandler):
         raise urllib.error.HTTPError(req.full_url, code, msg, headers, fp)
 
 
-_OPENER = urllib.request.build_opener(_NoRedirects)
+# Whether the current submission ever put a byte on a socket. `urllib`
+# reports a connection that never came up and a connection that dropped while
+# the request body was still going out as the same `URLError`, and the two are
+# opposite answers to "may this submission already be billed": a refused
+# connection reached nothing, while one that died after the handshake sent
+# media the provider may finish and bill while the client never sees an answer.
+# The exception type cannot separate them, so the connection itself records
+# it: `HTTPConnection.sock` is set only once the TCP handshake completes, which
+# is exactly the boundary between the two cases. A context variable rather
+# than a module global because the marker belongs to one in-flight submission,
+# and the MCP server may run reviews concurrently.
+_SUBMITTED: ContextVar[bool] = ContextVar("deadeye_submitted", default=False)
+
+
+class _MarksSubmission(http.client.HTTPConnection):
+    """An `HTTPConnection` that records whether a request ever reached a socket.
+
+    Subclassed, never instantiated: the tracking is a mixin over the two
+    connection classes the standard handlers open, plain and TLS.
+    """
+
+    def send(self, data: Any) -> None:
+        try:
+            super().send(data)
+        finally:
+            # In the `finally` because a half-written body is the case that
+            # matters: the exception escapes `send` before the flag is set,
+            # and it is precisely a write that failed partway through that may
+            # have delivered a complete request. `sock` stays None when the
+            # handshake itself never completed, so a connect-time failure (a
+            # refused port, a dropped SYN) never marks the submission sent.
+            if self.sock is not None:
+                _SUBMITTED.set(True)
+
+
+class _TrackedConnection(_MarksSubmission, http.client.HTTPConnection):
+    pass
+
+
+class _TrackedHTTPSConnection(_MarksSubmission, http.client.HTTPSConnection):
+    pass
+
+
+# Subclasses of the two default handlers, not extra ones. `build_opener`
+# skips a default handler whose class a passed handler subclasses, so these
+# replace them; added alongside, the defaults would sit earlier in the request
+# chain and answer every call, and the tracking would never run.
+class _TrackingHTTPHandler(urllib.request.HTTPHandler):
+    def http_open(self, req: urllib.request.Request) -> Any:
+        return self.do_open(_TrackedConnection, req)
+
+
+class _TrackingHTTPSHandler(urllib.request.HTTPSHandler):
+    # Set by `HTTPSHandler.__init__`; the stub does not declare it, and the
+    # context it holds is the one that verifies the provider's certificate.
+    _context: Any
+
+    def https_open(self, req: urllib.request.Request) -> Any:
+        return self.do_open(_TrackedHTTPSConnection, req, context=self._context)
+
+
+_OPENER = urllib.request.build_opener(_NoRedirects, _TrackingHTTPHandler, _TrackingHTTPSHandler)
 
 
 def _declared_charset(headers: Any) -> str | None:
@@ -244,6 +309,10 @@ def post_json(
         headers={"Content-Type": "application/json", **headers},
         method="POST",
     )
+    # One submission, one marker: the long-lived MCP server runs many reviews
+    # in one context, and a leftover True from a previous one would mark the
+    # next submission sent before it opened a socket.
+    _SUBMITTED.set(False)
     # Monotonic, taken before the connection opens: the budget covers the
     # whole call, connect and response headers included. `timeout_seconds`
     # arms the socket, which bounds any single read that stalls; the deadline
@@ -299,6 +368,22 @@ def post_json(
         # not retry this one. Every ambiguous-outcome refusal says so.
         raise did_not_answer(provider, timeout_seconds) from exc
     except urllib.error.URLError as exc:
+        if _SUBMITTED.get():
+            # The socket was up and the request was on it, so the fault
+            # arrived after the media left: a send that died partway, or a
+            # handshake that completed and a timeout that fired while the body
+            # was still going out. urllib reports that exactly as it reports a
+            # host that was never reached, and the two differ where it costs
+            # money: a plain fault leaves an idempotency key free, and a
+            # client that retries a free key gets a second billable review of
+            # bytes the provider may already have charged for. `NoVerdictError`
+            # is what tells a deduplicating caller the key is spent.
+            raise no_verdict(
+                provider, f"connection failed before any response arrived: {exc.reason}"
+            ) from exc
+        # The connection never came up: no name resolved, no port answered.
+        # Nothing was submitted, so the refusal stays a plain one and the key
+        # stays free for a corrected retry.
         raise DeadeyeError(
             f"provider {provider!r} could not be reached: {exc.reason}; no verdict was produced"
         ) from exc

@@ -14,6 +14,7 @@ import io
 import json
 import urllib.error
 import urllib.request
+from types import SimpleNamespace
 
 import pytest
 
@@ -479,3 +480,158 @@ def test_a_slow_drip_provider_is_refused_at_the_total_budget(http_opener, monkey
         )
     # The refusal lands on the budget, not several drip intervals past it.
     assert clock[0] <= 0.5
+
+
+def test_a_transport_fault_after_the_socket_is_up_spends_the_submission(
+    http_opener, monkeypatch
+) -> None:
+    """A `URLError` is two opposite billing outcomes, and only the type is not told apart.
+
+    urllib wraps a host that was never reached and a connection that dropped
+    after the request was on the socket in the same exception. Nothing billed
+    in the first case; the provider may finish and bill the second. The
+    distinction decides whether a deduplicating caller may retry for free, so
+    `post_json` reads it off the connection rather than the exception, and the
+    spent case has to come out as `NoVerdictError`.
+    """
+    from deadeye.providers import _http
+
+    def unreachable(request, timeout):
+        raise urllib.error.URLError(ConnectionRefusedError("connection refused"))
+
+    # Never connected: a plain fault, and the key stays free for a corrected
+    # retry.
+    http_opener(unreachable)
+    with pytest.raises(DeadeyeError, match="could not be reached") as free:
+        _post()
+    assert not isinstance(free.value, NoVerdictError)
+
+    # Connected, then lost: the same exception type, the spent answer.
+    def sent_then_lost(request, timeout):
+        _http._SUBMITTED.set(True)
+        raise urllib.error.URLError(TimeoutError("timed out writing the request body"))
+
+    http_opener(sent_then_lost)
+    with pytest.raises(NoVerdictError, match="not a retry of this one"):
+        _post()
+
+
+def test_the_submitted_marker_follows_the_socket_not_the_exception(monkeypatch) -> None:
+    """The marker is set by a completed handshake and by nothing else.
+
+    `HTTPConnection.sock` is assigned only once the TCP handshake returns, so
+    a connect that never completes leaves it None and a submission that never
+    left stays retryable, while any send on a live socket marks the media as
+    gone whether it completed or was cut off partway.
+    """
+    from deadeye.providers import _http
+
+    connection = _http._TrackedConnection("provider.invalid", timeout=1.0)
+    sent: list[bytes] = []
+    monkeypatch.setattr(
+        type(connection),
+        "connect",
+        lambda self: setattr(self, "sock", SimpleNamespace(sendall=sent.append)),
+    )
+
+    connection.send(b"Content-Length: 2\r\n\r\n")
+    assert _http._SUBMITTED.get() is True
+    assert sent == [b"Content-Length: 2\r\n\r\n"], "the request bytes still reach the socket"
+
+    # A send that raises after the handshake keeps the marker: a body cut off
+    # halfway is exactly the case that may have been delivered in full. The
+    # socket is dropped so `send` connects again and takes the failing one.
+    _http._SUBMITTED.set(False)
+    connection.sock = None
+    monkeypatch.setattr(
+        type(connection),
+        "connect",
+        lambda self: setattr(self, "sock", SimpleNamespace(sendall=_refuse)),
+    )
+    with pytest.raises(ConnectionResetError):
+        connection.send(b"{}")
+    assert _http._SUBMITTED.get() is True
+
+
+def _refuse(_data: bytes) -> None:
+    raise ConnectionResetError("reset by peer")
+
+
+def test_the_tracking_handlers_are_the_ones_that_open_connections() -> None:
+    """The real opener must route through the tracking handlers, not beside them.
+
+    `build_opener` keeps a default handler whose class a passed handler only
+    subclasses, and both sit in the same request chain, so a tracking handler
+    added alongside the defaults would sit later in the chain and never be
+    reached: every submission would read as never sent, and every spent
+    submission would look free again. The chains are asserted here rather than
+    assumed, because nothing else in the offline suite can tell.
+    """
+    from deadeye.providers import _http
+
+    opener = _http._OPENER
+    for protocol, expected in (
+        ("http", _http._TrackingHTTPHandler),
+        ("https", _http._TrackingHTTPSHandler),
+    ):
+        assert [type(handler) for handler in opener.handle_open[protocol]] == [expected]
+
+
+def test_the_real_opener_marks_a_submission_it_put_on_a_socket() -> None:
+    """The marker is set by the machinery `post_json` really runs.
+
+    The other tests drive a stubbed opener, which cannot catch a tracking
+    handler that never reached the request chain. A loopback listener closing
+    the connection before it reads anything answers is a submission whose
+    bytes went out and whose failure came back as a `URLError`, so it has to
+    be classified as spent rather than free.
+    """
+    import socket
+    import threading
+
+    from deadeye.providers import _http
+
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    port = listener.getsockname()[1]
+
+    def accept_and_drop() -> None:
+        connection, _ = listener.accept()
+        connection.close()
+
+    server = threading.Thread(target=accept_and_drop, daemon=True)
+    server.start()
+    try:
+        with pytest.raises(NoVerdictError, match="not a retry of this one"):
+            post_json(
+                "gemini",
+                f"http://127.0.0.1:{port}/v1beta/models/m:generateContent",
+                body={},
+                headers={"x-goog-api-key": "k"},
+                timeout_seconds=2.0,
+                credential_env="GEMINI_API_KEY",
+            )
+    finally:
+        server.join(timeout=5)
+        listener.close()
+    assert _http._SUBMITTED.get() is True
+
+
+def test_a_submission_that_never_opened_a_socket_is_not_marked_sent(http_opener) -> None:
+    """The marker is per submission, so a previous review cannot leak into the next.
+
+    The MCP server runs many reviews in one context, and a leftover True would
+    make the next unreachable provider read as a spent submission and refuse a
+    retry that was in fact free.
+    """
+    from deadeye.providers import _http
+
+    def unreachable(request, timeout):
+        raise urllib.error.URLError(ConnectionRefusedError("connection refused"))
+
+    http_opener(unreachable)
+    _http._SUBMITTED.set(True)
+    with pytest.raises(DeadeyeError, match="could not be reached"):
+        _post()
+    assert _http._SUBMITTED.get() is False

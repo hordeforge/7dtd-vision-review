@@ -335,6 +335,19 @@ required (`CONTRIBUTING.md`, "Changing a contract").
   composed form has precomposed characters. As two ledger entries the retry
   answered a different question, so the submission the key exists to prevent
   happened and was billed. The 200-character cap is applied after the fold.
+- A connection that failed after the request was on the wire no longer reads
+  as a free retry. `urllib` reports a host that was never reached and a
+  connection that dropped while the media was still going out as the same
+  `URLError`, and the second was refused with `could not be reached`, a plain
+  fault. Over MCP that left the `idempotency_key` out of the ledger, so a
+  client retrying a request whose bytes had already left its machine was
+  offered a second billable submission of the same media. After: the shared
+  reader records whether the socket ever came up (`HTTPConnection.sock` is set
+  only once the handshake completes) and raises `NoVerdictError` when it did,
+  so the key is spent and the retry replays the first refusal. A connection
+  that never connected is unchanged: nothing was submitted, so that key stays
+  free for a corrected retry. Over the CLI both cases keep their exit codes;
+  the spent one now carries the `not a retry of this one` warning.
 - A default evidence write could overwrite a review a `--force` run published
   underneath it. The non-force path reserves the destination name with
   `O_CREAT|O_EXCL` and then replaces onto it, but `--force` takes no

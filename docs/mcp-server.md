@@ -52,9 +52,13 @@ calls, spec error codes, and the review consent boundary.
     billed is never offered back as a safe retry. A review whose verdict
     arrived but whose evidence file could not be written replays that same
     fault and envelope; a review the provider answered with nothing usable
-    (a timeout, an answer the adapter cannot use, an envelope no verdict
-    can be read out of, a response that failed
-    result validation) replays that same refusal. A status the provider
+    (a timeout, an answer the adapter cannot use, an envelope no verdict can
+    be read out of, a response that failed result validation) replays that
+    same refusal. A transport fault is classified by the socket rather than by
+    the exception: a connection that came up and then lost the request, or
+    timed out while the body was still going out, may have delivered the media
+    and is treated as spent, while a host that was never reached spent
+    nothing. A status the provider
     refused before running the review (a rejected credential, a quota, a bad
     request) spent nothing, so that key stays free for a corrected retry.
     Neither submits the media a second time, and a client that
