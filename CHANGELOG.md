@@ -21,7 +21,7 @@ the Keep a Changelog order: `Added`, `Changed`, `Fixed`, `Security`. While the
 version is 0.x a breaking change may ride a minor bump; the heading is still
 required (`CONTRIBUTING.md`, "Changing a contract").
 
-## Unreleased
+## [0.2.0] - 2026-09-28
 
 ### Breaking
 

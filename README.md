@@ -115,7 +115,7 @@ Every `vX.Y.Z` tag publishes a wheel (and an sdist and SBOM) on
 
 ```bash
 uv tool install \
-    "https://github.com/hordeforge/7dtd-vision-review/releases/download/v0.1.1/7dtd_vision_review-0.1.1-py3-none-any.whl"
+    "https://github.com/hordeforge/7dtd-vision-review/releases/download/v0.2.0/7dtd_vision_review-0.2.0-py3-none-any.whl"
 ```
 
 Substitute the release you want; the two `X.Y.Z` on the URL and the wheel

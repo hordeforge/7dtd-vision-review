@@ -181,7 +181,7 @@ trimmed to its keys:
 ```
 $ deadeye mcp
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}
-{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"deadeye","version":"0.1.1"}}}
+{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"deadeye","version":"0.2.0"}}}
 {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"review","arguments":{"clip":"clip/","intent":"intent.json","provider":"fake","allow_network":true}}}
 {"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"{\n  \"advisory_only\": true,\n ... }"}]}}
 {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"review","arguments":{"clip":"clip/","provider":"genimi","allow_network":true}}}
