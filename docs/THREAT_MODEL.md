@@ -189,7 +189,13 @@ the verdict rather than over the process.
 | MCP control flags must be literal JSON booleans | a client string `"false"` becoming `force` or `keep_raw_response` (T/R/I) | `mcp.py` (`_boolean`) |
 | MCP path, intent, model, and provider arguments must be strings, and `provider` must name a registered provider | a client argument of the wrong type or a mistyped provider name surfacing as an internal fault (I) | `mcp.py` (`_text` / `_path_arg` / `_provider_arg`) |
 | Prompt version and rubric version recorded on every submission | an answer attributed to an instruction the model never received (R) | `prompt.py` `PROMPT_VERSION`; evidence records the versions |
-| Zero runtime dependencies, bandit (S) lint rules armed | supply-chain surface | `pyproject.toml` |
+| Zero runtime dependencies, adapters speak HTTP with the standard library | supply-chain surface inherited by every consuming mod author | `pyproject.toml` (no `[project.dependencies]`) |
+| Dev toolchain exact-pinned, one home in `[dependency-groups]`, mirrored in `[build-system].requires` | a floating range letting a checkout or an isolated build resolve a different setuptools | `pyproject.toml`; coupling pinned by `tests/test_release_contract.py` |
+| `uv.lock` committed with a sha256 per sdist and wheel; `uv sync --locked` and `scripts/bootstrap` refuse a stale lock | a substituted or tampered artifact installing silently | `uv.lock`; `.github/workflows/ci.yml`, `release.yml` |
+| CI actions pinned by full commit SHA, tag in comment | a moved tag injecting code into the pipeline | `.github/workflows/ci.yml`, `.github/workflows/release.yml` step pins |
+| CycloneDX 1.5 SBOM of the locked resolution attached to every release | a consumer or scanner unable to see what shipped | `.github/workflows/release.yml` sbom step |
+| Weekly Dependabot over the `uv` and `github-actions` ecosystems | pins drifting past security patches unnoticed | `.github/dependabot.yml` |
+| bandit (S) lint rules armed on the whole tree | `subprocess`, temp-file, and URL-scheme sinks in the adapters | `pyproject.toml` `[tool.ruff.lint]` |
 
 Single point of failure: T3 — the redact backstop is the *only* control
 standing between credentials and three output channels.
