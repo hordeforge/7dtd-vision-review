@@ -441,3 +441,50 @@ def test_the_recorded_generation_settings_are_the_ones_sent() -> None:
     recorded = NvidiaProvider().generation_settings()
     assert {key: body[key] for key in recorded} == recorded
     assert recorded["max_tokens"] == DEFAULT_MAX_TOKENS
+
+
+def test_an_answer_in_a_content_parts_array_is_not_discarded(monkeypatch, http_opener) -> None:
+    """`content` may be a typed parts array, not only a string, and a reasoning
+    model that answers beside its reasoning sends that form. Reading only the
+    string form reported "no text content" for a submission that was billed
+    and did carry a verdict, which the caller cannot get back without paying
+    for the same media a second time."""
+    _answer(
+        monkeypatch,
+        http_opener,
+        {
+            "model": "m",
+            "choices": [
+                {
+                    "finish_reason": "stop",
+                    "message": {
+                        "content": [
+                            {"type": "reasoning", "text": "thinking out loud"},
+                            {"type": "text", "text": '{"confidence": 0.9}'},
+                        ]
+                    },
+                }
+            ],
+        },
+    )
+    response = NvidiaProvider().review(
+        ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0)
+    )
+    assert response.raw_text == '{"confidence": 0.9}'
+
+
+def test_a_generation_cut_short_at_the_token_cap_names_the_knob(monkeypatch, http_opener) -> None:
+    """The empty answer a token cap produces is named here, as the Gemini
+    adapter names it, rather than surfacing as "invalid structure (not JSON)"
+    from the result parser. The setting the operator can raise is the whole
+    value of naming it."""
+    _answer(
+        monkeypatch,
+        http_opener,
+        {
+            "model": "m",
+            "choices": [{"finish_reason": "length", "message": {"content": "   "}}],
+        },
+    )
+    with pytest.raises(NoVerdictError, match="max_tokens"):
+        NvidiaProvider().review(ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0))

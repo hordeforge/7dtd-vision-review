@@ -34,7 +34,7 @@ from __future__ import annotations
 import base64
 
 from .. import config
-from ..errors import DeadeyeError, no_verdict
+from ..errors import DeadeyeError, NoVerdictError, no_verdict
 from ._http import post_json
 from .base import (
     CredentialedProvider,
@@ -143,13 +143,30 @@ class NvidiaProvider(CredentialedProvider):
         message = response_object(
             choice, key="message", item_name="choice", provider_name=self.name
         )
-        text = message.get("content")
-        if not isinstance(text, str) or not text.strip():
-            raise no_verdict(f"provider {self.name!r} returned no text content")
+        text = _answer_text(message.get("content"))
         finish = choice.get("finish_reason")
         if finish and finish not in ("stop", "length"):
             raise no_verdict(
                 f"provider {self.name!r} ended the response early (finish_reason {finish})"
+            )
+        if not text:
+            # Named here rather than left to the result parser: an empty
+            # message reaches `parse_model_json` as `""`, whose JSONDecodeError
+            # reads as "invalid structure (not JSON): Expecting value: line 1
+            # column 1" and says nothing about the provider having sent no text
+            # at all. A generation stopped at the token cap is the usual cause,
+            # and it is a setting the operator can change, so the knob is
+            # named as it is in the Gemini adapter.
+            raise NoVerdictError(
+                f"provider {self.name!r} returned no text content"
+                + (f" (finish_reason {finish})" if finish else "")
+                + "; no verdict was produced"
+                + (
+                    "; raise providers.nvidia.max_tokens if the generation was "
+                    "cut short by the token cap"
+                    if finish == "length"
+                    else ""
+                )
             )
         usage = envelope.get("usage")
         return ReviewResponse(
@@ -157,6 +174,30 @@ class NvidiaProvider(CredentialedProvider):
             usage=usage if isinstance(usage, dict) else None,
             model_reported=envelope["model"] if isinstance(envelope.get("model"), str) else None,
         )
+
+
+def _answer_text(content: object) -> str:
+    """The verdict text in an assistant message's `content`, or "" when there is none.
+
+    The chat-completions shape admits a `content` that is a string or an array
+    of typed parts, and a reasoning model that puts the answer beside its
+    reasoning sends the array form. Accepting only the string form reported
+    "returned no text content" for a submission that was billed and did carry
+    a verdict, which is the one answer the caller cannot get back without
+    paying for the same media twice. Only `text` parts are read: the array also
+    carries non-text parts, and a `None` text is not a verdict.
+    """
+    if isinstance(content, str):
+        return content if content.strip() else ""
+    if not isinstance(content, list):
+        return ""
+    return "".join(
+        part["text"]
+        for part in content
+        if isinstance(part, dict)
+        and part.get("type", "text") == "text"
+        and isinstance(part.get("text"), str)
+    )
 
 
 def build_body(request: ReviewRequest) -> dict[str, object]:

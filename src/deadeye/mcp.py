@@ -769,6 +769,22 @@ def _read_chunks(read: Callable[[int], Any]) -> Iterator[_Line]:
         yield chunk
 
 
+def _chunk_reader(source: Any, read: Callable[[int], Any]) -> Callable[[int], Any]:
+    """The read that returns what has arrived, rather than waiting for a full buffer.
+
+    `BufferedReader.read(n)` is specified to keep reading until it has `n`
+    bytes or the stream ends, and a pipe ends only when the client closes its
+    end. A request/response client that writes one frame and blocks for the
+    answer therefore got no answer at all: the server sat in `read` until the
+    next 8192-byte window filled, or until the client gave up and disconnected.
+    `read1` returns after one underlying read, so a frame is answered as soon
+    as it lands. A source without `read1` (an unbuffered `FileIO`, a test
+    double) already returns short counts and needs no wrapper.
+    """
+    read1 = getattr(source, "read1", None)
+    return read1 if callable(read1) else read
+
+
 def _split_stdio_frames(
     read: Callable[[int], Any],
     first: _Line,
@@ -878,6 +894,7 @@ def _iter_stdio_frames(source: Any, max_bytes: int) -> Iterator[bytes | str | No
     if not callable(read):
         yield from _iter_pre_split_frames(source, max_bytes)
         return
+    read = _chunk_reader(source, read)
     first = read(_READ_CHUNK_BYTES)
     if not first:
         return

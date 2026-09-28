@@ -36,7 +36,7 @@ from .prompt_text import flat_prompt_text
 from .providers import MediaPayload, ProviderLimits, ReviewRequest
 from .redaction import redact_json_text
 from .result import parse_model_json, validate_result
-from .sampling import base64_wire_bytes, mime_for_suffix
+from .sampling import IMAGE_SUFFIXES, base64_wire_bytes, mime_for_suffix
 from .surface import resolve_model
 
 if TYPE_CHECKING:
@@ -450,6 +450,7 @@ def _plan(
         max_video_bytes=limits.max_video_bytes,
         reserved_wire_bytes=sum(base64_wire_bytes(size) for size in reference_sizes),
     )
+    record = _hold_room_for_reference_images(record, media, intent, limits, provider_name)
     files: tuple[tuple[str, sampling.MediaKind], ...] = (
         *record.submitted_files,
         *((str(reference.path), "reference") for reference in intent.references),
@@ -463,6 +464,57 @@ def _plan(
     if note_prefix is not None:
         record = replace(record, note=f"{note_prefix}; {record.note}")
     return _Plan(record=record, files=files, sizes=(*submitted_sizes, *reference_sizes))
+
+
+def _hold_room_for_reference_images(
+    record: sampling.SamplingRecord,
+    media: sampling.ClipMedia,
+    intent: ReviewIntent,
+    limits: ProviderLimits,
+    provider_name: str,
+) -> sampling.SamplingRecord:
+    """Sample the frame sequence down to the images the references leave it.
+
+    `max_frames` caps the images in one request, and a reference asset is an
+    image in that same request. A clip sampled to the full cap and then given
+    one comparison image sends one image over the cap, and the provider answers
+    that with a refusal after the whole upload has already been billed: the one
+    fault `ProviderLimits` exists to prevent (`base.py`). The cap is settled
+    here, before the prompt, the disclosure, and the upload.
+
+    Only a frame sequence is resized. A muxed video is not an image, and a
+    request that carries one is not "submitting a frame sequence", so the
+    references it rides beside it are not what the cap counts.
+    """
+    if limits.max_frames is None or record.primary_kind != "frame":
+        return record
+    images = sum(
+        1 for reference in intent.references if reference.path.suffix.lower() in IMAGE_SUFFIXES
+    )
+    room = limits.max_frames - images
+    if room >= record.frames_submitted:
+        return record
+    if room < 1:
+        raise DeadeyeError(
+            f"the intent names {images} reference image(s) and provider "
+            f"{provider_name!r} accepts at most {limits.max_frames} images per "
+            "request, which leaves no room for the clip itself. Drop a reference "
+            "or review the clip without comparison media"
+        )
+    resampled = sampling.sample(
+        media,
+        max_frames=room,
+        video_capable=False,
+        max_video_bytes=limits.max_video_bytes,
+    )
+    return replace(
+        resampled,
+        note=(
+            f"the {images} reference image(s) share the same "
+            f"{limits.max_frames}-image request budget with the clip's frames; "
+            f"{resampled.note}"
+        ),
+    )
 
 
 def _materialize(plan: _Plan, limits: ProviderLimits, provider_name: str) -> _Submission:

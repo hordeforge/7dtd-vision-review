@@ -1271,3 +1271,60 @@ def test_a_video_only_the_prompt_pushes_over_still_refuses_without_frames(
             clip_dir_with_video, provider=provider, intent_path=intent_path, allow_network=True
         )
     assert provider.requests == []
+
+
+def test_a_reference_image_shares_the_image_budget_with_the_frames(clip_dir, tmp_path) -> None:
+    """`max_frames` caps the images in one request, and a reference is one of
+    them. Without the share the clip is sampled to the full cap, the reference
+    is appended, and the provider answers one image over its own published
+    limit with a refusal after the whole upload has been billed: the one fault
+    `ProviderLimits` exists to prevent locally and cheaply."""
+    reference = tmp_path / "good.png"
+    reference.write_bytes(b"REF")
+    provider = FakeProvider()
+    envelope = run_review(
+        clip_dir,
+        provider=provider,
+        intent_text=json.dumps(
+            {
+                "purpose": "compare the candidate against a known good",
+                "references": [{"path": str(reference), "purpose": "known good"}],
+            }
+        ),
+        allow_network=True,
+    )
+    cap = FakeProvider().limits.max_frames
+    assert cap is not None
+    images = [
+        payload for payload in provider.requests[-1].media if payload.mime_type.startswith("image/")
+    ]
+    assert len(images) <= cap
+    assert envelope["sampling"]["frames_submitted"] == cap - 1
+    assert "reference image(s) share" in envelope["sampling"]["note"]
+
+
+def test_references_that_fill_the_image_budget_refuse_before_the_upload(clip_dir, tmp_path) -> None:
+    """The cap is a per-request image count, so references that consume all of
+    it leave the clip nothing. That is an over-budget request, and it is
+    refused here, before the prompt, the disclosure, and the upload."""
+    reference = tmp_path / "good.png"
+    reference.write_bytes(b"REF")
+    cap = FakeProvider().limits.max_frames
+    assert cap is not None
+    provider = FakeProvider()
+    with pytest.raises(DeadeyeError, match="leaves no room for the clip itself"):
+        run_review(
+            clip_dir,
+            provider=provider,
+            intent_text=json.dumps(
+                {
+                    "purpose": "compare against many known goods",
+                    "references": [
+                        {"path": str(reference), "purpose": f"known good {index}"}
+                        for index in range(cap)
+                    ],
+                }
+            ),
+            allow_network=True,
+        )
+    assert provider.requests == []

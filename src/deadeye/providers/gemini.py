@@ -207,10 +207,17 @@ class GeminiProvider(CredentialedProvider):
         raw_parts = content.get("parts", [])
         if not isinstance(raw_parts, list):
             raise no_verdict(f"provider {self.name!r} returned invalid candidate parts")
+        # A 2.5-series thought part carries the model's own reasoning, marked
+        # `"thought": true`, and precedes the answer. It is not the verdict, and
+        # concatenating it in put the reasoning ahead of the JSON the result
+        # parser then salvages by slicing to the first brace, and stored the
+        # model's internal chain of thought in `raw_provider_response`.
         text = "".join(
             part["text"]
             for part in raw_parts
-            if isinstance(part, dict) and isinstance(part.get("text"), str)
+            if isinstance(part, dict)
+            and isinstance(part.get("text"), str)
+            and part.get("thought") is not True
         )
         finish = candidate.get("finishReason")
         if finish and finish not in ("STOP", "MAX_TOKENS"):

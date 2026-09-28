@@ -536,3 +536,30 @@ def test_the_recorded_generation_settings_are_the_ones_sent() -> None:
     recorded = GeminiProvider().generation_settings()
     assert body["generationConfig"] == recorded
     assert recorded["maxOutputTokens"] == 65536
+
+
+def test_thought_parts_are_not_concatenated_into_the_verdict(monkeypatch, http_opener) -> None:
+    """A 2.5-series thought part carries the model's own reasoning, marked
+    `"thought": true`, and precedes the answer. Joining it in made the
+    reasoning the prefix of `raw_text`, which the result parser then had to
+    salvage by slicing to the first brace, and stored the chain of thought in
+    `raw_provider_response` in evidence. The verdict is the answer part."""
+    import json as json_module
+
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    envelope = {
+        "candidates": [
+            {
+                "finishReason": "STOP",
+                "content": {
+                    "parts": [
+                        {"text": "the model is reasoning out loud", "thought": True},
+                        {"text": '{"confidence": 0.9}'},
+                    ]
+                },
+            }
+        ],
+    }
+    http_opener(lambda request, timeout: _FakeResponse(json_module.dumps(envelope).encode()))
+    response = GeminiProvider().review(_review_request())
+    assert response.raw_text == '{"confidence": 0.9}'
