@@ -344,6 +344,11 @@ def _assert_declared_headings(section: str, headings: list[str], rank: dict[str,
         f"CHANGELOG.md section {section!r} uses heading(s) {undeclared}; the "
         f"declared ones are {list(SECTION_ORDER)}"
     )
+    repeated = [name for name in dict.fromkeys(headings) if headings.count(name) > 1]
+    assert not repeated, (
+        f"CHANGELOG.md section {section!r} repeats heading(s) {repeated}; one "
+        f"heading per category, or the release notes read as a category cut in two"
+    )
     ranks = [rank[name] for name in headings]
     assert ranks == sorted(ranks), (
         f"CHANGELOG.md section {section!r} lists {headings} out of the declared "

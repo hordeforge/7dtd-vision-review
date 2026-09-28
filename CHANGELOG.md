@@ -519,8 +519,6 @@ required (`CONTRIBUTING.md`, "Changing a contract").
   normalization is applied: every sensitive name the backstop looks for is
   ASCII. Refusal and redaction text are unchanged.
 
-### Security
-
 - The credential redaction backstop existed in two copies with different
   rules, so which control ran depended on the output path. The envelope
   (`redaction.py`) matched a smaller set of key names, ignored Unicode
@@ -535,9 +533,10 @@ required (`CONTRIBUTING.md`, "Changing a contract").
 ### Changed
 
 - Dev tooling upkeep only, via dependabot: ruff 0.16.4 to 0.16.6, coverage
-  7.x to 7.x (minor), and hypothesis to its next minor in the dev group. No
-  CLI, schema, result, or evidence envelope changes, so no consumer impact.
-  Patch bump; `make check test smoke` is green unchanged.
+  7.15.4 to 7.16.0, and hypothesis 6.165.10 to 6.167.1 in the dev group.
+  pytest, mypy, and the setuptools build pin are unchanged. No CLI, schema,
+  result, or evidence envelope changes, so no consumer impact. Patch bump;
+  `make check test smoke` is green unchanged.
 
 ## [0.1.0] - 2026-09-11
 
@@ -580,7 +579,9 @@ First tagged release: everything below shipped under `v0.1.0`.
   artifact fails `make check test` instead of surfacing after the tag.
 - The wheel declares PEP 561 typing (`py.typed`) and PEP 639 licensing
   (`License-Expression: MIT`, replacing the deprecated TOML-table license),
-  and the build backend floor moves to `setuptools>=77` accordingly.
+  and the build backend is pinned to `setuptools==84.0.0`, the version the
+  lockfile resolves, so a build of this tag cannot drift with whatever
+  setuptools an isolated `uv build` would otherwise pick.
 - The sdist is now a complete source tree (`MANIFEST.in`): the committed
   test suite runs from an unpacked release tarball — previously
   `tests/conftest.py` was omitted, breaking every shipped test — and the
