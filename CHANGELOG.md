@@ -15,6 +15,17 @@ left to be discovered by a failing parse downstream.
 
 ## Unreleased
 
+### Added
+
+- The MCP `review` tool takes an optional `idempotency_key`. A client that
+  retries its own call with the same key and the same arguments now receives
+  the first attempt's envelope without submitting the media a second time.
+  A key reused with different arguments is refused, only completed reviews
+  are recorded (a refusal stays retryable), and the ledger holds the most
+  recent 128 keys, least recently used evicted. The guarantee is process-
+  local: a restarted server is back to one call, one submission. Calls
+  without a key behave exactly as before.
+
 ### Fixed
 
 - `deadeye doctor --json` no longer hides a malformed config. A config that
@@ -38,6 +49,12 @@ left to be discovered by a failing parse downstream.
 - The release build pinned `SOURCE_DATE_EPOCH` but not the rest of the
   runner's environment; the wheel and sdist build now also run under
   `LC_ALL=C`, `TZ=UTC`, and `PYTHONHASHSEED=0`.
+- An evidence path left empty by a killed run (the exclusive publish
+  placeholder never reaching its atomic replace) no longer refuses every
+  later run with a message about an earlier review that was never published.
+  An empty occupant older than 60 seconds is reclaimed, so a rerun converges
+  on the same path; a placeholder a live writer still holds, and any
+  published envelope however old, are refused as before.
 
 ### Changed
 

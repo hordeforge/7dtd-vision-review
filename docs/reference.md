@@ -144,6 +144,15 @@ symlink, and a failed or interrupted write deletes the temporary file (and
 an unused exclusive placeholder) so they cannot accumulate beside the
 destination.
 
+A process killed between that reserve and the replace (`SIGKILL`; the
+`finally` that cleans up cannot run) leaves an empty placeholder holding no
+review at all. Left alone it would refuse every later run with a message
+about an earlier review that does not exist. An empty occupant older than 60
+seconds is therefore reclaimed and the run converges on the same path; a
+fresher one belongs to a live writer and is still refused, and a real
+envelope is never reclaimed however old it is. `--force` remains the only
+way to overwrite a published review.
+
 ## Running a review twice
 
 Every review is a new billable submission to a third party; deadeye itself
@@ -164,6 +173,12 @@ the full envelope still reaches you — stdout with `--json`, otherwise the
 human summary; over MCP it rides the `isError` tool result. A completed,
 billable verdict is never discarded to a local write fault, so recovering
 it never means submitting the media twice.
+
+The CLI has no key to offer here: a re-run is a new submission by design. The
+MCP `review` tool does, through the optional `idempotency_key` argument: a
+client that retries its own call with the same key and the same arguments
+gets the first attempt's envelope back without submitting anything, for the
+life of the server process. See [docs/mcp-server.md](mcp-server.md).
 
 ## Providers
 

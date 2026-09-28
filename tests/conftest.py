@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -68,3 +68,18 @@ def intent_bytes() -> bytes:
         b'{"purpose": "show the garment survives a full turn without clipping", '
         b'"camera_path": "turntable"}'
     )
+
+
+@pytest.fixture(autouse=True)
+def empty_idempotency_ledger() -> Iterator[None]:
+    """Start every test with an empty MCP idempotency ledger.
+
+    The ledger is process-wide by design (one long-lived server), so a test
+    that names an idempotency key would otherwise leave an entry behind for
+    whichever test runs next.
+    """
+    from deadeye import mcp
+
+    mcp._COMPLETED.clear()
+    yield
+    mcp._COMPLETED.clear()

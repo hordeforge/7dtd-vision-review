@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
+import time
 from datetime import datetime, timedelta
 
 import pytest
@@ -394,8 +396,71 @@ def test_exclusive_reserve_refuses_a_name_another_writer_already_holds(tmp_path)
     _reserve_exclusive(output)
     assert output.is_file()
     assert output.stat().st_size == 0
-    with pytest.raises(DeadeyeError, match="already holds an earlier review"):
+    with pytest.raises(DeadeyeError, match="write in progress"):
         _reserve_exclusive(output)
+
+
+def test_a_crash_stranded_placeholder_is_reclaimed_and_the_path_writes(
+    clip_dir, intent_path, tmp_path, monkeypatch
+) -> None:
+    """A run killed between the exclusive reserve and the replace leaves an
+    empty placeholder. It holds no review, so the next run must converge and
+    write there instead of refusing a path that only ever held a reservation.
+
+    The reserve is what creates the stranded state, so the test creates it
+    the same way rather than fabricating a file."""
+    from deadeye import evidence
+
+    output = tmp_path / "evidence.json"
+    evidence._reserve_exclusive(output)
+    assert output.stat().st_size == 0
+    stale = time.time() - evidence._STALE_PLACEHOLDER_SECONDS - 1
+    os.utime(output, (stale, stale))
+
+    # The preflight no longer blocks the recovery run, and the review lands.
+    evidence.ensure_writable(output, force=False)
+    envelope = run_review(
+        clip_dir,
+        provider=FakeProvider(),
+        intent_path=intent_path,
+        allow_network=True,
+        output=output,
+    )
+    assert json.loads(output.read_text(encoding="utf-8"))["review_id"] == envelope["review_id"]
+    assert list(tmp_path.glob("*.tmp")) == []
+
+
+def test_a_live_placeholder_is_never_reclaimed_by_a_concurrent_writer(tmp_path) -> None:
+    """Reclaiming is age-based, so a writer that reserved moments ago keeps
+    its name: the concurrent-duplicate guarantee is untouched by the crash
+    recovery, and the refusal names the real reason (a write in progress,
+    not an earlier review)."""
+    from deadeye import evidence
+
+    output = tmp_path / "evidence.json"
+    evidence._reserve_exclusive(output)
+    with pytest.raises(DeadeyeError, match="write in progress"):
+        evidence.ensure_writable(output, force=False)
+    with pytest.raises(DeadeyeError, match="write in progress"):
+        evidence.write_evidence(output, {"kind": "deadeye-review"}, force=False)
+
+
+def test_a_published_envelope_is_never_reclaimed_however_old_it_is(tmp_path) -> None:
+    """Only an empty placeholder is reclaimable. Real evidence, however old,
+    still ends a rerun without --force: the age rule must not become a way to
+    overwrite an earlier review by waiting."""
+    from deadeye import evidence
+
+    output = tmp_path / "evidence.json"
+    evidence.write_evidence(output, {"kind": "deadeye-review"}, force=False)
+    old = time.time() - evidence._STALE_PLACEHOLDER_SECONDS - 3600
+    os.utime(output, (old, old))
+
+    with pytest.raises(DeadeyeError, match="already holds an earlier review"):
+        evidence.ensure_writable(output, force=False)
+    with pytest.raises(DeadeyeError, match="already holds an earlier review"):
+        evidence.write_evidence(output, {"kind": "deadeye-review"}, force=False)
+    assert json.loads(output.read_text(encoding="utf-8"))["kind"] == "deadeye-review"
 
 
 def test_two_concurrent_writes_without_force_keep_exactly_one_envelope(

@@ -19,7 +19,9 @@ import contextlib
 import hashlib
 import json
 import os
+import stat
 import tempfile
+import time
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -144,11 +146,40 @@ def build_envelope(
     }
 
 
+# An exclusive reserve is empty by construction: a real envelope always
+# serializes to bytes, so a zero-byte destination is either a placeholder a
+# writer has not replaced yet or one a SIGKILL stranded between reserve and
+# replace. The window a live writer needs is sub-second (the payload is
+# already fsync'd in its temporary file before the reserve), so a placeholder
+# this old belongs to a run that died. Reclaiming it is what keeps a crash
+# from wedging the evidence path forever with a refusal that claims an
+# earlier review where no review was ever published.
+_STALE_PLACEHOLDER_SECONDS = 60.0
+
+
 def _occupied_evidence_message(path: Path) -> str:
     return (
         f"{path} already holds an earlier review and a later review never "
         "overwrites one by default; compare the documents, or pass --force"
     )
+
+
+def _pending_write_message(path: Path) -> str:
+    return (
+        f"{path} is occupied by a review write in progress; it holds no "
+        "published review, so the next run takes it once that write finishes"
+    )
+
+
+def _is_abandoned_placeholder(path: Path) -> bool:
+    """Whether `path` is an empty reserve old enough to reclaim, not one in flight."""
+    try:
+        occupied = path.stat()
+    except OSError:
+        return False
+    if not stat.S_ISREG(occupied.st_mode) or occupied.st_size != 0:
+        return False
+    return (time.time() - occupied.st_mtime) >= _STALE_PLACEHOLDER_SECONDS
 
 
 def ensure_writable(path: Path, *, force: bool) -> None:
@@ -161,11 +192,33 @@ def ensure_writable(path: Path, *, force: bool) -> None:
     re-checks at write time. The preflight is not the lock; two writers can
     both see a free path, so the write itself occupies the name with
     `O_CREAT|O_EXCL` before replace.
+
+    An empty destination is not a published review: it is a placeholder. A
+    placeholder a live writer still holds is refused like any other occupied
+    path (still for free, before any submission); one stranded by a crash is
+    reclaimed, and the recovery run converges on the same path.
     """
     if path.exists() and not path.is_file():
         raise DeadeyeError(f"{path} is not a regular file and cannot hold review evidence")
     if (path.is_file() or path.is_symlink()) and not force:
-        raise DeadeyeError(_occupied_evidence_message(path))
+        if not _is_empty(path):
+            raise DeadeyeError(_occupied_evidence_message(path))
+        if not _is_abandoned_placeholder(path):
+            raise DeadeyeError(_pending_write_message(path))
+
+
+def _is_empty(path: Path) -> bool:
+    try:
+        return path.stat().st_size == 0
+    except OSError:
+        # Unreadable (permissions, a broken symlink): fail closed and let the
+        # write-time reserve make the real decision.
+        return False
+
+
+def _refusal_for_occupant(path: Path) -> str:
+    """Why an occupied name cannot be written: a live write, or a review."""
+    return _pending_write_message(path) if _is_empty(path) else _occupied_evidence_message(path)
 
 
 def write_evidence(path: Path, document: dict[str, Any], *, force: bool) -> tuple[Path, str]:
@@ -189,6 +242,12 @@ def _reserve_exclusive(path: Path) -> None:
     missing file, both submit, then both `replace` onto the same path and
     the first envelope is gone. `O_CREAT|O_EXCL` is the atomic that makes
     the second writer fail instead of clobbering the first.
+
+    A crash between the reserve and the replace strands an empty placeholder,
+    and the next run would then refuse a path that holds no review at all.
+    An empty occupant is reclaimed once it is older than
+    `_STALE_PLACEHOLDER_SECONDS`; a fresh one belongs to a live writer and is
+    refused, so the concurrent-duplicate guarantee is unchanged.
     """
     flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
     if hasattr(os, "O_BINARY"):
@@ -196,7 +255,21 @@ def _reserve_exclusive(path: Path) -> None:
     try:
         fd = os.open(path, flags, 0o600)
     except FileExistsError:
-        raise DeadeyeError(_occupied_evidence_message(path)) from None
+        pass
+    else:
+        os.close(fd)
+        return
+    if not _is_abandoned_placeholder(path):
+        raise DeadeyeError(_refusal_for_occupant(path)) from None
+    # Reclaim: drop the stranded name, then take it. A writer that reclaimed
+    # the same placeholder first wins this race, and the loser sees its own
+    # `O_EXCL` fail on the fresh placeholder the winner just created.
+    with contextlib.suppress(OSError):
+        path.unlink()
+    try:
+        fd = os.open(path, flags, 0o600)
+    except FileExistsError:
+        raise DeadeyeError(_pending_write_message(path)) from None
     os.close(fd)
 
 

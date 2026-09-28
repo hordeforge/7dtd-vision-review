@@ -29,12 +29,14 @@ from __future__ import annotations
 import json
 import sys
 import traceback
+from collections import OrderedDict
 from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 from typing import Any, TextIO, TypeVar
 
 from . import __version__
 from .errors import DeadeyeError, EvidenceWriteError
+from .evidence import sha256_bytes
 from .review import run_review as run_review_core
 from .surface import (
     PROVIDERS,
@@ -55,6 +57,22 @@ SERVER_NAME = "deadeye"
 # grows with the input.
 _MAX_FRAME_BYTES = 1 * 1024 * 1024
 _READ_CHUNK_BYTES = 8192
+# How many completed `review` results a client-named idempotency key holds.
+# A replay is answered from here instead of submitted again, so the ledger
+# must be bounded: the server is long-lived and a key is a client-chosen
+# string. Least-recently-used eviction, process-local: a restart drops the
+# ledger, which is why the tool description tells a client the guarantee
+# covers transport replay within one session, not across restarts.
+_IDEMPOTENCY_LEDGER_ENTRIES = 128
+# Long enough to name a job and its asset, short enough that the key stays a
+# log line. Anything longer is a client bug, not a key.
+_MAX_IDEMPOTENCY_KEY_CHARS = 200
+
+# Client-named keys to the completed reviews that answered them, oldest
+# first: `key -> (call fingerprint, envelope)`. Only successful reviews land
+# here, so a local refusal stays retryable and an ambiguous timeout is never
+# frozen into a result the client did not receive.
+_COMPLETED: OrderedDict[str, tuple[str, dict[str, Any]]] = OrderedDict()
 
 TOOLS: list[dict[str, Any]] = [
     {
@@ -62,10 +80,13 @@ TOOLS: list[dict[str, Any]] = [
         "description": "Submit a clip (frame directory or muxed video) plus its "
         "recorded intent to a vision model and return the advisory evidence "
         "envelope. Uploads the clip to a third party: refuses without "
-        "allow_network=true. Every call is one new billable submission and "
-        "never retries: resending this call after a lost response or a "
-        "timeout submits the media again rather than replaying the first "
-        "attempt.",
+        "allow_network=true. Without an idempotency_key, every call is one "
+        "new billable submission and never retries: resending this call after "
+        "a lost response or a timeout submits the media again rather than "
+        "replaying the first attempt. Supply idempotency_key to name the "
+        "logical operation instead: a repeated call with the same key and the "
+        "same arguments returns the first attempt's envelope without "
+        "submitting anything, for the lifetime of this server process.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -79,6 +100,12 @@ TOOLS: list[dict[str, Any]] = [
                 "keep_raw_response": {"type": "boolean"},
                 "output": {"type": "string", "description": "evidence path"},
                 "force": {"type": "boolean"},
+                "idempotency_key": {
+                    "type": "string",
+                    "description": "client-chosen name for this logical operation; a "
+                    "repeat of the same key with the same arguments returns the first "
+                    "result instead of submitting again",
+                },
             },
             "required": ["clip", "allow_network"],
         },
@@ -143,11 +170,21 @@ def _call_review(params: dict[str, Any]) -> dict[str, Any]:
         )
     keep_raw_response = _optional_boolean(params, "keep_raw_response")
     force = _optional_boolean(params, "force")
+    key = _idempotency_key(params)
     provider_name = _resolve_provider(params.get("provider"))
     # Same resolution and validation as the CLI flag: the tool argument, else
     # config's timeout_seconds, else the built-in default.
     timeout = _resolve_timeout(params.get("timeout_seconds"))
     output = Path(params["output"]) if params.get("output") else None
+
+    if key is not None:
+        replayed = _replayed_result(key, params)
+        if replayed is not None:
+            # The first attempt's verdict, verbatim: a duplicate call must not
+            # submit the media again, and must not invent a second envelope
+            # either. `created_utc` and `review_id` in the payload are the
+            # first attempt's, which is what makes the replay auditable.
+            return replayed
 
     def notify(line: str) -> None:
         # The CLI's disclosure contract carries over verbatim: what will
@@ -155,7 +192,7 @@ def _call_review(params: dict[str, Any]) -> dict[str, Any]:
         # stdout stays protocol-only.
         print(line, file=sys.stderr)
 
-    return run_review_core(
+    envelope = run_review_core(
         Path(params["clip"]),
         provider=PROVIDERS[provider_name](),
         intent_path=Path(params["intent"]) if params.get("intent") else None,
@@ -168,6 +205,63 @@ def _call_review(params: dict[str, Any]) -> dict[str, Any]:
         force=force,
         notify=notify,
     )
+    if key is not None:
+        _remember_result(key, params, envelope)
+    return envelope
+
+
+def _idempotency_key(params: dict[str, Any]) -> str | None:
+    """The client's key for this logical operation, or None when it named none."""
+    if "idempotency_key" not in params:
+        return None
+    key = params["idempotency_key"]
+    if not isinstance(key, str) or not key.strip():
+        raise DeadeyeError("review parameter 'idempotency_key' must be a non-empty string")
+    if len(key) > _MAX_IDEMPOTENCY_KEY_CHARS:
+        raise DeadeyeError(
+            f"review parameter 'idempotency_key' must be at most "
+            f"{_MAX_IDEMPOTENCY_KEY_CHARS} characters"
+        )
+    return key
+
+
+def _call_fingerprint(params: dict[str, Any]) -> str:
+    """A digest of the call as sent, minus the key itself.
+
+    Two calls sharing a key must be the same operation. Comparing the raw
+    arguments (not the resolved ones) is what the client controls: a resend
+    is byte-identical by definition, and a fingerprint over resolved values
+    would change under a config edit between the two calls, which is a
+    different operation wearing the same name.
+    """
+    call = {name: value for name, value in params.items() if name != "idempotency_key"}
+    return sha256_bytes(json.dumps(call, sort_keys=True).encode("utf-8"))
+
+
+def _replayed_result(key: str, params: dict[str, Any]) -> dict[str, Any] | None:
+    """The first attempt's envelope for `key`, or None when there is none."""
+    entry = _COMPLETED.get(key)
+    if entry is None:
+        return None
+    fingerprint, envelope = entry
+    if fingerprint != _call_fingerprint(params):
+        # Returning the earlier envelope here would attribute one operation's
+        # verdict to another's request, and re-running would bill a second
+        # time under a name the client already used. Refuse instead.
+        raise DeadeyeError(
+            f"idempotency_key {key!r} was already used for a review with different "
+            "arguments; a key names one logical operation, so pass a new one"
+        )
+    _COMPLETED.move_to_end(key)
+    return envelope
+
+
+def _remember_result(key: str, params: dict[str, Any], envelope: dict[str, Any]) -> None:
+    """Record a completed review under `key`, evicting the oldest past the bound."""
+    _COMPLETED[key] = (_call_fingerprint(params), envelope)
+    _COMPLETED.move_to_end(key)
+    while len(_COMPLETED) > _IDEMPOTENCY_LEDGER_ENTRIES:
+        _COMPLETED.popitem(last=False)
 
 
 def _call_doctor(params: dict[str, Any]) -> dict[str, Any]:

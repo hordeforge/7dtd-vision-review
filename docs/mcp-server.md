@@ -21,15 +21,32 @@ calls, spec error codes, and the review consent boundary.
   JSON booleans, never truthy strings. Credentials still come from the
   environment or loaded configuration (normally the gitignored
   `config.local.toml`); disclosure lines still precede submission.
-- **Duplicate calls are duplicate submissions.** The server keeps no state
-  between frames, so a client that resends a `review` call (lost response,
-  timeout, replay) triggers a second billable submission rather than
-  retrieving the first attempt's verdict; the tool description says so, and
-  ambiguous transport failures carry the same warning as the CLI's. One
-  partial failure is not allowed to force that resend: when a review
-  completes but its evidence file cannot be written, the `isError` tool
-  result carries the full envelope beside the error text, so the client
-  recovers the billed verdict without submitting the media again.
+- **Duplicate calls are duplicate submissions unless the client names the
+  operation.** A client that resends a `review` call (lost response,
+  timeout, replay) with no `idempotency_key` triggers a second billable
+  submission rather than retrieving the first attempt's verdict; the tool
+  description says so, and ambiguous transport failures carry the same
+  warning as the CLI's. A client that *does* pass an `idempotency_key` gets
+  the guarantee it asked for: a repeated call with the same key and the same
+  arguments returns the first attempt's envelope verbatim, submitting
+  nothing, for as long as the server process lives. The key must be a
+  non-empty string of at most 200 characters, and the ledger holds the most
+  recent 128 completed keys (least recently used evicted), so it cannot
+  grow without bound in a long-lived server. Three properties make the
+  replay honest rather than convenient:
+  - a key reused with *different* arguments is refused, so one operation's
+    verdict is never returned for another's request and a name is never
+    spent twice;
+  - only completed reviews are recorded, so a local refusal stays retryable
+    and an ambiguous timeout is never frozen into a result the client never
+    received;
+  - the ledger is process-local, so the guarantee covers replay within one
+    session, not a restart; across restarts the client is back to the
+    default of a duplicate call being a new submission.
+- **A partial failure does not force a resend.** When a review completes but
+  its evidence file cannot be written, the `isError` tool result carries the
+  full envelope beside the error text, so the client recovers the billed
+  verdict without submitting the media again.
 - **stdout stays clean.** The MCP server speaks JSON-RPC on stdio (the
   standard MCP transport), which is why the CLI already routes disclosure to
   stderr: a future `deadeye serve` replaces the argparse dispatcher, not the

@@ -455,3 +455,150 @@ def test_an_oversized_frame_is_a_parse_error_and_keeps_serving(monkeypatch) -> N
     assert lines[0]["result"] == {}
     assert lines[1]["error"]["code"] == -32700
     assert lines[2]["id"] == 3 and lines[2]["result"] == {}
+
+
+def _review_arguments(tmp_path, **extra) -> dict:
+    """A complete, consented `review` call against the offline fake provider."""
+    clip = tmp_path / "clip"
+    clip.mkdir(exist_ok=True)
+    (clip / "frame-0000.png").write_bytes(b"x")
+    intent = tmp_path / "i.json"
+    intent.write_text(json.dumps({"purpose": "p"}), encoding="utf-8")
+    return {
+        "clip": str(clip),
+        "intent": str(intent),
+        "provider": "fake",
+        "allow_network": True,
+        **extra,
+    }
+
+
+def test_a_repeated_review_call_with_the_same_key_submits_once(tmp_path) -> None:
+    """A client that retries its own call (lost response, timeout, replay)
+    hands back the identical call. With an idempotency key the retry returns
+    the first envelope instead of paying for a second submission, so the two
+    results are the same document, not two verdicts."""
+    from deadeye import mcp
+
+    submissions = 0
+    original = mcp.run_review_core
+
+    def counted(*args, **kwargs):
+        nonlocal submissions
+        submissions += 1
+        return original(*args, **kwargs)
+
+    mcp.run_review_core = counted
+    try:
+        arguments = _review_arguments(tmp_path, idempotency_key="job-42-thing")
+        first = _call("tools/call", {"name": "review", "arguments": arguments})
+        second = _call("tools/call", {"name": "review", "arguments": arguments})
+    finally:
+        mcp.run_review_core = original
+
+    assert submissions == 1, "the retry must not reach the provider"
+    assert first["result"] == second["result"]
+
+
+def test_a_repeated_call_without_a_key_is_still_a_second_submission(tmp_path) -> None:
+    """The key is opt-in: the documented default (a duplicate call bills
+    again) is untouched, because a client that named no operation cannot be
+    told which of its calls was the duplicate."""
+    from deadeye import mcp
+
+    submissions = 0
+    original = mcp.run_review_core
+
+    def counted(*args, **kwargs):
+        nonlocal submissions
+        submissions += 1
+        return original(*args, **kwargs)
+
+    mcp.run_review_core = counted
+    try:
+        first = _call("tools/call", {"name": "review", "arguments": _review_arguments(tmp_path)})
+        second = _call("tools/call", {"name": "review", "arguments": _review_arguments(tmp_path)})
+    finally:
+        mcp.run_review_core = original
+
+    assert submissions == 2
+    first_envelope = json.loads(first["result"]["content"][0]["text"])
+    second_envelope = json.loads(second["result"]["content"][0]["text"])
+    assert first_envelope["review_id"] != second_envelope["review_id"]
+
+
+def test_one_idempotency_key_cannot_serve_two_different_calls(tmp_path) -> None:
+    """Reusing a key for different arguments would either return another
+    operation's verdict or bill twice under a name already spent. It is
+    refused, and the first call's verdict stays under its own key."""
+    first = _call(
+        "tools/call",
+        {
+            "name": "review",
+            "arguments": _review_arguments(tmp_path, idempotency_key="job-42", model="a"),
+        },
+    )
+    clash = _call(
+        "tools/call",
+        {
+            "name": "review",
+            "arguments": _review_arguments(tmp_path, idempotency_key="job-42", model="b"),
+        },
+    )
+    assert first["result"].get("isError") is not True
+    assert clash["result"]["isError"] is True
+    assert "different arguments" in clash["result"]["content"][0]["text"]
+
+
+def test_a_refused_call_never_occupies_its_idempotency_key(tmp_path) -> None:
+    """A local refusal is safe to retry, so it must not be frozen into the
+    ledger: the same key and the same call must still run afterwards."""
+    from deadeye import mcp
+
+    occupied = tmp_path / "taken.json"
+    occupied.write_text("earlier evidence", encoding="utf-8")
+    arguments = _review_arguments(tmp_path, idempotency_key="job-43", output=str(occupied))
+    refused = _call("tools/call", {"name": "review", "arguments": arguments})
+    assert refused["result"]["isError"] is True
+    assert not mcp._COMPLETED
+
+    arguments.pop("output")
+    recovered = _call("tools/call", {"name": "review", "arguments": arguments})
+    assert recovered["result"].get("isError") is not True
+
+
+def test_the_idempotency_ledger_is_bounded(tmp_path, monkeypatch) -> None:
+    """A long-lived server must not accumulate one entry per key a client
+    ever names: the oldest is evicted at the bound, and a key past the bound
+    submits again rather than being answered from a forgotten entry."""
+    from deadeye import mcp
+
+    monkeypatch.setattr(mcp, "_IDEMPOTENCY_LEDGER_ENTRIES", 2)
+    for index in range(3):
+        response = _call(
+            "tools/call",
+            {
+                "name": "review",
+                "arguments": _review_arguments(tmp_path, idempotency_key=f"job-{index}"),
+            },
+        )
+        assert response["result"].get("isError") is not True
+    assert list(mcp._COMPLETED) == ["job-1", "job-2"]
+
+
+def test_an_unusable_idempotency_key_is_refused_before_any_submission(tmp_path) -> None:
+    """A key that is not a usable name (empty, not a string, absurdly long)
+    is a client bug, and it is caught before anything is submitted."""
+    from deadeye import mcp
+
+    for bad in ["", "   ", 7, None, "k" * (mcp._MAX_IDEMPOTENCY_KEY_CHARS + 1)]:
+        response = _call(
+            "tools/call",
+            {
+                "name": "review",
+                "arguments": _review_arguments(tmp_path, idempotency_key=bad),
+            },
+        )
+        assert response["result"]["isError"] is True, bad
+        assert "idempotency_key" in response["result"]["content"][0]["text"]
+    assert not mcp._COMPLETED

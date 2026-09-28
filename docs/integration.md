@@ -48,6 +48,19 @@ channel (stdout for the CLI, the `isError` tool result over MCP). Treat that
 payload as the verdict: persisting or forwarding it recovers the review with
 no second submission.
 
+A consumer driving deadeye over MCP can name the operation instead of relying
+on that: pass `idempotency_key` and a retried call with identical arguments
+returns the first envelope without submitting the media again. A key reused
+with different arguments is refused, only completed reviews are recorded, and
+the ledger is process-local and bounded, so the guarantee covers replay within
+one server session. Over the CLI there is no equivalent: a re-run is a new
+submission, and the evidence-path guard is the only thing that makes one free.
+
+An evidence path left behind empty by a killed run (a reserve that never
+reached its replace) holds no review, so it does not block a later run: after
+60 seconds the next run takes it. A published envelope at that path still
+ends the run without `--force`.
+
 ## What the consumer adds
 
 The envelope is the model-I/O record. The consumer's own evidence document
