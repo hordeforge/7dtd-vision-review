@@ -10,6 +10,7 @@ from __future__ import annotations
 import errno
 import io
 import json
+import unicodedata
 from pathlib import Path
 
 from deadeye.mcp import PROTOCOL_VERSION, handle_frame
@@ -725,6 +726,46 @@ def test_a_repeated_review_call_with_the_same_key_submits_once(tmp_path) -> None
         mcp.run_review_core = original
 
     assert submissions == 1, "the retry must not reach the provider"
+    assert first["result"] == second["result"]
+
+
+def test_a_key_retry_in_the_other_normalization_form_still_submits_once(tmp_path) -> None:
+    """The key names one logical operation, and the ledger lookup is an
+    identity comparison on it. A key that reaches the client decomposed (macOS
+    composes nothing it receives, and a paste carries whatever the source had)
+    spells the same name with combining marks where the composed form has
+    precomposed characters. As two ledger entries the retry answered a
+    different question and billed the media twice."""
+    from deadeye import mcp
+
+    submissions = 0
+    original = mcp.run_review_core
+
+    def counted(*args, **kwargs):
+        nonlocal submissions
+        submissions += 1
+        return original(*args, **kwargs)
+
+    mcp.run_review_core = counted
+    try:
+        composed = unicodedata.normalize("NFC", "café-job")
+        decomposed = unicodedata.normalize("NFD", "café-job")
+        assert composed != decomposed
+        first = _call(
+            "tools/call",
+            {"name": "review", "arguments": _review_arguments(tmp_path, idempotency_key=composed)},
+        )
+        second = _call(
+            "tools/call",
+            {
+                "name": "review",
+                "arguments": _review_arguments(tmp_path, idempotency_key=decomposed),
+            },
+        )
+    finally:
+        mcp.run_review_core = original
+
+    assert submissions == 1, "the decomposed retry must not reach the provider"
     assert first["result"] == second["result"]
 
 

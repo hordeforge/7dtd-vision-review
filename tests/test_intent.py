@@ -320,6 +320,19 @@ def test_inline_intent_text_with_a_leading_bom_parses() -> None:
     assert intent.purpose == "x"
 
 
+def test_inline_intent_text_carrying_a_lone_surrogate_is_refused() -> None:
+    """The inline route can hold a str UTF-8 cannot encode, from two real
+    sources: the OS decodes argv with surrogateescape, so a byte the terminal
+    could not render arrives as U+DCFF, and `{"purpose": "\\udcff"}` is legal
+    JSON an MCP client may send. A bare `encode` raised UnicodeEncodeError out
+    of `load_intent`, past this module's refusal contract, so the caller saw a
+    codec's message instead of the argument's."""
+    with pytest.raises(DeadeyeError, match="not valid UTF-8"):
+        load_intent(None, '{"purpose": "a\udcffb"}')
+    with pytest.raises(DeadeyeError, match="U\\+D800"):
+        load_intent(None, '{"purpose": "a\ud800b"}')
+
+
 def test_an_oversized_intent_file_is_refused_without_reading_it_all(tmp_path, monkeypatch) -> None:
     """The field caps only run after the document is in memory. A huge file
     on the MCP review path must be refused at the read, not retained, so the

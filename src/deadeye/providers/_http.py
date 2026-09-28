@@ -23,8 +23,14 @@ from ..prompt_text import flat_label_text
 
 _REDIRECT_CODES = frozenset({301, 302, 303, 307, 308})
 # How much of a provider's error body may ride in a refusal line: enough to
-# name the fault (quota, malformed key) and never a whole payload.
+# name the fault (quota, malformed key) and never a whole payload. Counted in
+# characters, which is what the line the operator reads is made of.
 _MAX_FAULT_BODY_CHARS = 300
+# The most bytes one character occupies in any encoding this module decodes:
+# four, for a UTF-8 astral code point. A read budget is in bytes and the
+# character budget is not, so the read covers this multiple of it and the
+# slice below, on the decoded text, is the one that enforces the limit.
+_MAX_BYTES_PER_CHAR = 4
 # A successful model response is a compact JSON verdict, not a media stream.
 # Bound it so a malformed endpoint or proxy cannot make the long-lived MCP
 # server retain an unbounded response body. Eight MiB leaves ample room for a
@@ -189,7 +195,13 @@ def _read_fault_body(exc: urllib.error.HTTPError) -> str:
     the exception chain until the next GC pass.
     """
     chunks: list[bytes] = []
-    remaining = _MAX_FAULT_BODY_CHARS
+    # The budget is characters, so the read has to cover the longest byte
+    # sequence one character can be. Reading the character count as bytes
+    # instead cut a non-ASCII fault body at a fraction of the text an
+    # operator asked for, and cut it mid-sequence, so the decoder's
+    # `errors="replace"` spent the last characters of the line on a U+FFFD
+    # standing in for the one the read severed.
+    remaining = _MAX_FAULT_BODY_CHARS * _MAX_BYTES_PER_CHAR
     try:
         while remaining:
             raw = exc.read(min(64 * 1024, remaining))

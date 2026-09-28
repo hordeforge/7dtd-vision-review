@@ -30,6 +30,7 @@ from __future__ import annotations
 import json
 import sys
 import traceback
+import unicodedata
 from collections import OrderedDict
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
@@ -434,12 +435,25 @@ def _call_review(params: dict[str, Any]) -> dict[str, Any]:
 
 
 def _idempotency_key(params: dict[str, Any]) -> str | None:
-    """The client's key for this logical operation, or None when it named none."""
+    """The client's key for this logical operation, or None when it named none.
+
+    The ledger lookup is an identity comparison, so the key is normalized to
+    NFC before it is used as one. A key typed on macOS (or pasted from a
+    decomposed source) arrives with combining marks where the composed
+    spelling has precomposed ones, and both spell the same logical operation;
+    as two ledger entries they answer two different questions, so the retry
+    the key exists to prevent submitted the media a second time and billed it
+    again. NFC is the form a client is most likely to have typed, and folding
+    to it loses nothing a key can carry: it is an opaque name, never rendered
+    back to the client, and the length cap is applied after the fold so a key
+    cannot shrink its way past it.
+    """
     if "idempotency_key" not in params:
         return None
     key = params["idempotency_key"]
     if not isinstance(key, str) or not key.strip():
         raise DeadeyeError("review parameter 'idempotency_key' must be a non-empty string")
+    key = unicodedata.normalize("NFC", key)
     if len(key) > _MAX_IDEMPOTENCY_KEY_CHARS:
         raise DeadeyeError(
             f"review parameter 'idempotency_key' must be at most "

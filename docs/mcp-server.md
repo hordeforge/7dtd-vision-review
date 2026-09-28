@@ -40,6 +40,10 @@ calls, spec error codes, and the review consent boundary.
   weighs, so a key the client is about to retry still replays instead of
   billing twice. Three properties make the replay honest rather than
   convenient:
+  - a key is compared in Unicode NFC, so the same name reaches the ledger as
+    one entry whether the client composed it or received it decomposed (macOS
+    composes nothing it receives). The 200-character cap is applied after the
+    fold, so a decomposed key cannot shrink its way past it;
   - a key reused with *different* arguments is refused, so one operation's
     verdict is never returned for another's request and a name is never
     spent twice;

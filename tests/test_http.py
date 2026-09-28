@@ -167,17 +167,18 @@ def test_an_oversized_success_response_is_refused_with_a_bounded_read(
 
 def test_an_oversized_error_body_is_read_only_up_to_the_fault_cap(http_opener, monkeypatch) -> None:
     """A 4xx/5xx body is sliced into the refusal line, so the read that
-    feeds that slice must stop at the character budget. `HTTPError.read()`
-    with no size would retain a whole media payload on a misconfigured
-    endpoint for the lifetime of the exception chain."""
+    feeds that slice must stop at the byte budget that covers the character
+    budget. `HTTPError.read()` with no size would retain a whole media payload
+    on a misconfigured endpoint for the lifetime of the exception chain."""
     from deadeye.providers import _http
 
     monkeypatch.setattr(_http, "_MAX_FAULT_BODY_CHARS", 8)
+    read_cap = 8 * _http._MAX_BYTES_PER_CHAR
 
     class RecordingBody(io.BytesIO):
         def read(self, size=-1):  # type: ignore[override]
             assert size != -1
-            assert 0 < size <= 8
+            assert 0 < size <= read_cap
             return super().read(size)
 
     body = RecordingBody(b"x" * 10_000)
@@ -276,6 +277,29 @@ def test_the_declared_charset_also_decodes_a_fault_body(http_opener) -> None:
     with pytest.raises(DeadeyeError, match="rate-limited") as excinfo:
         _post()
     assert "café" in str(excinfo.value)
+    assert "�" not in str(excinfo.value)
+
+
+def test_a_multibyte_fault_body_is_not_cut_by_the_byte_budget(http_opener, monkeypatch) -> None:
+    """`_MAX_FAULT_BODY_CHARS` is a character budget, and the read that feeds
+    it was the same number of bytes. A body of three-byte CJK therefore lost
+    two thirds of the text the operator's line is supposed to carry, and lost
+    its last character to a U+FFFD standing in for the sequence the read
+    severed mid-way."""
+    from deadeye.providers import _http
+
+    monkeypatch.setattr(_http, "_MAX_FAULT_BODY_CHARS", 8)
+    body = "超過".encode() * 8
+
+    def refusing_open(request, timeout):
+        raise urllib.error.HTTPError(
+            request.full_url, 503, "Service Unavailable", {}, io.BytesIO(body)
+        )
+
+    http_opener(refusing_open)
+    with pytest.raises(DeadeyeError, match="HTTP 503") as excinfo:
+        _post()
+    assert "超過" in str(excinfo.value)
     assert "�" not in str(excinfo.value)
 
 

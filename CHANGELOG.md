@@ -297,7 +297,27 @@ required (`CONTRIBUTING.md`, "Changing a contract").
   `Mods` path under `None/pfx/...`. It now prints nothing, the same answer the
   `game` and `server` questions already give, which is what the caller reads
   as "not detected" and refuses on.
-
+- An `--intent-text` value carrying a lone surrogate no longer escapes as a raw
+  `UnicodeEncodeError`. Two real sources reach it: the OS decodes argv with
+  `surrogateescape`, so a byte the terminal could not render arrives as U+DCFF,
+  and `{"purpose": "\udcff"}` is legal JSON an MCP client may send. The
+  inline route refused with the argument named and the `--intent PATH` route
+  recommended; the file route never saw one, because it decodes strict UTF-8
+  first. Refusal text only; no schema, result, or envelope change.
+- A provider's fault body is no longer cut to a fraction of its text when it
+  is not ASCII. `_MAX_FAULT_BODY_CHARS` is a character budget and the read
+  that feeds it took the same number of *bytes*, so a body of three-byte CJK
+  kept a third of the characters, and the read's last cut landed mid-sequence
+  and spent a U+FFFD on the character it severed. The read now covers the
+  character budget at the widest encoding (four bytes per character) and the
+  slice on the decoded text is what enforces the limit. Refusal text only.
+- An MCP `idempotency_key` is normalized to NFC before the ledger compares it.
+  The key names one logical operation, and a key that reached the client
+  decomposed (macOS composes nothing it receives; a paste carries whatever
+  the source had) spelled the same name with combining marks where the
+  composed form has precomposed characters. As two ledger entries the retry
+  answered a different question, so the submission the key exists to prevent
+  happened and was billed. The 200-character cap is applied after the fold.
 - A default evidence write could overwrite a review a `--force` run published
   underneath it. The non-force path reserves the destination name with
   `O_CREAT|O_EXCL` and then replaces onto it, but `--force` takes no

@@ -303,7 +303,23 @@ def load_intent(path: Path | None, text: str | None) -> tuple[ReviewIntent, byte
             raise DeadeyeError(f"cannot read {origin}: {exc}") from exc
     elif text is not None:
         origin = "--intent-text"
-        raw = text.encode("utf-8")
+        # The inline route can carry a str UTF-8 cannot encode, and both
+        # sources of one are real: the OS decodes argv with surrogateescape,
+        # so a byte the terminal could not render reaches here as U+DCFF and
+        # its own way back, and an MCP frame may spell the escape directly
+        # (`"\udcff"` is legal JSON). A bare `encode` raised UnicodeEncodeError
+        # past this module's refusal contract, naming a codec instead of the
+        # argument; the file route never sees one because it decodes strict
+        # UTF-8 first.
+        try:
+            raw = text.encode("utf-8")
+        except UnicodeEncodeError as exc:
+            code_point = ord(text[exc.start])
+            raise DeadeyeError(
+                f"{origin} is not valid UTF-8 text: the lone surrogate U+{code_point:04X} "
+                f"at position {exc.start} has no UTF-8 encoding. Pass the intent "
+                "as a file (--intent PATH) instead of inlining it"
+            ) from exc
     else:
         raise UsageError(
             "needs exactly one of --intent PATH (the reproducible route) or --intent-text JSON"
