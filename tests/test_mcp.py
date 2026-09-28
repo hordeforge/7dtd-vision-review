@@ -656,6 +656,33 @@ class _UnusableGeminiAnswer(io.BytesIO):
         return False
 
 
+def test_a_line_of_non_json_whitespace_is_a_parse_error_not_silence() -> None:
+    """A line holding only a character JSON does not call whitespace is a
+    malformed frame, and a client that wrote one waits for an answer.
+
+    `str.strip()` removes every Unicode whitespace character, so a line of
+    U+001C (or U+0085, or U+2028) used to read as blank and was dropped
+    without a word, hanging the client on a frame it had every right to send.
+    Only space, tab, CR and LF make a line blank.
+    """
+    import io
+
+    from deadeye.mcp import serve
+
+    stdin = io.BytesIO(
+        b"\x1c\n"
+        b"\xc2\x85\n"  # U+0085 NEL
+        b"\xe2\x80\xa8\n"  # U+2028 LINE SEPARATOR
+        b" \t\r\n"  # JSON whitespace alone: the one silent line
+        + b'{"jsonrpc":"2.0","id":1,"method":"ping","params":{}}\n'
+    )
+    stdout = io.StringIO()
+    assert serve(stdin, stdout) == 0
+    lines = [json.loads(line) for line in stdout.getvalue().splitlines()]
+    assert [line["error"]["code"] for line in lines[:3]] == [-32700, -32700, -32700]
+    assert lines[3]["id"] == 1 and lines[3]["result"] == {}
+
+
 def _review_arguments(tmp_path, **extra) -> dict:
     """A complete, consented `review` call against the offline fake provider."""
     clip = tmp_path / "clip"

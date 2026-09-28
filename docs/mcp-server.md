@@ -83,7 +83,12 @@ calls, spec error codes, and the review consent boundary.
   and the exception type rather than a bare message. A JSON-RPC line larger
   than 1 MiB is the same parse error (`-32700`): the extra bytes are discarded
   through the next newline so the following frame stays aligned, and the
-  process cannot grow with one unbounded stdin line.
+  process cannot grow with one unbounded stdin line. The only line the loop
+  passes without an answer is one holding nothing but JSON whitespace (space,
+  tab, CR, LF). Any other unparsable line is answered `-32700`, including one
+  made of characters Python calls whitespace and JSON does not (U+001C,
+  U+0085, U+2028), so a client waiting on a frame it wrote is never left on
+  silence.
 
 ## Result shapes
 

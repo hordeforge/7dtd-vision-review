@@ -60,11 +60,15 @@ SERVER_NAME = "deadeye"
 # grows with the input.
 _MAX_FRAME_BYTES = 1 * 1024 * 1024
 _READ_CHUNK_BYTES = 8192
-# The four characters RFC 8259 calls insignificant whitespace, and the only
-# ones a frame may carry around its JSON without changing it. Blank-line
-# detection must not use `str.strip()`: that also drops `\x1c`-`\x1f` and the
-# Unicode spaces, so a line holding nothing but one of those would be
-# discarded in silence instead of answered with the spec's parse error.
+# The only characters that make an incoming line blank: the four RFC 8259
+# section 2 calls insignificant whitespace, and the only ones a frame may
+# carry around its JSON without changing it. Blank-line detection must not
+# use `str.strip()`: with no argument that also removes U+001C..U+001F,
+# U+0085, U+2028 and U+3000, so a line holding nothing but one of those would
+# be discarded in silence instead of answered with the spec's parse error, and
+# a client that wrote a frame and waits for one waits forever. Any other byte
+# belongs to the frame, so a line that survives their removal is answered: a
+# parse error when it is malformed.
 _JSON_WHITESPACE = " \t\r\n"
 # How many completed `review` results a client-named idempotency key holds.
 # A replay is answered from here instead of submitted again, so the ledger
