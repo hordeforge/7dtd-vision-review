@@ -59,6 +59,12 @@ SERVER_NAME = "deadeye"
 # grows with the input.
 _MAX_FRAME_BYTES = 1 * 1024 * 1024
 _READ_CHUNK_BYTES = 8192
+# The four characters RFC 8259 calls insignificant whitespace, and the only
+# ones a frame may carry around its JSON without changing it. Blank-line
+# detection must not use `str.strip()`: that also drops `\x1c`-`\x1f` and the
+# Unicode spaces, so a line holding nothing but one of those would be
+# discarded in silence instead of answered with the spec's parse error.
+_JSON_WHITESPACE = " \t\r\n"
 # How many completed `review` results a client-named idempotency key holds.
 # A replay is answered from here instead of submitted again, so the ledger
 # must be bounded: the server is long-lived and a key is a client-chosen
@@ -738,12 +744,12 @@ def serve(
             continue
         if isinstance(raw_line, bytes):
             try:
-                line = raw_line.decode("utf-8").strip()
+                line = raw_line.decode("utf-8").strip(_JSON_WHITESPACE)
             except UnicodeDecodeError:
                 _write_frame(stdout, _error(None, -32700, "Parse error"))
                 continue
         else:
-            line = raw_line.strip()
+            line = raw_line.strip(_JSON_WHITESPACE)
         if not line:
             continue
         try:

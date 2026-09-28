@@ -514,6 +514,23 @@ def test_serve_round_trips_frames_over_pipes() -> None:
     assert lines[2]["error"]["code"] == -32700
 
 
+def test_only_json_whitespace_makes_a_line_blank() -> None:
+    """A line is blank when it holds nothing but JSON's four whitespace
+    characters. Every other content draws an answer: a line holding one
+    control character that `str.strip()` would eat must still get the parse
+    error, because a client waiting on that line is otherwise left in
+    silence, which is the one outcome the transport promises never to do."""
+    import io
+
+    from deadeye.mcp import serve
+
+    stdin = io.BytesIO(b"\x1c\n \t\r\n" + b"\x1d")
+    stdout = io.StringIO()
+    assert serve(stdin, stdout) == 0
+    lines = [json.loads(line) for line in stdout.getvalue().splitlines()]
+    assert [line["error"]["code"] for line in lines] == [-32700, -32700]
+
+
 def test_crlf_delimited_frames_are_parsed_like_lf_frames() -> None:
     """A Windows MCP client may write JSON-RPC frames with CRLF; the trailing
     CR must not become part of the JSON, and the next frame stays aligned."""

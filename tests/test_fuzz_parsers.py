@@ -677,15 +677,23 @@ def _expected_answers(lines: list[bytes]) -> int:
     Every non-blank line draws exactly one: a request gets its response, and
     anything the loop cannot parse gets the spec's parse error rather than
     silence. Only a frame with no `id` member is a notification, which the
-    spec answers with nothing at all.
+    spec answers with nothing at all. Blank means the transport's own
+    definition, the module's `_JSON_WHITESPACE`, so the oracle cannot drift
+    from the loop over a character `bytes.strip()` and `str.strip()` disagree
+    on.
     """
     expected = 0
     for line in lines:
-        if not line.strip():
+        try:
+            text = line.decode("utf-8")
+        except UnicodeDecodeError:
+            expected += 1
+            continue
+        if not text.strip(mcp._JSON_WHITESPACE):
             continue
         try:
-            frame = json.loads(line.decode("utf-8").strip())
-        except (UnicodeDecodeError, ValueError):
+            frame = json.loads(text)
+        except ValueError:
             expected += 1
             continue
         if not (isinstance(frame, dict) and "id" not in frame):
