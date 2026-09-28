@@ -59,6 +59,52 @@ def test_version_is_a_final_release_triple() -> None:
     assert FINAL_VERSION.fullmatch(__version__), BREAKING
 
 
+# README installs the wheel straight from a release URL, so that URL is the
+# one place a reader copies a version out of the repository. It has to name a
+# tag that exists and the newest one: a URL left on the previous release hands
+# a new reader the older tool, and a mistyped version 404s at install time.
+RELEASE_URL = re.compile(
+    r"releases/download/(?P<tag>v\d+\.\d+\.\d+)/"
+    r"(?P<stem>[A-Za-z0-9_.\-]+?)-(?P<version>\d+\.\d+\.\d+)-py3-none-any\.whl"
+)
+
+
+def _newest_released_version() -> str:
+    """The newest version the changelog has a shipped section for.
+
+    The document is newest-first, so the first version heading below
+    `## Unreleased` is the latest release. `## Unreleased` itself names no
+    version and is skipped by the pattern.
+    """
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    for heading in re.findall(r"^##\s+(.+?)\s*$", changelog, flags=re.MULTILINE):
+        version = heading.split()[0].strip("[]").removeprefix("v") if heading.split() else ""
+        if FINAL_VERSION.fullmatch(version):
+            return version
+    raise AssertionError("CHANGELOG.md has no released version section")
+
+
+def test_readme_installs_the_newest_released_wheel() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    urls = list(RELEASE_URL.finditer(readme))
+    assert len(urls) == 1, (
+        f"README.md carries {len(urls)} release wheel URLs; the install "
+        "command names exactly one, the newest published release"
+    )
+    url = urls[0]
+    assert url["version"] == url["tag"].removeprefix("v"), (
+        f"the README URL names tag {url['tag']} and wheel version "
+        f"{url['version']}; those are one version and a mistype installs "
+        "nothing"
+    )
+    newest = _newest_released_version()
+    assert url["version"] == newest, (
+        f"README.md installs {url['version']} but the newest changelog section "
+        f"is {newest}; update the install URL in the same change that renames "
+        "'## Unreleased' (CONTRIBUTING.md, 'Releases')"
+    )
+
+
 def test_dev_dependencies_are_exact_pins_matching_the_lock() -> None:
     # A range here lets a lock-less install pick a newer major; ruff/mypy
     # verdicts and the suite itself then disagree with CI. Every tool in
@@ -452,6 +498,41 @@ def test_readme_install_url_names_the_current_release() -> None:
     assert set(stale) <= {f"v{__version__}"}, (
         f"README points at several releases ({sorted(set(stale))}); the install "
         "command must name the current one"
+    )
+
+
+def test_release_installs_the_wheel_before_uploading_it() -> None:
+    """The published bytes must be run before they are published.
+
+    Every other release check reads the artifact: the sdist and wheel member
+    lists, the manifest, the rebuild diff. None of them starts the entry
+    point, so a wheel that installs but cannot run (a module the package
+    does not carry, a data file that stayed out, an entry point naming a
+    name the wheel does not install) passes the whole gate and fails the
+    consumer's first `uv tool install`. The release job runs the same
+    `make dist-smoke` a contributor runs locally, against the wheel it is
+    about to upload.
+    """
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    recipe = makefile.split("dist-smoke:", 1)[1].split("\n\n", 1)[0]
+    assert "uv pip install" in recipe and "$(DIST)/*.whl" in recipe, (
+        "dist-smoke must install the built wheel, not the source tree; the "
+        "checkout is what the suite already tests"
+    )
+    assert "--offline" in recipe, (
+        "the wheel declares no runtime dependency, so an install that reaches "
+        "the network is a manifest defect and must not be what a release "
+        "publishes on"
+    )
+    workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+    assert "make dist-smoke" in workflow, (
+        "the release must run the install check before it creates the "
+        "release; otherwise a broken wheel is published and only noticed by "
+        "the first consumer to install it"
+    )
+    assert workflow.index("make dist-verify") < workflow.index("make dist-smoke"), (
+        "the artifact is verified, then installed, then published: a smoke "
+        "check before the bytes are known good tests the wrong wheel"
     )
 
 

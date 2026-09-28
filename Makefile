@@ -1,5 +1,5 @@
 .PHONY: help all check lint lint-shell typecheck test smoke coverage badge \
-        dist dist-verify clean
+        dist dist-verify dist-smoke clean
 
 .DEFAULT_GOAL := help
 
@@ -71,6 +71,8 @@ help:
 	@echo "dist-verify   build the same tree twice under a different clock, locale,"
 	@echo "           timezone, and hash seed, and a third time from a different"
 	@echo "           absolute path, then diff the artifacts byte for byte"
+	@echo "dist-smoke    install the built wheel into a throwaway environment and"
+	@echo "           run its entry points, the check a release makes before upload"
 	@echo "clean     remove the build outputs"
 	@echo
 	@echo "single test module:  make test TEST=tests/test_config.py"
@@ -272,11 +274,39 @@ dist-verify: dist
 	done; \
 	test "$$failed" -eq 0
 
+# Everything above checks the built bytes; nothing checks that those bytes
+# run. The suite imports the checkout, so a module outside the package, a
+# data file MANIFEST.in dropped, or an entry point that names a name the
+# wheel does not install passes every other gate and fails the first
+# `uv tool install` a consumer runs. Installing the wheel that is about to be
+# uploaded into a throwaway environment and running its entry points is the
+# last gate before publish.
+#
+# `--offline` is deliberate: the wheel declares no runtime dependency, so an
+# install that reaches the network is a defect in the manifest, not a
+# requirement. The interpreter is whatever uv resolves, so this does not
+# pin a version the release job has to keep in step.
+SMOKE_VENV ?= .local/dist-smoke-venv
+dist-smoke:
+ifeq ($(UV_PRESENT),yes)
+	@test -n "$(wildcard $(DIST)/*.whl)" || { echo "ERROR: no wheel in $(DIST); run make dist first" >&2; exit 1; }
+	@rm -rf "$(SMOKE_VENV)"
+	uv venv "$(SMOKE_VENV)"
+	uv pip install --offline --python "$(SMOKE_VENV)/bin/python" $(DIST)/*.whl
+	@"$(SMOKE_VENV)/bin/deadeye" --help > /dev/null
+	@"$(SMOKE_VENV)/bin/deadeye" schema > /dev/null
+	@"$(SMOKE_VENV)/bin/deadeye" doctor --json > /dev/null
+	@echo "installed wheel ok: $$(basename $(DIST)/*.whl)"
+else
+	@echo "ERROR: dist-smoke needs uv on PATH: it builds the install environment" >&2
+	@exit 1
+endif
+
 # The build outputs, and nothing else: dist/, the verification trees, the
-# setuptools egg-info the build regenerates in the source tree, and the
-# __pycache__ a compile or test run leaves behind.
+# smoke environment, the setuptools egg-info the build regenerates in the
+# source tree, and the __pycache__ a compile or test run leaves behind.
 clean:
-	@rm -rf "$(DIST)" "$(VERIFY_DIST)" "$(VERIFY_PATH)"
+	@rm -rf "$(DIST)" "$(VERIFY_DIST)" "$(VERIFY_PATH)" "$(SMOKE_VENV)"
 	@rm -rf src/*.egg-info build
 	@rm -f .coverage
 	@find src tests scripts -name __pycache__ -type d -prune -exec rm -rf {} +
