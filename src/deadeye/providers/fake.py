@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 
+from ..sampling import IMAGE_SUFFIXES, VIDEO_SUFFIXES
 from .base import ProviderLimits, ReviewRequest, ReviewResponse
 
 
@@ -21,8 +22,11 @@ class FakeProvider:
     endpoint_mode = "in-process-fake"
     requires_credential = False
     credential_env_names: tuple[str, ...] = ()
+    # The same format table the clip discovery and both hosted adapters read:
+    # a hand-listed subset made the offline dry run refuse a `.webm` or `.mov`
+    # reference that discovery accepts and a real provider would submit.
     _limits = ProviderLimits(
-        suffixes=(".png", ".jpg", ".jpeg", ".webp", ".mp4"),
+        suffixes=IMAGE_SUFFIXES + VIDEO_SUFFIXES,
         max_bytes=20 * 1024 * 1024,
         max_frames=8,
         accepts_video=True,

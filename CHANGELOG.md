@@ -102,6 +102,13 @@ required (`CONTRIBUTING.md`, "Changing a contract").
   text was a hardcoded line range, so anything the header grew past it was
   silently cut, and `2  usage error` was already gone. The block now ends at
   the first line that is not part of it.
+- The `fake` provider listed a hand-kept subset of the accepted media formats,
+  so the offline dry run refused an intent reference in `.webm` or `.mov` that
+  clip discovery accepts and both hosted providers would have submitted. It
+  now reads the same suffix table as every other adapter.
+- A reference attachment that is a muxed video was labelled `reference image`
+  in the reviewer prompt. The label now names the media type, so the model is
+  told it is looking at a video.
 - The home config directory on macOS. `XDG_CONFIG_HOME` is unset there and
   macOS never reads `~/.config`, so the fallback put the config in a dotfile
   directory no macOS tool looks in. It now resolves to

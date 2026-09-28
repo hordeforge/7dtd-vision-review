@@ -128,7 +128,12 @@ def attachment_label(payload: MediaPayload) -> str:
     if payload.kind == "video":
         return f"video attachment: {name}"
     if payload.kind == "reference":
-        return f"reference image: {name}"
+        # A comparison asset may be a muxed video as well as a still (the
+        # suffix table accepts both), and the label is the only place the
+        # model is told which: calling a video an image misdescribes what the
+        # model is looking at.
+        noun = "video" if payload.mime_type.startswith("video/") else "image"
+        return f"reference {noun}: {name}"
     return f"frame attachment: {name}"
 
 

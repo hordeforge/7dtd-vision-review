@@ -9,9 +9,11 @@ claims to be.
 from __future__ import annotations
 
 import hashlib
+import json
 
 from deadeye.providers.fake import FakeProvider
 from deadeye.review import run_review
+from deadeye.sampling import MIME_BY_SUFFIX
 
 
 def _hash_file(path) -> str:
@@ -86,3 +88,32 @@ def test_the_fake_verdict_echoes_the_boundary_view(clip_dir, intent_path) -> Non
     }
     assert envelope["advisory_only"] is True
     assert envelope["sampling"]["frames_submitted"] == 8
+
+
+def test_the_dry_run_accepts_every_format_discovery_does(clip_dir, tmp_path) -> None:
+    """A reference in any discoverable format must pass the offline dry run.
+
+    The fake provider is the documented dry-run lane, so its accepted-suffix
+    list is the same table clip discovery and both hosted adapters read; a
+    hand-listed subset made the offline check refuse a `.webm` or `.mov`
+    reference a real provider would have submitted.
+    """
+    assert set(FakeProvider().limits.suffixes) == set(MIME_BY_SUFFIX), (
+        "the fake provider and the format table have drifted apart"
+    )
+    for suffix in MIME_BY_SUFFIX:
+        reference = tmp_path / f"good{suffix}"
+        reference.write_bytes(b"REF")
+        intent_path = tmp_path / f"intent{suffix}.json"
+        intent_path.write_text(
+            json.dumps(
+                {
+                    "purpose": "compare the candidate against a known good",
+                    "references": [{"path": str(reference), "purpose": "known good"}],
+                }
+            ),
+            encoding="utf-8",
+        )
+        provider = FakeProvider()
+        run_review(clip_dir, provider=provider, intent_path=intent_path, allow_network=True)
+        assert provider.requests[-1].media[-1].name == f"good{suffix}"
