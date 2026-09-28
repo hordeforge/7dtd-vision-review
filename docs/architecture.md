@@ -60,9 +60,10 @@ configured counterparts, credentials prefer the environment over the merged
 configuration, and every other setting comes from the merged configuration
 with a built-in default behind it), never as a command argument, and never in
 stdout, JSON output, logs, or evidence. The redaction backstop in `intent.py`
-drops credential-named keys wherever they would otherwise land, and bounds its
-own walk depth so a deeply nested payload is dropped rather than escaping as an
-uncaught error from a submission that was already billed.
+and `redaction.py` drops credential-named keys wherever they would otherwise
+land, and bounds its own walk depth so a deeply nested payload is dropped
+rather than escaping as an uncaught error from a submission that was already
+billed.
 
 **Text is not ASCII by construction.** A model's prose, an author's intent, and
 a filename are all non-ASCII by nature, and every encoding decision in the

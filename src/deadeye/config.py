@@ -34,6 +34,7 @@ provider credential anywhere but https or a loopback proxy, and
 
 from __future__ import annotations
 
+import math
 import os
 import sys
 import tomllib
@@ -400,6 +401,51 @@ def credential_for(provider: str, env_names: tuple[str, ...]) -> str | None:
         if found:
             return found
     return text(("providers", provider, "api_key")) or text(("api_key",))
+
+
+def _unusable_knob(provider: str, key: str, value: Any, expected: str) -> DeadeyeError:
+    return DeadeyeError(
+        f"config providers.{provider}.{key} must be {expected}, not {value!r}; "
+        "fix it in config.toml or config.local.toml"
+    )
+
+
+def int_setting(provider: str, key: str, fallback: int) -> int:
+    """A provider's integer tuning knob (`providers.<name>.<key>`), or fallback.
+
+    The one home every adapter reads its generation knobs through, so the
+    type guard cannot drift between vendor modules. An absent key falls back
+    to the built-in default; a value that is present but not an integer (a
+    string, a list, a boolean — TOML spells booleans distinctly) is refused
+    with the key named, before any submission. Silently substituting the
+    default would send a request whose parameters differ from the ones the
+    operator wrote down: exactly the misconfiguration a traceable review
+    must not hide.
+    """
+    raw = value(("providers", provider, key))
+    if raw is None:
+        return fallback
+    if isinstance(raw, bool) or not isinstance(raw, int):
+        raise _unusable_knob(provider, key, raw, "an integer")
+    return raw
+
+
+def float_setting(provider: str, key: str, fallback: float) -> float:
+    """A provider's float tuning knob (`providers.<name>.<key>`), or fallback.
+
+    Same contract as `int_setting`: absent falls back, present-but-unusable
+    is refused with the key named. A non-finite value (`nan`, `inf`, `-inf`
+    in TOML) is refused rather than passed through: it would reach the
+    request body as a bare `NaN`/`Infinity` token that no JSON reader on the
+    provider side accepts, and refusing beats sending a silently different
+    parameter than the one configured.
+    """
+    raw = value(("providers", provider, key))
+    if raw is None:
+        return fallback
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)) or not math.isfinite(float(raw)):
+        raise _unusable_knob(provider, key, raw, "a finite number")
+    return float(raw)
 
 
 def _override_root(keys: tuple[str, ...]) -> str | None:

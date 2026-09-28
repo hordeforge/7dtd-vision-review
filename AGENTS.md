@@ -43,7 +43,7 @@ is pushed straight to the default branch.
 - **Credentials never travel or land.** They come from the environment or
   from `config.local.toml` (the gitignored local config; `config.py` owns the
   precedence), never as a command argument, and never in stdout, JSON output,
-  logs, or evidence. The redaction backstop in `intent.py` is load-bearing;
+  logs, or evidence. The redaction backstop in `redaction.py` is load-bearing;
   tests pin it.
 - **The result schema is ours, not the vendor's.** Provider payloads stay at
   the adapter boundary; callers consume `validate_result`'s output. A raw

@@ -29,17 +29,18 @@ from typing import Any
 
 from ._version import __version__
 from .errors import DeadeyeError
-from .intent import INTENT_SCHEMA_VERSION, SENSITIVE_KEY_PARTS, ReviewIntent, redact
+from .intent import INTENT_SCHEMA_VERSION, ReviewIntent
+from .redaction import SENSITIVE_KEY_PARTS, redact
 from .result import ADVISORY_NOTE, PROMPT_VERSION, RUBRIC_VERSION
 from .sampling import SamplingRecord
 
 EVIDENCE_SCHEMA_VERSION = 1
 
 # A provider's usage block reports its cost through names like
-# `totalTokenCount`, so it cannot reuse intent.SENSITIVE_KEY_PARTS wholesale:
-# there "token" is billing, not authentication. It keeps every count and
-# still drops the names a secret actually travels in. Derived from the
-# canonical tuple, minus that one documented exception, so the two lists
+# `totalTokenCount`, so it cannot reuse redaction.SENSITIVE_KEY_PARTS
+# wholesale: there "token" is billing, not authentication. It keeps every
+# count and still drops the names a secret actually travels in. Derived from
+# the canonical tuple, minus that one documented exception, so the two lists
 # cannot drift apart.
 USAGE_SENSITIVE_KEY_PARTS = tuple(part for part in SENSITIVE_KEY_PARTS if part != "token")
 

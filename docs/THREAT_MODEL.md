@@ -63,8 +63,8 @@ not a network one.
 | Environment variables | `src/deadeye/config.py:40`; `providers/gemini.py:43`; `providers/nvidia.py:49` | `DEADEYE_CONFIG_DIR`, credential vars |
 | TOML config files | `src/deadeye/config.py:86-128` | committed `config.toml` + gitignored `config.local.toml`; includes per-provider `endpoint` override |
 | Clip media on disk | `src/deadeye/sampling.py:80-107` | frame files, muxed video, `client.log` (discovered only — see note below) |
-| Intent JSON file / inline text | `src/deadeye/intent.py:252-281` | JSON validated against the intent schema |
-| Intent `references[].path` | `src/deadeye/intent.py:160-192` | arbitrary filesystem paths → read and uploaded by `review.py:264-271,295-301` |
+| Intent JSON file / inline text | `src/deadeye/intent.py:239-268` | JSON validated against the intent schema |
+| Intent `references[].path` | `src/deadeye/intent.py:147-179` | arbitrary filesystem paths → read and uploaded by `review.py:264-271,295-301` |
 | Provider HTTP responses | `providers/gemini.py:92-185`, `providers/nvidia.py:103-150` | untrusted vendor payload over TLS |
 | Outputs | `cli.py:276-290`; `evidence.py:166-177`; `review.py:100-110` | stdout JSON, evidence file, stderr disclosure lines |
 
@@ -101,14 +101,14 @@ prompt (intent + filenames + pixels) ──B6 model interpretation──> verdic
   malformed response.
 - **B5 outputs**: credentials must never reach stdout, JSON output, logs, or
   evidence; enforced by construction plus the `redact()` backstop
-  (`intent.py:300-327`).
-- **B6 model interpretation**: the reviewer instruction and the author's
-  statement are assembled in separate roles (`prompt.py`
-  `build_prompt_parts`; `ReviewRequest.system_prompt` vs `ReviewRequest.prompt`)
-  and the pixels are attached to the user turn. The instruction half is
-  pipeline-owned; the statement half and the reference filenames are authored
-  or local-file text, so they are input to a system that decides the verdict
-  — T6.
+  (`intent.py:300-327`; `redaction.py`, `redact`).
+- **B6 model interpretation**: the reviewer instruction, the author's
+  statement, and reference filenames are assembled into one prompt
+  (`prompt.py` `build_prompt_parts`; `ReviewRequest.system_prompt` vs
+  `ReviewRequest.prompt`) and the pixels are attached to the user turn. The
+  instruction half is pipeline-owned; the statement half and the reference
+  filenames are authored or local-file text, so they are input to a system
+  that decides the verdict — T6.
 
 Privilege transitions: none in code (no privilege drop, spawn, or exec). Two
 input-driven authority expansions exist and are modeled as threats: intent
@@ -172,7 +172,7 @@ the verdict rather than over the process.
 | Consent gate runs before credential reads and any contact | all egress (I, R) | `review.py:68-73`; pinned by `tests/test_review.py:17-27` |
 | Credentials never accepted as arguments | argv/leakage (I) | `cli.py:38-197` (absence of any key flag) |
 | Header-only credential transport | URL/access-log leakage (I) | `gemini.py:132-134`, `nvidia.py:117-119` |
-| Name-based redaction backstop on params, usage, raw response | secret landing in evidence/stdout (I) | `intent.py:300-327` (`redact`), `intent.py:329-350` (`redact_json_text`); applied at `evidence.py:128,138`, `review.py:188,214`; pinned by `tests/test_intent.py:202-295` |
+| Name-based redaction backstop on params, usage, raw response | secret landing in evidence/stdout (I) | `intent.py:300-327` (`redact`), `intent.py:329-350` (`redact_json_text`), `redaction.py` (`redact`, `redact_json_text`); applied at `evidence.py:128,138`, `review.py:188,214`; pinned by `tests/test_intent.py:202-295`, `tests/test_redaction.py` |
 | Vendor payload validated, refuse-not-coerce | hostile/malformed responses (T) | `result.py:104-134,137-287`; adapters extract text only |
 | Local limits before submission: suffix allowlist, byte budget, frame cap | oversized/unexpected uploads (D) | `base.py:26-39`; `sampling.py:80-107,179-267`; `review.py:264-271,292-293,307` |
 | Bounded HTTP success (8 MiB) and error-body (300-character) reads; socket closed on the fault path | unbounded provider payload retained in the MCP process (D) | `providers/_http.py` `_read_response_body` (`109-124`) / `_read_fault_body` (`127-154`) |
@@ -184,7 +184,7 @@ the verdict rather than over the process.
 | Doctor reports presence only, never contacts a provider | capability probing used as an oracle (I) | `base.py:89-95`; `cli.py:302-344` |
 | Author statement in the user turn, fenced, declared data-only by the system instruction, and any field carrying a fence marker refused | intent text escaping the author-statement block and posing as instruction (part of T6) | `prompt.py:69` (`build_prompt_parts`); `intent.py:82` (`_carries_fence_marker`), applied at `intent.py:145,167,205,215` |
 | Reviewer instruction sent as the provider's system instruction, never concatenated into the authored turn | intent text occupying or restating the instruction's slot (part of T6) | `gemini.py:196` (`build_body`, `systemInstruction`); `nvidia.py:180` (`build_body`, `role: system`) |
-| Filenames flattened to printable characters before they enter prompt text | a crafted filename forging extra label or instruction lines (part of T6) | `sampling.py:287-297` (`flat_label_text`); used at `prompt.py:62,164` |
+| Filenames flattened to printable characters before they enter prompt text | a crafted filename forging extra label or instruction lines (part of T6) | `sampling.py:287-297` (`flat_label_text`); used at `prompt.py:26,62,106,164` |
 | MCP control flags must be literal JSON booleans | a client string `"false"` becoming `force` or `keep_raw_response` (T/R/I) | `mcp.py:120-135` (`_optional_boolean`) |
 | Prompt version and rubric version recorded on every submission | an answer attributed to an instruction the model never received (R) | `result.py` `PROMPT_VERSION`; evidence records the versions |
 | Zero runtime dependencies, bandit (S) lint rules armed | supply-chain surface | `pyproject.toml` |
@@ -218,7 +218,7 @@ disclosure lines, or drop the override.
 ### T2: intent references expand the upload scope (Medium)
 
 `references[].path` accepts any non-empty string path
-(`intent.py:160-192`); existence and suffix are the only checks
+(`intent.py:147-179`); existence and suffix are the only checks
 (`review.py:264-271`) before the file is hashed and uploaded
 (`review.py:295-301`). A crafted or mistaken intent makes deadeye
 publish arbitrary readable files (e.g. outside the clip directory) once
@@ -227,7 +227,7 @@ disclosure lines naming every submitted path. See abuse case A1.
 
 ### T3: single redaction backstop (Medium-Low)
 
-Redaction matches credential-ish *key names* (`intent.py:36-44`); a secret
+Redaction matches credential-ish *key names* (`redaction.py`, `SENSITIVE_KEY_PARTS`); a secret
 under any other name passes into evidence, stdout JSON, or the preserved raw
 response. Matching is case-fold based rather than `lower()`, so a spelling
 that differs from a sensitive name only under case folding (long s U+017F
@@ -260,7 +260,7 @@ turn, inside the data-only fence the system instruction declares, attaches the
 candidate clip and the reference media, and asks the model for a verdict on
 both. The role split (the instruction is the provider's `systemInstruction` /
 `system` message, the statement is the only authored text in the `user` turn),
-the fence, and the refusal of any
+the fence and its "never instructions" preamble, and the refusal of any
 field containing a fence marker (`intent.py:70-71`) close the textual escape,
 but the injection surface is wider than text: rendered text inside a frame is
 attached as an image, where no local check sees it at all, and a
@@ -289,7 +289,7 @@ on external integrity controls.
   declares references pointing at files outside the clip directory
   (`{"path": "../../private.png", "purpose": "..."}`). Path named, so the
   operator sees it in the stderr disclosure — if reading. Code path:
-  `intent.py:160-192` → `review.py:264-271` → upload at
+  `intent.py:147-179` → `review.py:264-271` → upload at
   `review.py:296-298`.
 - **A2 — spend gaming.** Inline `--intent-text` of arbitrary size or hundreds
   of questions would inflate the billed prompt (`cli.py:86` →

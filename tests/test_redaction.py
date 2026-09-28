@@ -1,0 +1,96 @@
+"""The redaction backstop every output path runs through."""
+
+from __future__ import annotations
+
+import json
+import math
+
+from deadeye.redaction import redact, redact_json_text
+
+
+def test_redact_drops_credential_keys_nested() -> None:
+    value = {"ok": 1, "api_key": "secret", "headers": {"Authorization": "Bearer x", "meta": "y"}}
+    assert redact(value) == {"ok": 1, "headers": {"meta": "y"}}
+
+
+def test_redact_matches_case_fold_only_spellings() -> None:
+    # The backstop folds case rather than lowering it: a key that differs from
+    # a sensitive name only under case folding (the long s, U+017F, which
+    # folds to ASCII 's') must not slip through as an ASCII-only blind spot.
+    value = {"paſsword": "hunter2", "SECRET": "x", "keep": 1}  # noqa: RUF001
+    assert redact(value) == {"keep": 1}
+
+
+def test_redact_passes_nan_leaves_through_untouched() -> None:
+    # Falsifying example from the fuzz suite: a NaN leaf compares unequal to
+    # itself, so redaction must pass it through by identity for idempotence
+    # to hold structurally at all.
+    cleaned = redact({"ok": [float("nan")], "api_key": "secret"})
+    assert list(cleaned) == ["ok"]
+    assert len(cleaned["ok"]) == 1 and math.isnan(cleaned["ok"][0])
+
+
+def test_redact_keeps_token_counters_for_usage() -> None:
+    # The usage path redacts with USAGE_SENSITIVE_KEY_PARTS, which excludes
+    # "token" (billing, not authentication), so a provider's totalTokenCount
+    # survives while a credential-named key is still dropped.
+    from deadeye.evidence import USAGE_SENSITIVE_KEY_PARTS
+
+    value = {"totalTokenCount": 12, "secret": "x"}
+    assert redact(value, USAGE_SENSITIVE_KEY_PARTS) == {"totalTokenCount": 12}
+
+
+def test_redact_json_text_drops_credential_keys_from_a_document_string() -> None:
+    # A raw provider response arrives as one string, which plain `redact()`
+    # would pass through untouched however structured its contents are.
+    cleaned = json.loads(
+        redact_json_text(
+            '{"summary": "verdict", "api_key": "nvapi-x", "meta": {"token": "t", "keep": 1}}'
+        )
+    )
+    assert cleaned == {"summary": "verdict", "meta": {"keep": 1}}
+
+
+def test_redact_json_text_handles_an_array_document() -> None:
+    cleaned = json.loads(redact_json_text('[{"api_key": "k"}, {"ok": 1}]'))
+    assert cleaned == [{}, {"ok": 1}]
+
+
+def test_redact_json_text_leaves_prose_scalars_and_broken_json_byte_identical() -> None:
+    # Only structure-shaped text may be rewritten; anything else comes back
+    # exactly as it arrived so the record stays honest about what was said.
+    for text in (
+        "the model declined to answer in JSON",
+        'a bare scalar: "just words"',
+        "42",
+        "",
+        "   ",
+        '{"summary": "truncat',
+        "{not json at all}",
+    ):
+        assert redact_json_text(text) == text
+
+
+def test_redact_json_text_redacts_surrounding_whitespace_document() -> None:
+    cleaned = json.loads(redact_json_text('  \n{"summary": "s", "secret": "v"}\n  '))
+    assert cleaned == {"summary": "s"}
+
+
+def test_redact_json_text_writes_no_bare_non_finite_token() -> None:
+    # Re-serializing a document a provider answered with must not reintroduce
+    # the bare `NaN`/`Infinity` tokens RFC 8259 does not define: the evidence
+    # document carrying it would be unreadable by any strict parser.
+    cleaned = redact_json_text(
+        '{"summary": "s", "ratio": NaN, "burst": 1e999, "notes": [{"cost": -Infinity}]}'
+    )
+    assert "NaN" not in cleaned and "Infinity" not in cleaned
+    assert json.loads(cleaned, parse_constant=_refuse_constant) == {
+        "summary": "s",
+        "ratio": None,
+        "burst": None,
+        "notes": [{"cost": None}],
+    }
+
+
+def _refuse_constant(name: str) -> object:
+    raise AssertionError(f"non-finite token {name} reached the stored document")
