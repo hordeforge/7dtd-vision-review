@@ -235,6 +235,32 @@ def _identity_of(status: os.stat_result) -> _FileIdentity:
     return (status.st_dev, status.st_ino)
 
 
+def _fsync_directory(directory: Path) -> None:
+    """Make a rename into `directory` durable, not just the file it renamed.
+
+    `fsync` on the payload before the replace fixes the bytes; it says nothing
+    about the name. A crash between `replace` returning and the journal
+    committing the directory entry can leave the destination holding what it
+    held before, which here is the empty reserve: the caller has already been
+    handed the envelope and its digest, and the next run finds a zero-byte
+    placeholder and waits out the reclaim instead. A `--force` overwrite is
+    worse, silently reverting to the envelope it replaced.
+
+    A platform with no `O_DIRECTORY` has no directory handle to sync, so
+    there is nothing to do. Where the handle exists, a failing `fsync` means
+    the publish is not durable and the caller is told, rather than handed a
+    digest for a file a power cut may take back.
+    """
+    directory_flag = getattr(os, "O_DIRECTORY", None)
+    if directory_flag is None:
+        return
+    fd = os.open(directory, os.O_RDONLY | directory_flag)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
 def _open_reserve(path: Path, flags: int) -> _FileIdentity:
     """Create the exclusive placeholder and return the identity of the file
     this call created (so a later cleanup can tell it from its successor)."""
@@ -396,6 +422,9 @@ def _atomic_write(path: Path, payload: bytes, *, force: bool) -> None:
         temporary.replace(path)
         temporary = None
         placeholder = None
+        # After both names are cleared, so a failing sync cannot make the
+        # cleanup below unlink a published envelope.
+        _fsync_directory(path.parent)
     finally:
         # Any exit except a successful replace (OSError, KeyboardInterrupt,
         # a failed flush) must not strand a partial file that looks like
@@ -413,4 +442,9 @@ def _atomic_write(path: Path, payload: bytes, *, force: bool) -> None:
         # that saw the placeholder a moment earlier.
         if placeholder is not None:
             with contextlib.suppress(OSError):
-                _unlink_if_same_file(path, placeholder)
+                if _unlink_if_same_file(path, placeholder):
+                    # The dropped reserve is the crash's only record, so the
+                    # unlink has to reach the journal too: a name that comes
+                    # back after a power cut holds an empty placeholder the
+                    # next run must age out before it can publish.
+                    _fsync_directory(path.parent)

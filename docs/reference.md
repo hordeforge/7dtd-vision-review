@@ -159,7 +159,13 @@ land on the same path: the first envelope stays, the second is refused. A
 stale predictable temporary filename cannot redirect the write through a
 symlink, and a failed or interrupted write deletes the temporary file (and
 an unused exclusive placeholder) so they cannot accumulate beside the
-destination.
+destination. The destination directory is `fsync`'d after the replace and
+after a placeholder unlink: `fsync` on the payload fixes the bytes, not the
+name, and without the directory sync a crash can leave the destination
+holding the empty reserve the replace was meant to retire. A directory sync
+that fails is reported as a failed write rather than swallowed, because the
+envelope is on disk at that point and the caller is otherwise handed a digest
+for a file a power cut may take back.
 
 A process killed between that reserve and the replace (`SIGKILL`; the
 `finally` that cleans up cannot run) leaves an empty placeholder holding no

@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import os
+import stat
 import threading
 import time
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -734,6 +737,89 @@ def test_evidence_write_does_not_follow_a_precreated_temp_symlink(tmp_path) -> N
     write_evidence(output, {"kind": "deadeye-review"}, force=False)
 
     assert protected.read_text(encoding="utf-8") == "do not overwrite"
+    assert json.loads(output.read_text(encoding="utf-8"))["kind"] == "deadeye-review"
+
+
+def test_the_publish_syncs_the_directory_after_the_rename(tmp_path, monkeypatch) -> None:
+    """`fsync` on the payload fixes the bytes, not the name.
+
+    A crash between the replace and the journal committing the directory
+    entry can leave the destination holding what it held before, which here
+    is the empty reserve. The caller has been handed the envelope and its
+    digest by then, and the next run finds a zero-byte placeholder it must
+    age out before it can publish at all.
+    """
+    from deadeye import evidence
+
+    if not hasattr(os, "O_DIRECTORY"):
+        pytest.skip("this platform has no directory handle to sync")
+
+    order: list[str] = []
+    real_fsync = os.fsync
+    real_replace = Path.replace
+
+    def spy_fsync(fd):
+        order.append("fsync")
+        real_fsync(fd)
+
+    def spy_replace(self, target):
+        order.append("replace")
+        return real_replace(self, target)
+
+    monkeypatch.setattr(evidence.os, "fsync", spy_fsync)
+    monkeypatch.setattr(Path, "replace", spy_replace)
+
+    evidence.write_evidence(tmp_path / "evidence.json", {"kind": "deadeye-review"}, force=False)
+
+    assert order.index("replace") < len(order) - 1 - order[::-1].index("fsync"), order
+    # The payload itself is synced too, and it is synced first: the bytes
+    # must be on the medium before the name that claims they are there.
+    assert order.count("fsync") >= 2, order
+    assert order[0] == "fsync", order
+
+
+def test_a_directory_sync_failure_is_reported_rather_than_swallowed(tmp_path, monkeypatch) -> None:
+    """A publish that cannot be made durable must not read as a clean one.
+
+    The envelope is on disk when the sync fails, so the refusal is what keeps
+    a caller from treating a name a power cut may take back as a stored
+    review.
+    """
+    from deadeye import evidence
+
+    if not hasattr(os, "O_DIRECTORY"):
+        pytest.skip("this platform has no directory handle to sync")
+
+    output = tmp_path / "evidence.json"
+    real_fsync = os.fsync
+
+    def fail_on_directory(fd):
+        if os.fstat(fd).st_mode & stat.S_IFDIR:
+            raise OSError(errno.EIO, "directory sync failed")
+        real_fsync(fd)
+
+    monkeypatch.setattr(evidence.os, "fsync", fail_on_directory)
+
+    with pytest.raises(DeadeyeError, match="cannot write evidence file"):
+        evidence.write_evidence(output, {"kind": "deadeye-review"}, force=False)
+
+    # The refusal is about durability, not about the bytes: the envelope is
+    # published and a later run is refused as an occupied name, which is the
+    # truth about what is on disk.
+    assert json.loads(output.read_text(encoding="utf-8"))["kind"] == "deadeye-review"
+    assert list(tmp_path.glob("*.tmp")) == []
+
+
+def test_the_directory_sync_does_not_run_on_a_platform_without_one(tmp_path, monkeypatch) -> None:
+    """`O_DIRECTORY` is not everywhere. A platform with no directory handle has
+    nothing to sync, and the publish must not fail looking for one."""
+    from deadeye import evidence
+
+    monkeypatch.delattr(evidence.os, "O_DIRECTORY", raising=False)
+
+    output = tmp_path / "evidence.json"
+    evidence.write_evidence(output, {"kind": "deadeye-review"}, force=False)
+
     assert json.loads(output.read_text(encoding="utf-8"))["kind"] == "deadeye-review"
 
 

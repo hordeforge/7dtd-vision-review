@@ -98,7 +98,10 @@ replace, so two concurrent reviews of the same `--output` path cannot both
 publish: the first envelope stays, the second is refused. The placeholder
 that reservation creates, and the stranded one a crash-recovery run
 reclaims, are cleared by identity rather than by name, so neither unlink can
-delete an envelope another process published into that path in between.
+delete an envelope another process published into that path in between. The
+rename that ends the reservation, and the unlink that drops a reserve, are
+both followed by an `fsync` of the destination directory: the payload sync
+fixes the bytes, and only the directory sync makes the name durable.
 
 ## Sampling honesty
 

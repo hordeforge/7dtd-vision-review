@@ -190,6 +190,17 @@ required (`CONTRIBUTING.md`, "Changing a contract").
   pinned every clip it had ever reviewed. The recorded window is now capped at
   `MAX_RECORDED_REQUESTS`; the most recent submission is always kept, which is
   what the tests reading `requests[-1]` assert on.
+- The evidence publish synced the payload but not the directory it renamed
+  into, so a crash between the rename and the journal committing the entry
+  could leave the destination holding what it held before. Before: the caller
+  had been handed the envelope and its SHA-256, and a power cut could put the
+  zero-byte reservation back in its place, which the next run then had to age
+  out for 60 seconds before it could publish, or revert a `--force` overwrite
+  to the envelope it replaced. After: the destination directory is `fsync`'d
+  after the rename and after a placeholder unlink, and a directory sync that
+  fails is reported as a failed write (`cannot write evidence file ...`)
+  rather than swallowed. The error text on such a failure is new; the write
+  itself is unchanged on a filesystem that syncs.
 - A retry under the same MCP `idempotency_key` could still bill the same
   media twice. The ledger recorded only a review that returned a verdict, so
   a submission the provider answered with nothing usable (a timeout, a
