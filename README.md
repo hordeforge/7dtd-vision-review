@@ -123,6 +123,11 @@ filename are the same version. What changed in it is the matching section of
 [CHANGELOG.md](CHANGELOG.md), and the release page carries that section as its
 notes.
 
+The release also carries a `SHA256SUMS` naming every asset it publishes. Check
+the wheel against it before installing it (`sha256sum -c SHA256SUMS` in a
+directory holding the downloaded files); a wheel fetched by URL comes with no
+index signature behind it, so that file is the verification path.
+
 ## Scripts
 
 | Script | What it is |

@@ -146,6 +146,22 @@ required (`CONTRIBUTING.md`, "Changing a contract").
 
 ### Added
 
+- Every release now carries a `SHA256SUMS` naming each published asset, the
+  wheel, the sdist, and the SBOM. Before: README installs the wheel straight
+  from a release URL, and a URL carries no index signature, so the bytes a
+  consumer ran had no published check. After: `make dist` writes the manifest
+  over the two artifacts it builds, the release appends the SBOM it generates
+  afterwards, and the file is uploaded beside them. The manifest is built from
+  reproducible bytes, so `make dist-verify` compares it like any other
+  artifact. No install or runtime change.
+- The wheel now carries the Python versions and traits its metadata can
+  honestly state: `Programming Language :: Python :: 3.11/3.12/3.13` (the
+  interpreters the release gate runs on Ubuntu, plus 3.13 on macOS),
+  `Environment :: Console`, and `Typing :: Typed`, which the wheel's
+  `py.typed` already made true. `tests/test_release_contract.py` reads the
+  interpreter matrix out of `.github/workflows/ci.yml` and fails when the two
+  lists disagree, so a matrix that grows cannot ship a wheel that under-claims
+  it.
 - `deadeye doctor` now prints the model each provider would actually submit
   (`model[gemini]`, `model[nvidia]`, `model[fake]`) in its human report, and
   the model precedence it applies is now one function shared with the review
@@ -290,6 +306,15 @@ required (`CONTRIBUTING.md`, "Changing a contract").
 
 ### Fixed
 
+- A provider connection that dropped after the request reached the socket is
+  now reported as a `NoVerdictError`, the spent-submission refusal, rather than
+  raising `TypeError` out of the fault path. Before: the adapter called
+  `no_verdict` with the provider name and the reason as two arguments where
+  the helper takes one, so a `URLError` on a live socket escaped as a type
+  error and the caller was told nothing about a submission it may have been
+  billed for. After: the refusal carries the provider and the reason in one
+  message, exactly like every other spent submission, and the idempotency key
+  stays marked as spent.
 - A JSON-RPC frame naming a protocol version other than `2.0` is now answered
   with the spec's invalid-request error instead of being served as though it
   were 2.0. A frame that omits the member entirely is still served.

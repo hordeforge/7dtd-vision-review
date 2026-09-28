@@ -59,7 +59,7 @@ help:
 	@echo "coverage  test suite with a line-coverage report"
 	@echo "badge     coverage report plus the README badge SVG (BADGE=path)"
 	@echo "all       check + test + smoke: everything CI's offline job runs"
-	@echo "dist      build the sdist and wheel into dist/ the way a release does"
+	@echo "dist      build the sdist, wheel, and SHA256SUMS into dist/ the way a release does"
 	@echo "dist-verify   build the same tree twice under a different clock, locale,"
 	@echo "           timezone, and hash seed, and a third time from a different"
 	@echo "           absolute path, then diff the artifacts byte for byte"
@@ -200,6 +200,13 @@ ifeq ($(UV_PRESENT),yes)
 	# python3 runs it: the script is stdlib-only, and the release job must not
 	# have to install a dev environment to normalize what it just built.
 	$(BUILD_ENV) python3 scripts/reproducible_artifacts.py "$(DIST)"
+	# The consumer installs a wheel by URL, so the release has to carry a
+	# verification path for it. Written after the canonicalizer, over the final
+	# bytes, and sorted under LC_ALL=C so the manifest itself is reproducible:
+	# dist-verify diffs the artifact set, and a manifest that reordered itself
+	# per host would fail that comparison for no reason.
+	@cd "$(DIST)" && LC_ALL=C sha256sum $$(LC_ALL=C ls -1 *.whl *.tar.gz) > SHA256SUMS
+	@cat "$(DIST)/SHA256SUMS"
 else
 	@echo "ERROR: uv is required to build the distribution (scripts/bootstrap); this host has none" >&2
 	@exit 1

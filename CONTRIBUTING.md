@@ -155,8 +155,12 @@ than at tag time. The release sequence:
    notes (`scripts/release_notes.py`). A version with no changelog section
    still publishes, but with a default note and a loud warning: add the
    entry before tagging so consumers read what changed where they look.
-4. The release uploads three artifacts built from the tagged tree: the
-   wheel, the sdist, and a CycloneDX SBOM of the locked resolution. The
+4. The release uploads four artifacts built from the tagged tree: the
+   wheel, the sdist, a CycloneDX SBOM of the locked resolution, and a
+   `SHA256SUMS` naming all three. `make dist` writes the manifest over the
+   wheel and the sdist; the release appends the SBOM, which is generated
+   after that recipe runs. README installs the wheel by URL, so that file
+   is the only verification path a downloader has. The
    wheel ships exactly the `deadeye` package plus the PEP 561 `py.typed`
    marker and the license text; the sdist is a complete source tree whose
    contents `MANIFEST.in` governs. `tests/test_release_contract.py` builds

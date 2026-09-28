@@ -305,11 +305,12 @@ def built_artifacts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str
         sdist_members = archive.getnames()
     with zipfile.ZipFile(tmp_path / wheel_name) as archive:
         wheel_members = archive.namelist()
+        wheel_metadata = archive.read(f"{DIST_INFO}/METADATA").decode("utf-8")
     # build_meta leaves egg-info and build/ beside the sources; those are
     # gitignored byproducts of every artifact build, but the suite should
     # leave no tarball or wheel behind inside the checkout.
     rmtree(ROOT / "build", ignore_errors=True)
-    return {"sdist": sdist_members, "wheel": wheel_members}
+    return {"sdist": sdist_members, "wheel": wheel_members, "metadata": wheel_metadata.splitlines()}
 
 
 def test_sdist_is_a_complete_source_tree(built_artifacts: dict[str, list[str]]) -> None:
@@ -369,6 +370,87 @@ def test_wheel_ships_exactly_the_package(built_artifacts: dict[str, list[str]]) 
         f"modules on disk but absent from the wheel: {sorted(dropped)}; a "
         "subpackage was added without being packaged?"
     )
+
+
+def _tested_interpreters() -> set[str]:
+    """Every interpreter the release gate runs, from the ci matrix itself.
+
+    The matrix is the evidence, not a number repeated in the manifest: a
+    classifier is a promise that the release was tested on that interpreter,
+    so the only list worth pinning against is the one CI executes.
+    """
+    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    listed = re.search(r"python-version:\s*\[(?P<values>[^\]]*)\]", workflow)
+    assert listed is not None, (
+        "no python-version matrix found in ci.yml; the classifier pin below "
+        "cannot be checked against what the release gate runs"
+    )
+    return set(re.findall(r"\"(\d+\.\d+)\"", listed.group("values"))) | set(
+        re.findall(r"^\s+python-version:\s*\"(\d+\.\d+)\"\s*$", workflow, re.MULTILINE)
+    )
+
+
+def test_wheel_classifiers_claim_exactly_the_tested_interpreters(
+    built_artifacts: dict[str, list[str]],
+) -> None:
+    # A PyPI classifier is read by an installer deciding whether the wheel
+    # suits their Python. Claiming an untested one is a wrong answer that
+    # costs someone a debug session, and omitting a tested one hides the
+    # interpreter the release actually ran on.
+    classifiers = {
+        line.removeprefix("Classifier: ")
+        for line in built_artifacts["metadata"]
+        if line.startswith("Classifier: ")
+    }
+    claimed = {
+        name.removeprefix("Programming Language :: Python :: ")
+        for name in classifiers
+        # The `Python :: 3` and `Python :: 3 :: Only` classifiers share the
+        # prefix and name no minor; the matrix names minors, so match on that.
+        if re.fullmatch(r"Programming Language :: Python :: \d+\.\d+", name)
+    }
+    tested = _tested_interpreters()
+    assert tested, "no interpreter read from the ci matrix"
+    assert claimed == tested, (
+        f"the wheel claims {sorted(claimed)} but the release gate tests "
+        f"{sorted(tested)}; keep the classifiers and .github/workflows/ci.yml "
+        "in step"
+    )
+    # py.typed ships in the wheel, so PEP 561's classifier belongs with it.
+    assert "Typing :: Typed" in classifiers, (
+        "the wheel ships deadeye/py.typed, so it must carry Typing :: Typed"
+    )
+    assert "License-Expression: MIT" in built_artifacts["metadata"], (
+        "the wheel must state the license as an SPDX expression, next to the "
+        "license text it ships in dist-info/licenses"
+    )
+
+
+def test_release_publishes_a_checksum_manifest() -> None:
+    """Every published artifact must be named in a file a consumer can check.
+
+    README installs the wheel straight from a release URL, so the bytes arrive
+    with no index signature behind them; a SHA256SUMS beside the assets is
+    the only verification path a downloader has.
+    """
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    assert "> SHA256SUMS" in makefile, (
+        "the dist recipe must write SHA256SUMS over the artifacts it built; "
+        "a local build and a release build produce the same manifest"
+    )
+    workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+    assert "dist/SHA256SUMS" in workflow, (
+        "the release must upload dist/SHA256SUMS beside the wheel and the sdist"
+    )
+    assert "sha256sum sbom.cdx.json >> SHA256SUMS" in workflow, (
+        "the SBOM is built after `make dist`, so it has to be added to the "
+        "manifest or the only asset it does not cover is a published one"
+    )
+    for document in ("README.md", "CONTRIBUTING.md"):
+        assert "SHA256SUMS" in (ROOT / document).read_text(encoding="utf-8"), (
+            f"{document} describes what a release publishes and how to install "
+            "it; the checksum manifest is part of both"
+        )
 
 
 # Keep a Changelog's subsection order, with the breaking heading this repo

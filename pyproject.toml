@@ -18,9 +18,19 @@ authors = [{ name = "ywy50" }]
 keywords = ["7-days-to-die", "7dtd", "vision", "gemini", "asset-review", "modding"]
 classifiers = [
   "Development Status :: 3 - Alpha",
+  "Environment :: Console",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
+  # One classifier per minor the release gate actually runs (.github/workflows/ci.yml
+  # tests this list on Ubuntu, plus 3.13 on macOS). tests/test_release_contract.py
+  # fails when the matrix grows and this list does not follow, so a published
+  # wheel never claims support for an interpreter nothing tested.
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Topic :: Games/Entertainment",
+  # PEP 561: the wheel ships py.typed and the package is strict-mypy clean.
+  "Typing :: Typed",
 ]
 
 # The core has no runtime dependencies: adapters speak HTTP with the standard

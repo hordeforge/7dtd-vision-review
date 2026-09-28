@@ -89,6 +89,11 @@ jobs:
       - run:
           uv export --locked --preview-features sbom-export --format cyclonedx1.5
           --no-dev --all-extras -o dist/sbom.cdx.json
+      # `make dist` wrote SHA256SUMS over the wheel and the sdist. The SBOM is
+      # built here, after that manifest, so it is appended rather than
+      # regenerated: every asset a consumer can download is then named in one
+      # file they can check with a single `sha256sum -c`.
+      - run: (cd dist && sha256sum sbom.cdx.json >> SHA256SUMS)
 
       # The release notes are the changelog section for this version, so
       # consumers read what changed in the release itself and a version with
@@ -125,4 +130,4 @@ jobs:
               --title "Deadeye / Vision Review ${VERSION}" \
               --notes-file "$RUNNER_TEMP/release-notes.md"
           fi
-          gh release upload "$TAG" dist/*.whl dist/*.tar.gz dist/sbom.cdx.json --clobber
+          gh release upload "$TAG" dist/*.whl dist/*.tar.gz dist/sbom.cdx.json dist/SHA256SUMS --clobber

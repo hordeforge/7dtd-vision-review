@@ -280,6 +280,7 @@ influence over the verdict rather than over the process.
 | `uv.lock` committed with a sha256 per sdist and wheel; `uv sync --locked` and `scripts/bootstrap` refuse a stale lock | a substituted or tampered artifact installing silently | `uv.lock`; `.github/actions/test-suite/action.yml` |
 | CI actions pinned by full commit SHA, tag in comment | a moved tag injecting code into the pipeline | `.github/actions/test-suite/action.yml`, `.github/workflows/release.yml` step pins |
 | CycloneDX 1.5 SBOM of the locked resolution attached to every release | a consumer or scanner unable to see what shipped | `.github/workflows/release.yml` sbom step |
+| SHA256SUMS over every published asset (wheel, sdist, SBOM), written by the same `make dist` a contributor runs | a wheel fetched by release URL, which carries no index signature, installed without any check on its bytes | `Makefile` (`dist`); `.github/workflows/release.yml`; `tests/test_release_contract.py` |
 | Weekly Dependabot over the `uv` and `github-actions` ecosystems | pins drifting past security patches unnoticed | `.github/dependabot.yml` |
 | bandit (S) lint rules armed on the whole tree | `subprocess`, temp-file, and URL-scheme sinks in the adapters | `pyproject.toml` `[tool.ruff.lint]` |
 

@@ -651,6 +651,7 @@ def test_the_real_opener_marks_a_submission_it_put_on_a_socket() -> None:
                 headers={"x-goog-api-key": "k"},
                 timeout_seconds=2.0,
                 credential_env="GEMINI_API_KEY",
+                credential="k",
             )
     finally:
         server.join(timeout=5)
