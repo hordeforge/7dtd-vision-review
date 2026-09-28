@@ -202,52 +202,29 @@ def test_the_generation_is_capped_against_runaway_output(monkeypatch, http_opene
     assert generation["response_mime_type"] == "application/json"
 
 
-def test_max_output_tokens_can_be_overridden_by_config(monkeypatch, http_opener, tmp_path) -> None:
-    from deadeye import config
-
-    (tmp_path / "config.local.toml").write_text(
+def test_max_output_tokens_can_be_overridden_by_config(
+    monkeypatch, http_opener, isolated_config
+) -> None:
+    (isolated_config / "config.local.toml").write_text(
         "[providers.gemini]\nmax_output_tokens = 1024\n", encoding="utf-8"
     )
-    monkeypatch.setenv("DEADEYE_CONFIG_DIR", str(tmp_path))
+    from deadeye import config
+
     config.reset()
-    try:
-        seen = _capture_body(monkeypatch, http_opener, _ENVELOPE)
-        GeminiProvider().review(_review_request())
-        assert seen["body"]["generationConfig"]["maxOutputTokens"] == 1024
-    finally:
-        config.reset()
+    seen = _capture_body(monkeypatch, http_opener, _ENVELOPE)
+    GeminiProvider().review(_review_request())
+    assert seen["body"]["generationConfig"]["maxOutputTokens"] == 1024
 
 
 @pytest.mark.skipif(
     os.environ.get("DEADEYE_NETWORK_TESTS") != "gemini" or not os.environ.get("GEMINI_API_KEY"),
     reason="opt-in live run: set DEADEYE_NETWORK_TESTS=gemini and GEMINI_API_KEY",
 )
-def test_live_gemini_reviews_a_frame_sequence(tmp_path) -> None:
+def test_live_gemini_reviews_a_frame_sequence(tmp_path, solid_png) -> None:
     from deadeye.providers.base import ReviewRequest
 
     clip = tmp_path / "clip"
     clip.mkdir()
-    # A tiny solid-colour PNG, so the live run submits real image bytes.
-    import struct
-    import zlib
-
-    def solid_png(colour: tuple[int, int, int]) -> bytes:
-        width = height = 16
-        raw = b"".join(b"\x00" + bytes(colour) * width for _ in range(height))
-
-        def chunk(tag: bytes, data: bytes) -> bytes:
-            return (
-                struct.pack(">I", len(data))
-                + tag
-                + data
-                + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
-            )
-
-        ihdr = chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
-        idat = chunk(b"IDAT", zlib.compress(raw))
-        iend = chunk(b"IEND", b"")
-        return b"\x89PNG\r\n\x1a\n" + ihdr + idat + iend
-
     for index in range(3):
         (clip / f"frame-{index:04d}.png").write_bytes(solid_png((40, 40, 40)))
 

@@ -125,18 +125,10 @@ def run_review(
         detail="as submitted base64, prompt included",
     )
 
-    payload_list: list[MediaPayload] = []
-    for (path, kind), data in zip(submission.files, submission.file_bytes, strict=True):
-        p = Path(path)
-        payload_list.append(
-            MediaPayload(
-                name=p.name,
-                mime_type=mime_for_suffix(p.suffix),
-                kind=kind,
-                data=data,
-            )
-        )
-    payloads = tuple(payload_list)
+    payloads = tuple(
+        _payload(path, kind, data)
+        for (path, kind), data in zip(submission.files, submission.file_bytes, strict=True)
+    )
     request = ReviewRequest(
         prompt=prompt,
         media=payloads,
@@ -234,6 +226,17 @@ def run_review(
         evidence = {"path": str(evidence_path), "sha256": evidence_sha256}
     document["evidence"] = evidence
     return document
+
+
+def _payload(path: str, kind: sampling.MediaKind, data: bytes) -> MediaPayload:
+    """One submission file as the adapter boundary describes it."""
+    media_path = Path(path)
+    return MediaPayload(
+        name=media_path.name,
+        mime_type=mime_for_suffix(media_path.suffix),
+        kind=kind,
+        data=data,
+    )
 
 
 def _evidence_write_fault(exc: DeadeyeError, document: dict[str, Any]) -> EvidenceWriteError:

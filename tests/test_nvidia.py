@@ -15,7 +15,6 @@ import os
 
 import pytest
 
-from deadeye import config
 from deadeye.errors import DeadeyeError
 from deadeye.providers.base import MediaPayload, ReviewRequest, attachment_label
 from deadeye.providers.nvidia import (
@@ -24,16 +23,7 @@ from deadeye.providers.nvidia import (
     build_body,
 )
 
-
-@pytest.fixture(autouse=True)
-def _isolated_config(tmp_path, monkeypatch):
-    """Isolate each test from the repo-root config.local.toml."""
-    config.reset()
-    directory = tmp_path / "cfg"
-    directory.mkdir(exist_ok=True)
-    monkeypatch.setenv("DEADEYE_CONFIG_DIR", str(directory))
-    yield
-    config.reset()
+pytestmark = pytest.mark.usefixtures("isolated_config")
 
 
 def test_limits_declare_video_and_frames() -> None:
@@ -222,27 +212,7 @@ def test_an_invalid_choice_list_is_a_refusal_not_an_attribute_error(
     reason="opt-in live run: set DEADEYE_NETWORK_TESTS=nvidia and configure an "
     "NVIDIA key (env or config.local.toml)",
 )
-def test_live_nvidia_reviews_a_frame_sequence(tmp_path) -> None:
-    import struct
-    import zlib
-
-    def solid_png(colour: tuple[int, int, int]) -> bytes:
-        width = height = 16
-        raw = b"".join(b"\x00" + bytes(colour) * width for _ in range(height))
-
-        def chunk(tag: bytes, data: bytes) -> bytes:
-            return (
-                struct.pack(">I", len(data))
-                + tag
-                + data
-                + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
-            )
-
-        ihdr = chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
-        idat = chunk(b"IDAT", zlib.compress(raw))
-        iend = chunk(b"IEND", b"")
-        return b"\x89PNG\r\n\x1a\n" + ihdr + idat + iend
-
+def test_live_nvidia_reviews_a_frame_sequence(tmp_path, solid_png) -> None:
     clip = tmp_path / "clip"
     clip.mkdir()
     for index in range(3):

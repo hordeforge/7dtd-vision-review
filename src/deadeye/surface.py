@@ -107,9 +107,8 @@ def build_preview_prompt(
 ) -> str:
     """The exact reviewer prompt for an intent, rendered without a review.
 
-    The one home both surfaces share: `deadeye prompt` prints it and the MCP
-    `prompt` tool wraps it, so they cannot drift. Exactly one intent route is
-    required; `clip` is optional context for the media summary.
+    Exactly one intent route is required; `clip` is optional context for the
+    media summary.
     """
     intent, _ = load_intent(intent_path, intent_text)
 
@@ -124,6 +123,7 @@ def provider_states() -> list[dict[str, Any]]:
     The single home both print: the CLI emits this array as the `--json`
     body, and the MCP `doctor` tool returns the same entries under its
     `providers` key, so the two cannot drift into two versions.
+    Presence only: nothing here contacts a provider.
     """
     states: list[dict[str, Any]] = []
     for name, constructor in sorted(PROVIDERS.items()):
@@ -145,6 +145,7 @@ def schema_document() -> dict[str, Any]:
     The single home both surfaces print: `deadeye schema` emits this document
     as its JSON body and the MCP `schema` tool returns it unchanged, so it
     cannot drift into two versions.
+    Each field names what a caller must supply or read, not the type alone.
     """
     return {
         "intent": {

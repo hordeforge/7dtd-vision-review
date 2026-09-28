@@ -160,15 +160,11 @@ class GeminiProvider:
             raise DeadeyeError(
                 "provider 'gemini' returned invalid candidate parts; no verdict was produced"
             )
-        response_parts: list[object] = raw_parts
-        text_parts: list[str] = []
-        for part in response_parts:
-            if not isinstance(part, dict):
-                continue
-            part_text = part.get("text")
-            if isinstance(part_text, str):
-                text_parts.append(part_text)
-        text = "".join(text_parts)
+        text = "".join(
+            part["text"]
+            for part in raw_parts
+            if isinstance(part, dict) and isinstance(part.get("text"), str)
+        )
         finish = candidate.get("finishReason")
         if finish and finish not in ("STOP", "MAX_TOKENS"):
             raise DeadeyeError(

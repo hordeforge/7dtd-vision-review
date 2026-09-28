@@ -222,14 +222,11 @@ def test_schema_tool_returns_exactly_what_deadeye_schema_prints() -> None:
     assert "issues" in payload["result"]
 
 
-def test_review_honors_config_timeout_seconds(tmp_path, monkeypatch) -> None:
+def test_review_honors_config_timeout_seconds(tmp_path, monkeypatch, isolated_config) -> None:
     """The MCP surface resolves the timeout exactly like the CLI flag."""
     from deadeye import config, mcp
 
-    cfg = tmp_path / "cfg"
-    cfg.mkdir()
-    (cfg / "config.toml").write_text("timeout_seconds = 77\n", encoding="utf-8")
-    monkeypatch.setenv("DEADEYE_CONFIG_DIR", str(cfg))
+    (isolated_config / "config.toml").write_text("timeout_seconds = 77\n", encoding="utf-8")
     config.reset()
     clip = tmp_path / "clip"
     clip.mkdir()
@@ -242,18 +239,15 @@ def test_review_honors_config_timeout_seconds(tmp_path, monkeypatch) -> None:
         return {"kind": "deadeye-review"}
 
     monkeypatch.setattr(mcp, "run_review_core", fake_run)
-    try:
-        response = _call(
-            "tools/call",
-            {
-                "name": "review",
-                "arguments": {"clip": str(clip), "provider": "fake", "allow_network": True},
-            },
-        )
-        assert response["result"].get("isError") is not True
-        assert captured["timeout_seconds"] == 77.0
-    finally:
-        config.reset()
+    response = _call(
+        "tools/call",
+        {
+            "name": "review",
+            "arguments": {"clip": str(clip), "provider": "fake", "allow_network": True},
+        },
+    )
+    assert response["result"].get("isError") is not True
+    assert captured["timeout_seconds"] == 77.0
 
 
 def test_review_refuses_a_non_positive_timeout_instead_of_failing_late(tmp_path) -> None:

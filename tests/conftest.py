@@ -2,12 +2,63 @@
 
 from __future__ import annotations
 
+import struct
+import zlib
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
+
+
+@pytest.fixture
+def isolated_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
+    """A private, empty config directory and a clean process-wide cache.
+
+    The checkout's own `config.toml` / `config.local.toml` must never leak
+    into an assertion, so the environment points at a directory the test owns
+    and the cache is dropped on both sides of the test.
+    """
+    from deadeye import config
+
+    config.reset()
+    directory = tmp_path / "cfg"
+    directory.mkdir(exist_ok=True)
+    monkeypatch.setenv("DEADEYE_CONFIG_DIR", str(directory))
+    yield directory
+    config.reset()
+
+
+@pytest.fixture
+def minimal_intent(tmp_path: Path) -> Path:
+    """An intent file carrying only the one required field."""
+    path = tmp_path / "i.json"
+    path.write_text('{"purpose": "show the asset in motion"}', encoding="utf-8")
+    return path
+
+
+@pytest.fixture
+def solid_png() -> Callable[[tuple[int, int, int]], bytes]:
+    """A solid-colour PNG, so an opt-in live run submits real image bytes."""
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(data))
+            + tag
+            + data
+            + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+        )
+
+    def encode(colour: tuple[int, int, int]) -> bytes:
+        width = height = 16
+        raw = b"".join(b"\x00" + bytes(colour) * width for _ in range(height))
+        ihdr = chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+        idat = chunk(b"IDAT", zlib.compress(raw))
+        iend = chunk(b"IEND", b"")
+        return b"\x89PNG\r\n\x1a\n" + ihdr + idat + iend
+
+    return encode
 
 
 @pytest.fixture
