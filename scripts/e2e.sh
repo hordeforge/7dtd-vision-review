@@ -113,6 +113,11 @@ command -v deadeye >/dev/null 2>&1 || {
 deadeye --help >/dev/null 2>&1 || die "deadeye on PATH does not run (is the venv broken?)"
 command -v ffmpeg >/dev/null 2>&1 || die "ffmpeg is required to mux the captured clip"
 command -v uv >/dev/null 2>&1 || die "uv is required (the playtest runner and detection run under it)"
+# The provider state below and the clip size are read with a bare python3, not
+# through uv. On a host that has uv but no system python3 those calls vanish
+# into `|| true` and the run dies naming a missing provider, which is a
+# diagnosis nothing about; check the interpreter up front instead.
+command -v python3 >/dev/null 2>&1 || die "python3 is required (provider detection and the summary parse JSON with it)"
 
 [[ -d "$ASSET_PIPELINE_ROOT/src/sevendtd_asset_pipeline" ]] ||
     die "no 7dtd-asset-pipeline checkout at $ASSET_PIPELINE_ROOT (set ASSET_PIPELINE_ROOT)"

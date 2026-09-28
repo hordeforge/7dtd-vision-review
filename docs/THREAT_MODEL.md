@@ -87,9 +87,9 @@ prompt (intent + filenames + pixels) ──B6 model interpretation──> verdic
   run the CLI spends the configured keys.
 - **B2 → process**: clip files, intent documents, and both config files are
   read from disk without confinement. Discovery order makes **cwd config
-  shadow the home config** (`config.py` `_discover`, `config.py:86-93`), so a
-  checked-out tree's `config.toml` wins over `$XDG_CONFIG_HOME/deadeye` (or
-  `~/.config/deadeye` when that variable is unset).
+  shadow the home config** (`config.py` `_discover`, `config.py:190-200`), so a
+  checked-out tree's `config.toml` wins over `$XDG_CONFIG_HOME/deadeye` (or the
+  platform home directory when that variable is unset).
 - **B3 egress**: exactly one gate — `allow_network` checked first of all in
   `run_review` (`review.py:68-73`), pinned by
   `tests/test_review.py:17-27`. Disclosure lines name provider, file count,

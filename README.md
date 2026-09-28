@@ -152,9 +152,12 @@ suite, and `make badge BADGE=path.svg` renders the README badge. The suite is
 fully offline: no network, no credentials, no model.
 
 CI runs that suite on Ubuntu with Python 3.11–3.13. The CLI itself is pure
-Python (the published wheel is `py3-none-any`). `scripts/bootstrap` and
-`make` are Unix. The in-game e2e path (`scripts/e2e.sh`) is Linux-only: it
-drives a Proton-prefixed client and a Linux dedicated server.
+Python (the published wheel is `py3-none-any`) and runs on macOS and Linux;
+its user config lands in `~/Library/Application Support/deadeye/` on macOS
+and `~/.config/deadeye/` elsewhere, with `$XDG_CONFIG_HOME` overriding both
+(docs/reference.md, Configuration). `scripts/bootstrap` and `make` are Unix.
+The in-game e2e path (`scripts/e2e.sh`) is Linux-only: it drives a
+Proton-prefixed client and a Linux dedicated server.
 
 ## Security
 

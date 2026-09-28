@@ -17,7 +17,8 @@ that carries one shadows the home one):
 1. `DEADEYE_CONFIG_DIR` — an explicit directory.
 2. The current working directory (`./config.toml`, `./config.local.toml`).
 3. `$XDG_CONFIG_HOME/deadeye/` when `XDG_CONFIG_HOME` is set, otherwise
-   `~/.config/deadeye/` — the home fallback for an installed tool.
+   `~/Library/Application Support/deadeye/` on macOS and `~/.config/deadeye/`
+   everywhere else — the home fallback for an installed tool.
 
 Only the files that exist are loaded; a local file without a base file (or
 vice versa) is fine. A file that sets a key deadeye does not read is refused
@@ -34,6 +35,7 @@ provider credential anywhere but https or a loopback proxy, and
 from __future__ import annotations
 
 import os
+import sys
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -166,16 +168,25 @@ def _load_file(path: Path) -> dict[str, Any]:
 
 
 def _user_config_dir() -> Path:
-    """The installed-tool config directory: XDG when set, else ~/.config/deadeye.
+    """The installed-tool config directory: XDG when set, else the platform's.
 
     `XDG_CONFIG_HOME` is the capability the spec names. Probing the variable
     is correct on any host that sets it, including a Linux box whose config
     lives outside `~/.config`. An empty value is treated as unset, per the
     spec; `~` in the value is expanded.
+
+    With the variable unset the answer is a platform convention, not a probe:
+    no capability distinguishes the two trees, so a macOS host gets
+    `~/Library/Application Support/deadeye` (where the rest of its per-user
+    configuration already lives) and everything else gets `~/.config/deadeye`.
+    A macOS user who exports `XDG_CONFIG_HOME` still gets that directory, so
+    the override stays the one way to name this path explicitly.
     """
     xdg = os.environ.get("XDG_CONFIG_HOME", "").strip()
     if xdg:
         return Path(xdg).expanduser() / "deadeye"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "deadeye"
     return Path.home() / ".config" / "deadeye"
 
 

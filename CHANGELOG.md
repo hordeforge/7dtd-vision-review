@@ -30,6 +30,18 @@ left to be discovered by a failing parse downstream.
 
 - `scripts/e2e.sh --help` printed the usage text one line short, dropping the
   `2  usage error` exit code from its own listing.
+- The home config directory on macOS. `XDG_CONFIG_HOME` is unset there and
+  macOS never reads `~/.config`, so the fallback put the config in a dotfile
+  directory no macOS tool looks in. It now resolves to
+  `~/Library/Application Support/deadeye/` on macOS and `~/.config/deadeye/`
+  everywhere else; `$XDG_CONFIG_HOME` still overrides both. `DEADEYE_CONFIG_DIR`
+  and a `config.toml` in the working directory are unaffected, so a config
+  already at `~/.config/deadeye` has to be moved to be found.
+- `scripts/e2e.sh` ran its provider detection and its summary through a bare
+  `python3` it never checked for, while the preflight verified only `deadeye`,
+  `ffmpeg`, and `uv`. On a host with `uv` but no system `python3` the run died
+  naming an unconfigured provider, a diagnosis unrelated to the fault. The
+  preflight now requires `python3` and says so.
 - `deadeye doctor --json` no longer hides a malformed config. A config that
   fails to parse makes every provider report `unavailable`, so the array on
   stdout was byte-identical to a missing API key; the fault now rides stderr

@@ -506,7 +506,14 @@ def test_two_concurrent_writes_without_force_keep_exactly_one_envelope(
     refused = [item for item in outcomes if item != "ok"]
     assert len(ok) == 1, outcomes
     assert len(refused) == 1, outcomes
-    assert "already holds an earlier review" in refused[0]
+    # Which refusal the loser gets depends on how far the winner got before it
+    # arrived: a loser that reaches the name while it is still the winner's
+    # empty placeholder is told a write is in progress, one that arrives after
+    # the envelope is published is told an earlier review holds it. Both are
+    # the same guarantee, so the test pins the shared part (the name is named,
+    # one writer lost) instead of the scheduling that picked the wording.
+    assert str(output) in refused[0]
+    assert "write in progress" in refused[0] or "already holds an earlier review" in refused[0]
     assert json.loads(output.read_text(encoding="utf-8"))["kind"] in {"first", "second"}
     assert list(tmp_path.glob("*.tmp")) == []
 

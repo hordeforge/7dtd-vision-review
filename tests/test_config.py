@@ -247,6 +247,7 @@ def test_home_dot_config_is_the_fallback_when_xdg_is_unset(tmp_path, monkeypatch
     config.reset()
     monkeypatch.delenv("DEADEYE_CONFIG_DIR", raising=False)
     monkeypatch.setenv("XDG_CONFIG_HOME", "")
+    monkeypatch.setattr(config.sys, "platform", "linux")
     cwd = tmp_path / "cwd"
     cwd.mkdir()
     monkeypatch.chdir(cwd)
@@ -258,6 +259,48 @@ def test_home_dot_config_is_the_fallback_when_xdg_is_unset(tmp_path, monkeypatch
     loaded = config.load()
     assert loaded.directory == dest
     assert config.value(("timeout_seconds",)) == 9
+
+
+def test_macos_falls_back_to_application_support_not_dot_config(tmp_path, monkeypatch) -> None:
+    """macOS keeps per-user configuration under Application Support, and it
+    never sets XDG_CONFIG_HOME, so the Linux fallback would hide the config in
+    a dotfile directory macOS itself does not read."""
+    config.reset()
+    monkeypatch.delenv("DEADEYE_CONFIG_DIR", raising=False)
+    monkeypatch.setenv("XDG_CONFIG_HOME", "")
+    monkeypatch.setattr(config.sys, "platform", "darwin")
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    monkeypatch.chdir(cwd)
+    home = tmp_path / "home"
+    dest = home / "Library" / "Application Support" / "deadeye"
+    dest.mkdir(parents=True)
+    (dest / "config.toml").write_text("timeout_seconds = 11\n", encoding="utf-8")
+    monkeypatch.setattr(config.Path, "home", lambda *args: home)
+    loaded = config.load()
+    assert loaded.directory == dest
+    assert config.value(("timeout_seconds",)) == 11
+
+
+def test_macos_still_honors_an_explicit_xdg_config_home(tmp_path, monkeypatch) -> None:
+    """The variable is the override on every platform: a macOS user who exports
+    it must not have their config relocated by the platform fallback."""
+    config.reset()
+    monkeypatch.delenv("DEADEYE_CONFIG_DIR", raising=False)
+    monkeypatch.setattr(config.sys, "platform", "darwin")
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    monkeypatch.chdir(cwd)
+    home = tmp_path / "home"
+    monkeypatch.setattr(config.Path, "home", lambda *args: home)
+    xdg = tmp_path / "xdg"
+    dest = xdg / "deadeye"
+    dest.mkdir(parents=True)
+    (dest / "config.toml").write_text("timeout_seconds = 13\n", encoding="utf-8")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg))
+    loaded = config.load()
+    assert loaded.directory == dest
+    assert config.value(("timeout_seconds",)) == 13
 
 
 def test_explicit_config_dir_without_files_is_reported_not_silent(
