@@ -73,6 +73,15 @@ class SamplingRecord:
     frames_available: int
     frames_submitted: int
     sampled: bool
+    frame_indices: tuple[int, ...]
+    """Position in the clip's own frame order of each submitted frame, in
+    submission order. Empty when a video went instead.
+
+    An issue's `at_frame` names one of these positions, so without them the
+    index is unresolvable once sampling dropped frames: a consumer would have
+    to re-derive the spacing arithmetic to learn which file a critique points
+    at, and a re-derivation that rounds differently points at a different
+    frame."""
     submitted_files: tuple[tuple[str, MediaKind], ...]
     """(path, kind) for every file sent, in submission order."""
     note: str
@@ -246,6 +255,7 @@ def sample(
                 frames_available=len(media.frames),
                 frames_submitted=0,
                 sampled=False,
+                frame_indices=(),
                 submitted_files=((str(media.video), "video"),),
                 note=f"submitted muxed video {flat_label_text(media.video.name)} ({size} bytes)",
             )
@@ -264,39 +274,46 @@ def sample(
             "capability"
         )
     if max_frames is not None and available > max_frames:
-        selected = _evenly_spaced(frames, max_frames)
+        frame_indices = _evenly_spaced_indices(available, max_frames)
         messages.append(
             f"sampled {available} frames down to {max_frames} (even spacing, first and last kept)"
         )
         sampled = True
     else:
-        selected = frames
+        frame_indices = tuple(range(available))
         sampled = False
         messages.append("submitted the full frame sequence")
+    selected = [frames[index] for index in frame_indices]
     return SamplingRecord(
         frames_available=available,
         frames_submitted=len(selected),
         sampled=sampled,
+        frame_indices=frame_indices,
         submitted_files=tuple((str(path), "frame") for path in selected),
         note="; ".join(messages),
     )
 
 
-def _evenly_spaced(frames: list[Path], count: int) -> list[Path]:
-    """Pick `count` frames with even spacing, always keeping first and last."""
+def _evenly_spaced_indices(available: int, count: int) -> tuple[int, ...]:
+    """The `count` frame positions to submit out of `available`, evenly spaced.
+
+    Positions, not files: the record carries them so an `at_frame` a model
+    names resolves to the frame it saw, and the caller reads the files out of
+    the clip's own order.
+
+    Always keeps the first and last. The step (available - 1) / (count - 1) is
+    strictly greater than 1 when count < available, so two adjacent rounded
+    indices can never collide: submitting fewer frames than the provider's
+    limit allows would be a silent loss. Index 0 maps to the first frame and
+    count - 1 to the last.
+    """
     if count <= 0:
         raise DeadeyeError("provider frame limit must be a positive number of frames")
-    if count >= len(frames):
-        return frames
+    if count >= available:
+        return tuple(range(available))
     if count == 1:
-        return [frames[0]]
-    # The step (len - 1) / (count - 1) is strictly greater than 1 here, so the
-    # rounded indices are distinct; index 0 maps to the first frame and
-    # count - 1 to the last.
-    return [
-        frames[index]
-        for index in sorted(round(i * (len(frames) - 1) / (count - 1)) for i in range(count))
-    ]
+        return (0,)
+    return tuple(sorted(round(i * (available - 1) / (count - 1)) for i in range(count)))
 
 
 def flat_label_text(value: str) -> str:

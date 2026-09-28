@@ -142,31 +142,42 @@ def test_frames_are_sampled_evenly_keeping_first_and_last(clip_dir) -> None:
     assert record.frames_submitted == 4
     assert record.sampled
     assert "even spacing, first and last kept" in record.note
+    # The clip-frame position of what was sent, so an `at_frame` in a result
+    # resolves to a frame of the clip rather than to an attachment slot.
+    assert record.frame_indices == (0, 3, 6, 9)
+    assert [media.frames[i].name for i in record.frame_indices] == names
+
+
+def test_unsampled_frames_record_every_position(clip_dir) -> None:
+    """With nothing dropped, the positions are the identity mapping."""
+    media = discover(clip_dir)
+    record = sample(media, max_frames=20, video_capable=False, max_video_bytes=None)
+    assert record.frame_indices == tuple(range(10))
+
+
+def test_a_video_submission_names_no_frame_positions(clip_dir_with_video) -> None:
+    media = discover(clip_dir_with_video)
+    record = sample(media, max_frames=4, video_capable=True, max_video_bytes=None)
+    assert record.submitted_files[0][1] == "video"
+    assert record.frame_indices == ()
 
 
 def test_even_spacing_preserves_count_and_order_for_every_shape(tmp_path) -> None:
-    """The spacing arithmetic (`round(i * (n - 1) / (c - 1))` over a set) must
-    yield exactly `count` strictly increasing indices including 0 and n - 1,
-    for every available/count pair: rounding collisions would silently submit
-    fewer frames than the provider's budget allows."""
-    from deadeye.sampling import _evenly_spaced
+    """The spacing arithmetic (`round(i * (n - 1) / (c - 1))`) must yield
+    exactly `count` strictly increasing positions including 0 and n - 1, for
+    every available/count pair: rounding collisions would silently submit fewer
+    frames than the provider's budget allows."""
+    from deadeye.sampling import _evenly_spaced_indices
 
-    for available in range(2, 60):
-        frames = []
-        directory = tmp_path / f"clip-{available}"
-        directory.mkdir()
-        for index in range(available):
-            frame = directory / f"frame-{index:04d}.png"
-            frame.write_bytes(bytes([index]))
-            frames.append(frame)
+    for available in range(1, 60):
         for count in range(1, available + 1):
-            selected = _evenly_spaced(frames, count)
-            names = [frame.name for frame in selected]
-            assert len(selected) == count
-            assert names == sorted(names)  # clip order preserved
-            assert selected[0] == frames[0]
+            indices = _evenly_spaced_indices(available, count)
+            assert list(indices) == sorted(indices)  # clip order preserved
+            assert len(set(indices)) == count  # no position submitted twice
+            assert indices[0] == 0
+            assert max(indices) < available
             if count >= 2:
-                assert selected[-1] == frames[-1]
+                assert indices[-1] == available - 1
 
 
 def test_frames_under_the_limit_are_untouched(clip_dir) -> None:

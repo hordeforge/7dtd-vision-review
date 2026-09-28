@@ -109,5 +109,8 @@ request's, prompt included, so a video that clears the provider's video
 budget and still will not fit beside the prompt is replaced by the frame
 sequence rather than refused outright. The evidence's `sampling` block names
 exactly which files went and what was dropped, so a review that saw only eight
-of forty frames says so. A provider that cannot ingest actual media at all is
-refused as an adapter, not worked around.
+of forty frames says so. The record also carries each submitted frame's
+position in the clip's own frame order, so an issue's `at_frame` resolves to a
+frame of the clip instead of to a slot in the attachment list. A provider that
+cannot ingest actual media at all is refused as an adapter, not worked
+around.

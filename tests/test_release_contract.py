@@ -107,6 +107,7 @@ def _envelope(*, elapsed_seconds: float = 0.0) -> dict[str, object]:
             frames_available=0,
             frames_submitted=0,
             sampled=False,
+            frame_indices=(),
             submitted_files=(),
             note="",
         ),

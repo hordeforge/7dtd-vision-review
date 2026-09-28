@@ -11,6 +11,7 @@ Usage: coverage_badge.py OUTPUT.svg
 from __future__ import annotations
 
 import json
+import math
 import subprocess
 import sys
 import tempfile
@@ -32,7 +33,10 @@ def percentage() -> int:
         # then crash the badge build.
         data = json.loads(out.read_text(encoding="utf-8"))
     pct = float(data["totals"]["percent_covered"])
-    return round(pct)
+    # Half up, not `round`, which rounds a half to the even neighbour: a
+    # project at 94.5% would publish a badge reading 94%. A coverage number
+    # rounds toward the coverage it earned, as a reader expects.
+    return math.floor(pct + 0.5)
 
 
 def colour(pct: int) -> str:

@@ -134,7 +134,8 @@ accepted.
 
 `--output` writes (and `--json` prints) one hash-addressed envelope: SHA-256
 of every submitted frame/clip file and the intent file, the sampling record
-(exactly which frames went, and what was dropped to fit a provider limit), the
+(exactly which frames went, each one's position in the clip's frame order, and
+what was dropped to fit a provider limit), the
 provider and model, `created_utc` (RFC 3339 UTC instant with an explicit
 offset, never host-local time), `elapsed_seconds` (monotonic duration of the
 provider call, not a wall-clock delta), rubric and prompt versions, the

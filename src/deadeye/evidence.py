@@ -109,6 +109,10 @@ def build_envelope(
             "frames_available": sampling.frames_available,
             "frames_submitted": sampling.frames_submitted,
             "sampled": sampling.sampled,
+            # Where each submitted frame sits in the clip's own frame order, so
+            # an issue's `at_frame` names a frame of the clip and not merely a
+            # position in the attachment list. Empty for a video submission.
+            "submitted_frame_indices": list(sampling.frame_indices),
             "note": sampling.note,
         },
         "provider": {
