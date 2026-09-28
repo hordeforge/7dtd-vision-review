@@ -112,7 +112,7 @@ def test_a_malformed_config_fails_loudly_and_doctor_reports_it(isolated_config, 
     assert "config error:" in capsys.readouterr().out
 
 
-def test_doctor_json_reports_a_malformed_config_on_stderr(_isolated_config, capsys) -> None:
+def test_doctor_json_reports_a_malformed_config_on_stderr(isolated_config, capsys) -> None:
     """The machine form must not read a broken config as 'no credential'.
 
     A failed parse makes every provider `unavailable`, which in the array on
@@ -120,7 +120,7 @@ def test_doctor_json_reports_a_malformed_config_on_stderr(_isolated_config, caps
     stderr under the usual `ERROR:` prefix, or a script's operator hunts for a
     credential that was never the problem.
     """
-    _write(_isolated_config, "config.toml", "this is not [ toml\n")
+    _write(isolated_config, "config.toml", "this is not [ toml\n")
     from deadeye.cli import main
 
     assert main(["doctor", "--json"]) == 0
@@ -446,10 +446,10 @@ def test_default_model_precedence(isolated_config, tmp_path) -> None:
     assert provider.requests[-1].model == "deadeye-fake-vision-v1"
 
 
-def test_a_misspelled_key_is_refused_by_name_instead_of_ignored(_isolated_config) -> None:
+def test_a_misspelled_key_is_refused_by_name_instead_of_ignored(isolated_config) -> None:
     """A name deadeye does not read must not leave the built-in default in
     force while its author believes the file was honored."""
-    _write(_isolated_config, "config.toml", 'default_provder = "nvidia"\n')
+    _write(isolated_config, "config.toml", 'default_provder = "nvidia"\n')
     with pytest.raises(ValueError, match=r"default_provder"):
         config.load()
     # The fail-soft readers read as unset, and doctor names the fault.
@@ -459,22 +459,22 @@ def test_a_misspelled_key_is_refused_by_name_instead_of_ignored(_isolated_config
     assert main(["doctor"]) == 0
 
 
-def test_a_misspelled_provider_or_knob_is_refused_by_name(_isolated_config) -> None:
-    _write(_isolated_config, "config.local.toml", '[providers.geminie]\napi_key = "k"\n')
+def test_a_misspelled_provider_or_knob_is_refused_by_name(isolated_config) -> None:
+    _write(isolated_config, "config.local.toml", '[providers.geminie]\napi_key = "k"\n')
     with pytest.raises(ValueError, match=r"providers\.geminie"):
         config.load()
     config.reset()
-    _write(_isolated_config, "config.local.toml", "[providers.nvidia]\nmax_token = 4096\n")
+    _write(isolated_config, "config.local.toml", "[providers.nvidia]\nmax_token = 4096\n")
     with pytest.raises(ValueError, match=r"providers\.nvidia\.max_token"):
         config.load()
     assert "max_tokens" in config.PROVIDER_KEYS["nvidia"]
 
 
-def test_documented_settings_load_and_an_empty_table_is_not_a_setting(_isolated_config) -> None:
+def test_documented_settings_load_and_an_empty_table_is_not_a_setting(isolated_config) -> None:
     """Every documented key, plus the empty `[providers.fake]` a reader may
     write, must load: the refusal above must not reject real configuration."""
     _write(
-        _isolated_config,
+        isolated_config,
         "config.toml",
         'default_provider = "nvidia"\ndefault_model = "m"\ntimeout_seconds = 30\n'
         'api_key = "top"\n\n[providers.fake]\n\n[providers.gemini]\n'

@@ -50,7 +50,10 @@ die() {
     exit 1
 }
 usage() {
-    sed -n '2,45p' "$0" | sed 's/^# \{0,1\}//'
+    # The header block, minus its comment markers. The end is found rather
+    # than numbered: a hardcoded range silently drops whatever the header grew
+    # past it (the exit codes were already cut off by one line this way).
+    awk 'NR > 1 { if ($0 !~ /^#/ && $0 != "") exit; sub(/^# ?/, ""); print }' "$0"
     exit 0
 }
 

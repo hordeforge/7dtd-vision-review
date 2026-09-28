@@ -15,6 +15,13 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # UV_PYTHON reaches both `uv sync` and the `uv run` inside the Makefile,
+    # exactly as in the CI workflow. Without it, `uv run` re-read
+    # .python-version and rebuilds the venv the sync step just made, so a
+    # bumped .python-version would have this job sync one interpreter and test
+    # another. Reading the file keeps it the single home for the version.
+    env:
+      UV_PYTHON: ${{ steps.python-version.outputs.value }}
     steps:
       # Actions pinned by full commit SHA (tag in comment) so a moved tag or a
       # compromised major-version release cannot inject code into the pipeline.
@@ -22,7 +29,10 @@ jobs:
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: true
-      - run: uv sync --locked --python 3.13
+      - id: python-version
+        run: echo "value=$(cat .python-version)" >> "$GITHUB_OUTPUT"
+      - run: uv python install "$UV_PYTHON"
+      - run: uv sync --locked --python "$UV_PYTHON"
       - run: echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
       # Same smoke target the CI workflow runs: the installed console script,
       # not only the source tree, and the capability registry with it.

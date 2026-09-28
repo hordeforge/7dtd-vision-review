@@ -43,8 +43,10 @@ left to be discovered by a failing parse downstream.
 
 ### Fixed
 
-- `scripts/e2e.sh --help` printed the usage text one line short, dropping the
-  `2  usage error` exit code from its own listing.
+- `scripts/e2e.sh --help` dropped the last line of its own header: the usage
+  text was a hardcoded line range, so anything the header grew past it was
+  silently cut, and `2  usage error` was already gone. The block now ends at
+  the first line that is not part of it.
 - The home config directory on macOS. `XDG_CONFIG_HOME` is unset there and
   macOS never reads `~/.config`, so the fallback put the config in a dotfile
   directory no macOS tool looks in. It now resolves to
@@ -64,6 +66,13 @@ left to be discovered by a failing parse downstream.
 - A non-positive `providers.gemini.max_output_tokens` or
   `providers.nvidia.max_tokens` is now refused with the key named, instead of
   being sent as the request's generation cap.
+- The release workflow's test job named its interpreter twice, in two
+  places that can disagree: `uv sync --python 3.13` and, through the
+  Makefile, `uv run` re-reading `.python-version`. A bump to
+  `.python-version` would have had the job sync one interpreter and test
+  another, the same divergence already fixed in the CI matrix. The version
+  is read from the file and pinned through `UV_PYTHON`, the way the CI job
+  does.
 - `deadeye doctor --json` no longer hides a malformed config. A config that
   fails to parse makes every provider report `unavailable`, so the array on
   stdout was byte-identical to a missing API key; the fault now rides stderr
