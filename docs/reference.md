@@ -196,8 +196,11 @@ it never means submitting the media twice.
 The CLI has no key to offer here: a re-run is a new submission by design. The
 MCP `review` tool does, through the optional `idempotency_key` argument: a
 client that retries its own call with the same key and the same arguments
-gets the first attempt's envelope back without submitting anything, for the
-life of the server process. See [docs/mcp-server.md](mcp-server.md).
+gets the first attempt's answer back without submitting anything, for the
+life of the server process. That covers every submission that reached the
+provider, verdict or not, so a timeout or an answer that failed validation
+replays its refusal rather than billing the media twice. See
+[docs/mcp-server.md](mcp-server.md).
 
 ## Providers
 

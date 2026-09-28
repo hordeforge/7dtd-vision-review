@@ -89,9 +89,10 @@ required (`CONTRIBUTING.md`, "Changing a contract").
   a line separator in it. Internal only; no shipped behavior changes.
 - The MCP `review` tool takes an optional `idempotency_key`. A client that
   retries its own call with the same key and the same arguments now receives
-  the first attempt's envelope without submitting the media a second time.
-  A key reused with different arguments is refused, only completed reviews
-  are recorded (a refusal stays retryable), and the ledger holds the most
+  the first attempt's answer without submitting the media a second time.
+  A key reused with different arguments is refused, and every submission that
+  reached the provider is recorded (a refusal raised before anything was sent
+  leaves the key free), and the ledger holds the most
   recent 128 keys, least recently used evicted. The guarantee is process-
   local: a restarted server is back to one call, one submission. Calls
   without a key behave exactly as before.
@@ -155,6 +156,15 @@ required (`CONTRIBUTING.md`, "Changing a contract").
 
 ### Fixed
 
+- A retry under the same MCP `idempotency_key` could still bill the same
+  media twice. The ledger recorded only a review that returned a verdict, so
+  a submission the provider answered with nothing usable (a timeout, a
+  connection that died mid-body, a response that failed structural
+  validation) left the key free, and the retry submitted and paid again for
+  bytes whose answer was already lost. Every submission that reached the
+  provider now records its outcome, and a repeat replays the first refusal;
+  a refusal raised before anything was sent still leaves the key free, so a
+  corrected retry is unchanged.
 - The MCP idempotency ledger is now bounded by retained bytes as well as by
   entry count: at most 32 MiB of envelopes, oldest evicted, whichever bound
   the next entry crosses first. An entry's size is the client's to choose

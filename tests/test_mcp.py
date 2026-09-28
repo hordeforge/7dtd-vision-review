@@ -681,6 +681,67 @@ def test_a_billed_review_whose_evidence_write_failed_still_occupies_its_key(tmp_
     assert "envelope" in first["result"]["content"][0]["text"]
 
 
+def test_a_billed_review_the_provider_answered_nothing_usable_for_occupies_its_key(
+    tmp_path, monkeypatch
+) -> None:
+    """A submission that was sent and billed, and came back unusable, spent
+    its key exactly as a verdict that failed to reach disk did.
+
+    Nothing reaches the ledger for a local refusal, which is right: a request
+    the provider never saw is safe to resend. This is the opposite case. The
+    media crossed the network, the provider answered text the result schema
+    rejects, and the attempt is billed. A client that retries the same call
+    under the same key is retrying into a second charge for the same bytes,
+    and would most likely get the same unusable answer, so the repeat replays
+    the first refusal instead of submitting again.
+    """
+    from deadeye import mcp
+    from deadeye.providers import ReviewResponse
+    from deadeye.providers.fake import FakeProvider
+
+    class UnusableProvider(FakeProvider):
+        def review(self, request):
+            self.requests.append(request)
+            return ReviewResponse(raw_text="not json at all", usage=None, model_reported="fake")
+
+    provider = UnusableProvider()
+    monkeypatch.setitem(mcp.PROVIDERS, "fake", lambda: provider)
+    arguments = _review_arguments(tmp_path, idempotency_key="job-45")
+
+    first = _call("tools/call", {"name": "review", "arguments": arguments})
+    second = _call("tools/call", {"name": "review", "arguments": arguments})
+
+    assert len(provider.requests) == 1, "the retry must not reach the provider a second time"
+    assert first["result"]["isError"] is True
+    assert first["result"] == second["result"]
+    assert "structural validation" in first["result"]["content"][0]["text"]
+
+
+def test_a_billed_review_with_no_usable_verdict_leaves_no_envelope_to_replay(
+    tmp_path, monkeypatch
+) -> None:
+    """The entry for such a call keeps the refusal and no envelope, so the
+    replay raises the fault rather than answering with an empty document."""
+    from deadeye import mcp
+    from deadeye.providers import ReviewResponse
+    from deadeye.providers.fake import FakeProvider
+
+    class UnusableProvider(FakeProvider):
+        def review(self, request):
+            self.requests.append(request)
+            return ReviewResponse(raw_text="{}", usage=None, model_reported="fake")
+
+    monkeypatch.setitem(mcp.PROVIDERS, "fake", UnusableProvider)
+    _call(
+        "tools/call",
+        {"name": "review", "arguments": _review_arguments(tmp_path, idempotency_key="job-46")},
+    )
+
+    entry = mcp._COMPLETED["job-46"]
+    assert entry.envelope is None
+    assert entry.fault is not None
+
+
 def test_the_idempotency_ledger_is_bounded(tmp_path, monkeypatch) -> None:
     """A long-lived server must not accumulate one entry per key a client
     ever names: the oldest is evicted at the bound, and a key past the bound

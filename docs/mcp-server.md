@@ -43,12 +43,14 @@ calls, spec error codes, and the review consent boundary.
   - a key reused with *different* arguments is refused, so one operation's
     verdict is never returned for another's request and a name is never
     spent twice;
-  - only completed reviews are recorded, so a local refusal stays retryable
-    and an ambiguous timeout is never frozen into a result the client never
-    received. A review whose verdict arrived but whose evidence file could
-    not be written *was* completed and billed, so it is recorded too, and a
-    retry under the same key replays that same fault and envelope instead of
-    submitting the media a second time;
+  - only submissions that reached the provider are recorded, so a refusal
+    raised before anything was sent stays retryable while a call that was
+    billed is never offered back as a safe retry. A review whose verdict
+    arrived but whose evidence file could not be written replays that same
+    fault and envelope; a review the provider answered with nothing usable
+    (a timeout, a response that failed validation) replays that same
+    refusal. Neither submits the media a second time, and a client that
+    genuinely wants another attempt names a new key;
   - the ledger is process-local, so the guarantee covers replay within one
     session, not a restart; across restarts the client is back to the
     default of a duplicate call being a new submission.

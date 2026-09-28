@@ -337,6 +337,38 @@ def test_a_trickling_response_body_is_cut_off_at_the_overall_deadline(
     assert "not a retry of this one" in str(excinfo.value)
 
 
+def test_a_connection_that_dies_mid_body_is_a_billable_submission_with_no_verdict(
+    http_opener,
+) -> None:
+    """A truncated response is the duplicate-billing case, not a plain fault.
+
+    The request was sent and the provider may finish and bill it while the
+    client is left reading a body that stopped. Anything that deduplicates a
+    retry has to record that key as spent, which it can only do from the
+    exception type: a status the provider refused (a 400, a 429) never
+    reached a bill, and this one may have.
+    """
+    from deadeye.errors import NoVerdictError
+
+    class TruncatedResponse(io.BytesIO):
+        def read1(self, size=-1):  # type: ignore[override]
+            raise ConnectionResetError("connection reset by peer")
+
+    http_opener(lambda request, timeout: TruncatedResponse(b"{}"))
+    with pytest.raises(NoVerdictError, match="not a retry of this one"):
+        _post()
+
+    # A provider that refused outright is a different thing: nothing billed,
+    # so the key stays free for a corrected retry.
+    def refusing_open(request, timeout):
+        raise urllib.error.HTTPError(request.full_url, 400, "Bad Request", {}, io.BytesIO(b"{}"))
+
+    http_opener(refusing_open)
+    with pytest.raises(DeadeyeError) as excinfo:
+        _post()
+    assert not isinstance(excinfo.value, NoVerdictError)
+
+
 def test_a_slow_drip_provider_is_refused_at_the_total_budget(http_opener) -> None:
     """The advertised seconds bound the whole call, not one socket read.
 

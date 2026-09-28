@@ -17,7 +17,7 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-from ..errors import DeadeyeError, did_not_answer
+from ..errors import DeadeyeError, NoVerdictError, did_not_answer
 from ..json_safe import strict_json_numbers
 from ..sampling import flat_label_text
 
@@ -267,8 +267,10 @@ def post_json(
         # response) surfaces here, not as a traceback: the request was
         # billed and no verdict came back, which is a refusal to report.
         # The server side may still finish and bill the attempt, so the
-        # refusal also warns against treating a resubmission as a retry.
-        raise DeadeyeError(
+        # refusal also warns against treating a resubmission as a retry,
+        # and `NoVerdictError` lets a deduplicating caller record it as
+        # spent instead of retrying into a second bill.
+        raise NoVerdictError(
             f"provider {provider!r} connection failed before a complete "
             f"response arrived: {exc!r}; no verdict arrived, and the "
             "submission may still have completed and billed server-side: "

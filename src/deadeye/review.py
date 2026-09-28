@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from . import config, sampling
-from .errors import DeadeyeError, EvidenceWriteError, did_not_answer
+from .errors import DeadeyeError, EvidenceWriteError, NoVerdictError, did_not_answer
 from .evidence import build_envelope, ensure_writable, sha256_file, write_evidence
 from .intent import ReviewIntent, load_intent, redact_json_text
 from .prompt import FRAME_TIMING_NOTE, PromptParts, build_prompt_parts
@@ -212,7 +212,11 @@ def run_review(
     try:
         parsed = parse_model_json(response.raw_text)
         result = validate_result(parsed)
-    except DeadeyeError:
+    except DeadeyeError as exc:
+        # The provider answered, so this submission was billed, and the answer
+        # cannot be used. `NoVerdictError` says so: a transport holding an
+        # idempotency key records the call as spent and replays this refusal
+        # rather than offering a retry that would bill the same bytes again.
         if keep_raw_response and output is not None:
             document = envelope_for(
                 result=None,
@@ -222,13 +226,13 @@ def run_review(
             )
             try:
                 write_evidence(output, document, force=force)
-            except DeadeyeError as exc:
-                raise _evidence_write_fault(exc, document) from exc
-            raise DeadeyeError(
+            except DeadeyeError as write_exc:
+                raise _evidence_write_fault(write_exc, document) from write_exc
+            raise NoVerdictError(
                 "the model response failed structural validation; a redacted raw "
                 f"response was preserved at {output} because keep-raw was requested"
-            ) from None
-        raise
+            ) from exc
+        raise NoVerdictError(f"the model response failed structural validation: {exc}") from exc
 
     params = {
         "clip": str(clip),

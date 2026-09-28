@@ -31,12 +31,13 @@ import sys
 import traceback
 from collections import OrderedDict
 from collections.abc import Callable, Iterable, Iterator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, TextIO, TypeVar, overload
 
 from . import __version__
 from ._streams import bind_process_output
-from .errors import DeadeyeError, EvidenceWriteError
+from .errors import DeadeyeError, EvidenceWriteError, NoVerdictError
 from .evidence import sha256_bytes
 from .review import run_review as run_review_core
 from .surface import (
@@ -79,16 +80,33 @@ _IDEMPOTENCY_LEDGER_MAX_BYTES = 32 * 1024 * 1024
 # log line. Anything longer is a client bug, not a key.
 _MAX_IDEMPOTENCY_KEY_CHARS = 200
 
-# Client-named keys to the completed reviews that answered them, oldest
-# first: `key -> (call fingerprint, envelope, evidence-write fault, retained
-# bytes)`. A review that was submitted and billed lands here whether or not
-# its evidence reached disk, so a retry under the same key replays the same
-# answer instead of billing the same media twice. A local refusal and an
-# ambiguous timeout stay out: nothing completed, so the call is retryable.
+# Client-named keys to the submissions that spent them, oldest first. A
+# review that reached the provider lands here whether or not it produced a
+# verdict, so a retry under the same key replays the same answer instead of
+# billing the same media twice. A local refusal stays out: nothing was
+# submitted, so the call is retryable.
 # The retained size rides with the entry rather than in a separate running
 # total, so clearing the ledger (what the test fixture does between cases) is
 # enough to release everything it held.
-_COMPLETED: OrderedDict[str, tuple[str, dict[str, Any], str | None, int]] = OrderedDict()
+_COMPLETED: OrderedDict[str, _LedgerEntry] = OrderedDict()
+
+
+@dataclass(frozen=True)
+class _LedgerEntry:
+    """What one key spent: the answer a repeat must replay, and what it cost.
+
+    `envelope` is the completed verdict when one came back. `fault` is the
+    refusal a repeat re-raises instead, and is set both for a verdict that
+    could not be written to disk (the envelope rides alongside it) and for a
+    submission that was billed and answered nothing usable, where there is no
+    envelope to keep.
+    """
+
+    fingerprint: str
+    envelope: dict[str, Any] | None
+    fault: str | None
+    retained_bytes: int
+
 
 TOOLS: list[dict[str, Any]] = [
     {
@@ -101,11 +119,13 @@ TOOLS: list[dict[str, Any]] = [
         "a lost response or a timeout submits the media again rather than "
         "replaying the first attempt. Supply idempotency_key to name the "
         "logical operation instead: a repeated call with the same key and the "
-        "same arguments returns the first attempt's envelope without "
-        "submitting anything, for the lifetime of this server process. That "
-        "holds for a review whose evidence file could not be written: it was "
-        "billed, so a repeat replays the same error and envelope instead of "
-        "submitting the media a second time.",
+        "same arguments returns the first attempt's answer without submitting "
+        "anything, for the lifetime of this server process. That holds for "
+        "every submission that reached the provider, billed or not: a review "
+        "whose evidence file could not be written replays that error and its "
+        "envelope, and a review the provider answered with nothing usable (a "
+        "timeout, a response that failed validation) replays the same refusal "
+        "rather than submitting the media a second time.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -141,7 +161,8 @@ TOOLS: list[dict[str, Any]] = [
                     "description": "client-chosen name for this logical operation; a "
                     "repeat of the same key with the same arguments returns the first "
                     "result instead of submitting again, including a review that "
-                    "completed but could not write its evidence",
+                    "completed but could not write its evidence and one the provider "
+                    "answered with no usable verdict",
                 },
             },
             "required": ["clip", "allow_network"],
@@ -279,18 +300,24 @@ def _call_review(params: dict[str, Any]) -> dict[str, Any]:
     if key is not None:
         replayed = _replayed_result(key, params)
         if replayed is not None:
-            envelope, write_fault = replayed
-            if write_fault is not None:
+            if replayed.envelope is None:
+                # The first attempt reached the provider and came back with
+                # nothing usable, so there is no envelope to hand over. The
+                # submission is spent either way: `handle_frame` renders this
+                # replay exactly as it rendered the original, the same
+                # refusal and no second submission.
+                raise NoVerdictError(replayed.fault or "the earlier submission returned no verdict")
+            if replayed.fault is not None:
                 # The first attempt submitted, billed, and then failed to
                 # persist its evidence. `handle_frame` renders the replay
                 # exactly as it rendered the original: the same fault, the
                 # same envelope, and no second submission.
-                raise EvidenceWriteError(write_fault, document=envelope)
+                raise EvidenceWriteError(replayed.fault, document=replayed.envelope)
             # The first attempt's verdict, verbatim: a duplicate call must not
             # submit the media again, and must not invent a second envelope
             # either. `created_utc` and `review_id` in the payload are the
             # first attempt's, which is what makes the replay auditable.
-            return envelope
+            return replayed.envelope
 
     def notify(line: str) -> None:
         # The CLI's disclosure contract carries over verbatim: what will
@@ -314,10 +341,17 @@ def _call_review(params: dict[str, Any]) -> dict[str, Any]:
         )
     except EvidenceWriteError as exc:
         if key is not None:
-            _remember_result(key, params, exc.document, write_fault=str(exc))
+            _remember_result(key, params, envelope=exc.document, fault=str(exc))
+        raise
+    except NoVerdictError as exc:
+        # The media left the machine and the attempt may be billed, so the
+        # key is spent even though nothing came back. Recording it is what
+        # stops a client retrying a lost answer into a second charge.
+        if key is not None:
+            _remember_result(key, params, fault=str(exc))
         raise
     if key is not None:
-        _remember_result(key, params, envelope)
+        _remember_result(key, params, envelope=envelope)
     return envelope
 
 
@@ -349,15 +383,13 @@ def _call_fingerprint(params: dict[str, Any]) -> str:
     return sha256_bytes(json.dumps(call, sort_keys=True).encode("utf-8"))
 
 
-def _replayed_result(key: str, params: dict[str, Any]) -> tuple[dict[str, Any], str | None] | None:
-    """The first attempt's envelope for `key` and its evidence-write fault,
-    or None when there is none."""
+def _replayed_result(key: str, params: dict[str, Any]) -> _LedgerEntry | None:
+    """The first attempt's ledger entry for `key`, or None when there is none."""
     entry = _COMPLETED.get(key)
     if entry is None:
         return None
-    fingerprint, envelope, write_fault, _ = entry
-    if fingerprint != _call_fingerprint(params):
-        # Returning the earlier envelope here would attribute one operation's
+    if entry.fingerprint != _call_fingerprint(params):
+        # Returning the earlier answer here would attribute one operation's
         # verdict to another's request, and re-running would bill a second
         # time under a name the client already used. Refuse instead.
         raise DeadeyeError(
@@ -365,14 +397,18 @@ def _replayed_result(key: str, params: dict[str, Any]) -> tuple[dict[str, Any], 
             "arguments; a key names one logical operation, so pass a new one"
         )
     _COMPLETED.move_to_end(key)
-    return envelope, write_fault
+    return entry
 
 
 def _remember_result(
-    key: str, params: dict[str, Any], envelope: dict[str, Any], *, write_fault: str | None = None
+    key: str,
+    params: dict[str, Any],
+    *,
+    envelope: dict[str, Any] | None = None,
+    fault: str | None = None,
 ) -> None:
-    """Record a completed review under `key`, evicting the oldest past either bound."""
-    # Measured the way the envelope travels: the ledger holds what a client
+    """Record a submission under `key`, evicting the oldest past either bound."""
+    # Measured the way the answer travels: the ledger holds what a client
     # would have been sent, so the retained size is the rendered size. A
     # non-serializable leaf is a bug the frame loop reports, not a reason to
     # lose the record of a billed submission, so it falls back to the key's
@@ -381,11 +417,19 @@ def _remember_result(
         retained = len(json.dumps(envelope, sort_keys=True).encode("utf-8"))
     except (TypeError, ValueError):
         retained = len(key.encode("utf-8"))
-    _COMPLETED[key] = (_call_fingerprint(params), envelope, write_fault, retained)
+    if fault is not None:
+        retained += len(fault.encode("utf-8"))
+    _COMPLETED[key] = _LedgerEntry(
+        fingerprint=_call_fingerprint(params),
+        envelope=envelope,
+        fault=fault,
+        retained_bytes=retained,
+    )
     _COMPLETED.move_to_end(key)
     while len(_COMPLETED) > 1 and (
         len(_COMPLETED) > _IDEMPOTENCY_LEDGER_ENTRIES
-        or sum(entry[3] for entry in _COMPLETED.values()) > _IDEMPOTENCY_LEDGER_MAX_BYTES
+        or sum(entry.retained_bytes for entry in _COMPLETED.values())
+        > _IDEMPOTENCY_LEDGER_MAX_BYTES
     ):
         _COMPLETED.popitem(last=False)
 

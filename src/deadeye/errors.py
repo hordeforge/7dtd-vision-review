@@ -14,7 +14,20 @@ class DeadeyeError(Exception):
     """A refusal or fault with a single user-actionable message."""
 
 
-def did_not_answer(provider: str, timeout_seconds: float) -> DeadeyeError:
+class NoVerdictError(DeadeyeError):
+    """A submission that reached the provider and produced no usable verdict.
+
+    Either the provider answered with text the result schema rejects, or it
+    never answered at all. The difference matters for a second execution: the
+    media crossed the network and the attempt may already be billed, so a
+    caller that resubmits under the same idempotency key pays twice for the
+    same bytes and may well get the same unusable answer. A transport that
+    can deduplicate records this fault against the key and replays it,
+    exactly as it replays a completed verdict whose evidence write failed.
+    """
+
+
+def did_not_answer(provider: str, timeout_seconds: float) -> NoVerdictError:
     """The one refusal for a submission that ran out of time.
 
     `urllib`'s timeout is per socket operation, so it never fires on a
@@ -24,7 +37,7 @@ def did_not_answer(provider: str, timeout_seconds: float) -> DeadeyeError:
     sent, so the provider may still complete and bill it, and submitting
     again is a new billable review, never a retry of this one.
     """
-    return DeadeyeError(
+    return NoVerdictError(
         f"provider {provider!r} did not answer within {timeout_seconds:g}s; "
         "no verdict arrived, and the submission may still have completed "
         "and billed server-side: submitting again is a new billable "

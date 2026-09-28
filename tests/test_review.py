@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 import pytest
 
 from deadeye.errors import DeadeyeError
-from deadeye.providers.base import ProviderLimits
+from deadeye.providers.base import ProviderLimits, ReviewResponse
 from deadeye.providers.fake import FakeProvider
 from deadeye.review import run_review
 
@@ -712,6 +712,47 @@ def test_a_timeout_refusal_warns_that_resubmitting_bills_again(
     monkeypatch.setattr(provider, "review", slow_review)
     with pytest.raises(DeadeyeError, match="new billable review, not a retry"):
         run_review(clip_dir, provider=provider, intent_path=intent_path, allow_network=True)
+
+
+def test_every_fault_after_the_submission_says_the_key_is_spent(
+    clip_dir, intent_path, monkeypatch
+) -> None:
+    """Once the media has been sent, no outcome is free to repeat.
+
+    A transport that deduplicates (the MCP idempotency ledger) can only record
+    a call as spent if it can tell a submitted call from one the provider
+    never saw, and the only way it can tell is the exception type. A refusal
+    raised before the submission stays an ordinary `DeadeyeError` and leaves
+    the key free; a timeout and an answer the result schema rejects are both
+    billed attempts, so both are `NoVerdictError`.
+    """
+    from deadeye.errors import NoVerdictError
+
+    provider = FakeProvider()
+
+    def slow_review(request):
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr(provider, "review", slow_review)
+    with pytest.raises(NoVerdictError, match="new billable review, not a retry"):
+        run_review(clip_dir, provider=provider, intent_path=intent_path, allow_network=True)
+
+    def unusable_review(request):
+        return ReviewResponse(raw_text="not json at all", usage=None, model_reported="fake")
+
+    monkeypatch.setattr(provider, "review", unusable_review)
+    with pytest.raises(NoVerdictError, match="structural validation"):
+        run_review(clip_dir, provider=provider, intent_path=intent_path, allow_network=True)
+
+    # Nothing was submitted above, so the same key is still unused.
+    with pytest.raises(DeadeyeError) as local:
+        run_review(
+            clip_dir,
+            provider=FakeProvider(),
+            intent_path=clip_dir / "missing.json",
+            allow_network=True,
+        )
+    assert not isinstance(local.value, NoVerdictError)
 
 
 def test_rerunning_a_review_preserves_both_envelopes_as_independent_evidence(
