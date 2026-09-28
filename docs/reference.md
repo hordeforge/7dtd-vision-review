@@ -104,9 +104,19 @@ Every free-text field is bounded locally before anything is submitted: the
 document itself is refused above 64 KiB at the read, each field is capped at
 2,000 characters, `avoid`/`questions` at 32 entries of 500 characters each,
 and `references` at 8 files, each with a 2,000-character `path` and a
-500-character `purpose`. Every field lands verbatim in the billable
+500-character `purpose`. Every field lands in the billable
 prompt, so a runaway intent is refused with a named limit
 instead of being priced at the provider.
+
+Every free-text field is also folded to printable characters at parse time,
+on the same rule a filename passes through: every non-printable character
+becomes a space. Each field is interpolated one per line, so a `purpose`
+carrying a newline, U+2028, or NEL would otherwise render a line the pipeline
+did not write, indistinguishable from one it did. Folding is not
+normalization: a decomposed (NFD) spelling, an astral character, and a
+combining mark reach the model and the evidence as themselves. The document
+bytes are unchanged, so the evidence digest is still the author's own; the
+folded text is what the envelope's `intent.content` records.
 
 The instruction and the author's statement travel in separate roles. The
 instruction (role, JSON output contract, rubric, and the declaration that the

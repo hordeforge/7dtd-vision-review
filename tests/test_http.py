@@ -253,6 +253,48 @@ def test_an_unknown_declared_charset_falls_back_to_utf8(http_opener) -> None:
     assert envelope["modelVersion"] == "m"
 
 
+def test_the_declared_charset_also_decodes_a_fault_body(http_opener) -> None:
+    """A refusal line is the only account of a failed submission, so the error
+    path decodes on the same rule as the success path. Reading a
+    `charset=latin-1` error body as UTF-8 with `errors="replace"` turned every
+    non-ASCII character of the provider's own explanation into U+FFFD: the one
+    line naming the fault arrived mangled, and two paths answering the same
+    provider with two different decoders is how that stops reading as a fault."""
+    body = "quota exhausted for caf\xe9".encode("iso-8859-1")
+    headers = email.message.Message()
+    headers["Content-Type"] = "text/plain; charset=latin-1"
+
+    def refusing_open(request, timeout):
+        raise urllib.error.HTTPError(
+            request.full_url, 429, "Too Many Requests", headers, io.BytesIO(body)
+        )
+
+    http_opener(refusing_open)
+    with pytest.raises(DeadeyeError, match="rate-limited") as excinfo:
+        _post()
+    assert "café" in str(excinfo.value)
+    assert "�" not in str(excinfo.value)
+
+
+def test_an_undecodable_fault_body_still_yields_a_refusal(http_opener) -> None:
+    """The fault path replaces an unusable byte where the success path refuses
+    it: there is no second submission to protect, and a mangled line beats an
+    exception raised while describing one. A body that decodes as neither the
+    declared charset nor UTF-8 still names the status, and a header mapping
+    that is not an `email.message.Message` must not raise looking one up."""
+    body = b"quota exhausted for caf\xe9"
+
+    def refusing_open(request, timeout):
+        raise urllib.error.HTTPError(
+            request.full_url, 429, "Too Many Requests", {}, io.BytesIO(body)
+        )
+
+    http_opener(refusing_open)
+    with pytest.raises(DeadeyeError, match="rate-limited") as excinfo:
+        _post()
+    assert "quota exhausted" in str(excinfo.value)
+
+
 def test_a_declared_charset_whose_codec_raises_is_a_fault_not_a_crash(http_opener) -> None:
     """`charset=undefined` resolves to a codec whose decode raises plain
     UnicodeError, which is neither a UnicodeDecodeError nor a LookupError. It

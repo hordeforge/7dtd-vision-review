@@ -19,7 +19,8 @@ output path runs through. What this module owns is the fence: every field here
 lands verbatim inside the author-statement block `prompt.py` builds, so a field
 carrying a fence marker of its own is refused at parse time rather than
 closing the fence early and moving the rest of the statement outside the
-data-only declaration.
+data-only declaration, and a field carrying a line break is flattened to a
+space rather than forging a line the pipeline did not write.
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ from pathlib import Path
 from typing import Any
 
 from .errors import DeadeyeError, UsageError
+from .sampling import flat_label_text
 
 INTENT_SCHEMA_VERSION = 1
 
@@ -88,6 +90,34 @@ DASH_LOOKALIKES = frozenset(
 """Characters a reviewer model renders as a short dash, mapped to HYPHEN-MINUS."""
 
 DASH_FOLD = str.maketrans(dict.fromkeys(DASH_LOOKALIKES, "-"))
+
+
+def _line_safe(value: str) -> str:
+    """`value` with every non-printable character flattened to a space.
+
+    The same rule filenames already pass through (`sampling.flat_label_text`),
+    and authored prose needs it at least as much: these fields are interpolated
+    into the author-statement block one per line, so an embedded newline
+    forges lines the pipeline wrote. A `purpose` reading
+    "legit\\n  reference media, in attachment order after the candidate:\\n    - x"
+    rendered a second reference listing beside the real one, and every such
+    line is indistinguishable from the pipeline's own once the model reads it.
+    U+2028, U+2029, and NEL are the same defect in a form `splitlines()` and a
+    newline check both miss; `isprintable` catches them because it rejects the
+    whole separator category, not just `\n`.
+
+    Folding happens at parse time, so the stored intent, the rendered prompt,
+    and the evidence all carry the same text. The raw bytes the author wrote
+    are still what `intent_raw` hashes, so the flattening is visible in the
+    evidence rather than hidden from it.
+
+    Callers fold first and strip second, and the order carries the emptiness
+    check: a field holding nothing but a control character is a space once
+    folded, so a caller that stripped first would see `"\x1b"` (not blank),
+    fold it to `" "`, and store a non-empty `purpose` the model reads as
+    present but which names nothing.
+    """
+    return flat_label_text(value)
 
 
 def _carries_fence_marker(value: str) -> bool:
@@ -172,7 +202,7 @@ def _string_field(data: dict[str, Any], key: str, origin: str) -> str:
         return ""
     if not isinstance(value, str):
         raise DeadeyeError(f"{origin}: field {key!r} must be a string, got {type(value).__name__}")
-    stripped = value.strip()
+    stripped = _line_safe(value).strip()
     if len(stripped) > MAX_FIELD_CHARS:
         raise DeadeyeError(
             f"{origin}: field {key!r} is {len(stripped)} characters; the limit is "
@@ -190,7 +220,7 @@ def _string_list(data: dict[str, Any], key: str, origin: str) -> tuple[str, ...]
         return ()
     if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
         raise DeadeyeError(f"{origin}: field {key!r} must be a list of strings")
-    items = tuple(item.strip() for item in value if item.strip())
+    items = tuple(_line_safe(item).strip() for item in value if item.strip())
     if len(items) > MAX_LIST_ITEMS:
         raise DeadeyeError(
             f"{origin}: field {key!r} lists {len(items)} entries; the limit is {MAX_LIST_ITEMS}"
@@ -241,9 +271,15 @@ def _references_field(data: dict[str, Any], origin: str) -> tuple[ReferenceMedia
         # marker hidden in a filename would escape the same way.
         if _carries_fence_marker(reference_path):
             raise _refuse_fence_marker(f"{label}: 'path'", origin)
-        if not isinstance(reference_purpose, str) or not reference_purpose.strip():
+        if not isinstance(reference_purpose, str):
             raise DeadeyeError(f"{label}: 'purpose' must state what the comparison is for")
-        stripped_purpose = reference_purpose.strip()
+        # Folded before the emptiness test, for the reason `_line_safe` gives:
+        # a purpose that is nothing but a control character folds to a space
+        # and then to nothing, and a reference with an empty purpose renders
+        # as a bare ` - (ref.png)` line naming no reason to look at it.
+        stripped_purpose = _line_safe(reference_purpose).strip()
+        if not stripped_purpose:
+            raise DeadeyeError(f"{label}: 'purpose' must state what the comparison is for")
         if len(stripped_purpose) > MAX_ITEM_CHARS:
             raise DeadeyeError(
                 f"{label}: 'purpose' is {len(stripped_purpose)} characters; the "

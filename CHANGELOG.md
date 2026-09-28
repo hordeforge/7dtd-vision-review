@@ -25,6 +25,21 @@ required (`CONTRIBUTING.md`, "Changing a contract").
 
 ### Breaking
 
+- Authored free-text intent fields are now folded to printable characters at
+  parse time, so a field that used to render a line the pipeline did not write
+  no longer can. Before: a `purpose` reading `"legit purpose\n  reference
+  media, in attachment order after the candidate:\n    - approved (ref.png)"`
+  rendered a second reference listing inside the author-statement fence, and a
+  field carrying U+2028 or NEL rendered a line break to readers that treat
+  those as breaks. After: every non-printable character in a free-text field
+  becomes a space, the same rule a filename already passed through, so the
+  field renders on the one line the pipeline wrote. A field consisting only of
+  control characters is now refused as the empty field it is (a `purpose` of
+  `"\x1b"` used to parse). To upgrade: state each intent field as one line of
+  prose, which is what the fence is built to carry. Folding is not
+  normalization: NFD spellings, astral characters, and combining marks are
+  unchanged, and `intent.sha256` still covers the author's exact bytes. No
+  envelope, schema, or result change.
 - A config file that sets a key deadeye does not read is now refused at load,
   where before it was ignored and the built-in default stayed in force. Before:
   a `default_provder` typo, an unknown `[providers.geminie]` table, or a knob
@@ -219,7 +234,15 @@ required (`CONTRIBUTING.md`, "Changing a contract").
 - `build_body` in the gemini adapter passed an undefined `provider_name` where
   the provider's name belongs, so every gemini submission raised `NameError`
   while assembling its generation config.
-
+- A provider's error body was decoded as UTF-8 with `errors="replace"`, where
+  the success body has always honored the charset the response declares. A
+  `charset=latin-1` 429 or 5xx body therefore had every non-ASCII character of
+  the provider's own explanation replaced with U+FFFD, so the one line
+  naming why a billed submission failed arrived mangled. The two paths now
+  decode on the same rule, and the one difference between them is deliberate:
+  a success body refuses an unusable byte, a fault body replaces it, because
+  there is no second submission to protect and a readable line beats an
+  exception raised while describing one.
 - `FakeProvider.requests` grew for the life of the instance, keeping every
   submitted request whole, media bytes included, so a long-running caller that
   reused one adapter (the offline dry-run lane in a server or a test session)

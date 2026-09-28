@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import sys
+import unicodedata
 from typing import Any
 
 from deadeye.evidence import build_envelope
@@ -63,6 +64,33 @@ def test_redact_stops_descending_at_the_depth_bound() -> None:
     assert levels == MAX_REDACT_DEPTH
     assert node is None
     assert "secret" not in json.dumps(cleaned)
+
+
+def test_the_sensitive_key_match_is_case_folded_not_normalized() -> None:
+    # The key match is case folding plus invisible-character removal, and
+    # deliberately no Unicode normalization. Pinned at the helper because the
+    # choice is not obvious and a future pass must not quietly change it:
+    #
+    # - Every sensitive name is ASCII, so the NFD and NFC spellings of one are
+    #   the same string already. NFC could only compose letters the match
+    #   never looks at, leaving every outcome identical.
+    # - Compatibility folding is a different question with a different answer:
+    #   the fullwidth spelling renders as visibly wide letters, not as
+    #   `api_key`, so it is a different key and stays.
+    # - The backstop drops credential-named keys, it is not a normalizer, so
+    #   two spellings of one benign key are both kept and neither is merged.
+    #
+    # What it does have to fold is case (U+017F -> 's') and invisible
+    # formatting characters, which every reader renders as nothing at all.
+    assert _is_sensitive_key("api_key", ("api_key",))
+    assert _is_sensitive_key("API_KEY", ("api_key",))
+    # Escaped so the source itself carries no lookalike characters.
+    fullwidth = "\uff41\uff50\uff49\uff3f\uff4b\uff45\uff59"
+    assert not _is_sensitive_key(fullwidth, ("api_key",))
+    nfc = "caf\u00e9"
+    nfd = "cafe\u0301"
+    assert nfc != nfd and unicodedata.normalize("NFC", nfd) == nfc
+    assert redact({nfc: 1, nfd: 2}) == {nfc: 1, nfd: 2}
 
 
 def test_redact_passes_nan_leaves_through_untouched() -> None:

@@ -36,7 +36,10 @@ answers, and it cannot occupy the slot the contract and rubric sit in.
 Intent text or a reference filename carrying a fence marker of its own is
 refused locally, so the fence cannot be closed early and spoken around, and
 filenames rendered into prompt text have control characters flattened so no
-line can be forged inside them. A caller never writes or passes a prompt;
+line can be forged inside them. Authored free-text fields are folded the same
+way at parse time, because each is interpolated one per line: without it a
+`purpose` carrying a newline, U+2028, or NEL renders a line the pipeline did
+not write. A caller never writes or passes a prompt;
 `deadeye prompt` renders the assembled instruction for inspection before
 submission. The prompt and rubric versions ride in the evidence so a
 review is traceable to the instruction it answered.

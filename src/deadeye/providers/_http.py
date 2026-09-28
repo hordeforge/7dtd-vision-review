@@ -58,6 +58,20 @@ class _NoRedirects(urllib.request.HTTPRedirectHandler):
 _OPENER = urllib.request.build_opener(_NoRedirects)
 
 
+def _declared_charset(headers: Any) -> str | None:
+    """The charset a response's Content-Type declares, or None.
+
+    `get_content_charset` is a method of `email.message.Message`, which is
+    what urllib attaches to a response and to an `HTTPError` it built itself.
+    It is looked up rather than called directly because a header mapping that
+    is not a Message reaches here too (a proxy-shaped exception, a test
+    double), and a refusal path must not raise `AttributeError` over the
+    charset of a body it is about to describe.
+    """
+    get_charset = getattr(headers, "get_content_charset", None)
+    return get_charset() if callable(get_charset) else None
+
+
 def _decode_envelope(provider: str, raw: bytes, headers: Any) -> str:
     """The response body as text: the declared charset first, UTF-8 otherwise.
 
@@ -68,7 +82,7 @@ def _decode_envelope(provider: str, raw: bytes, headers: Any) -> str:
     this module's fault mapping (which would land after a billed submission)
     or silently substituting replacement characters into stored evidence.
     """
-    declared = headers.get_content_charset() if headers is not None else None
+    declared = _declared_charset(headers)
     if declared:
         try:
             return raw.decode(declared)
@@ -141,6 +155,28 @@ def _read_response_body(
     )
 
 
+def _decode_fault_body(raw: bytes, headers: Any) -> str:
+    """An error body as text, on the same rule the success path uses.
+
+    A refusal line is the only account the operator gets of why a billed
+    submission failed, so the declared charset has to be honoured here too:
+    decoding a `charset=latin-1` error body as UTF-8 with `errors="replace"`
+    turns every non-ASCII character in the provider's own explanation into
+    U+FFFD, and two paths answering the same provider with two different
+    decoders is how a mangled line stops being readable as a fault. The two
+    differ only in what an unusable byte does, which the caller decides: a
+    success body refuses, an error body replaces, because there is no second
+    submission to protect and the line is better than nothing.
+    """
+    declared = _declared_charset(headers)
+    if declared:
+        try:
+            return raw.decode(declared)
+        except (UnicodeError, LookupError, ValueError):
+            pass  # undecodable or unknown name: UTF-8 gets the next attempt
+    return raw.decode("utf-8", errors="replace")
+
+
 def _read_fault_body(exc: urllib.error.HTTPError) -> str:
     """A bounded slice of an HTTP error body, then the socket is closed.
 
@@ -167,7 +203,7 @@ def _read_fault_body(exc: urllib.error.HTTPError) -> str:
         with contextlib.suppress(OSError):
             exc.close()
     return flat_label_text(
-        b"".join(chunks).decode("utf-8", errors="replace")[:_MAX_FAULT_BODY_CHARS]
+        _decode_fault_body(b"".join(chunks), getattr(exc, "headers", None))[:_MAX_FAULT_BODY_CHARS]
     )
 
 
