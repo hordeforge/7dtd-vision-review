@@ -70,6 +70,11 @@ required (`CONTRIBUTING.md`, "Changing a contract").
 
 ### Added
 
+- `make dist` builds the sdist and wheel the way a release does, and
+  `make dist-verify` rebuilds the same tree under a different clock, locale,
+  timezone, and hash seed and diffs the bytes. The release job runs both, so
+  the reproducibility claim is checked before upload rather than asserted in a
+  comment, and a local build and a published build cannot drift apart.
 - The wheel now ships `config.local.toml.example`, and `deadeye doctor` names
   the file by its real path when no config is found. A user who installed the
   release artifact had no checkout to copy the template from, and the
@@ -93,6 +98,14 @@ required (`CONTRIBUTING.md`, "Changing a contract").
 
 ### Changed
 
+- The Makefile runs every `uv` invocation with `--locked` rather than
+  `--frozen`. `--frozen` installs whatever `uv.lock` happens to say even when
+  `pyproject.toml` has moved on, so a contributor could lint, test, and build
+  against dependency versions the repository no longer declares; a stale lock
+  now fails the same way `scripts/bootstrap` and CI already fail it. Recipes
+  also run under bash with `-e -o pipefail`, and `make dist` clears its output
+  directory first so an artifact from an earlier version cannot ship beside
+  the new one.
 - The MCP tools read and type every argument at the boundary, so a
   malformed `tools/call` is refused by name instead of surfacing as a fault
   report. `clip`, `intent`, `intent_text`, `output`, and `model` must be

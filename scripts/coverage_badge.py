@@ -3,7 +3,7 @@
 
 Must be run by an interpreter that has coverage importable: the Makefile
 `badge` target arranges that by running it under `$(PYTHON)` (`uv run
---frozen python3`), and `scripts/bootstrap` syncs the dev dependency group
+--locked python3`), and `scripts/bootstrap` syncs the dev dependency group
 from the committed lockfile, so `coverage` is present in the project venv.
 Usage: coverage_badge.py OUTPUT.svg
 """

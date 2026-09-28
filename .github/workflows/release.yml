@@ -76,24 +76,17 @@ jobs:
           fi
           echo "ok: tag $TAG matches pyproject.toml and _version.py ($PYPROJECT)"
 
-      # SOURCE_DATE_EPOCH pinned to the tagged commit: setuptools stamps
-      # wheel entries from it, so rebuilding the same tag yields
-      # byte-identical wheels. Without it no two builds agree. LC_ALL, TZ, and
-      # PYTHONHASHSEED pin the rest of the runner's environment: the sdist
-      # file walk and the sorted listings behind it must not vary with the
-      # runner's locale, timezone, or hash seed.
+      # `make dist` is the one build command, shared with contributors: the
+      # tagged commit's SOURCE_DATE_EPOCH and the pinned LC_ALL, TZ, and
+      # PYTHONHASHSEED live in the Makefile, so a published artifact and a
+      # local `make dist` cannot drift apart. `make dist-verify` then rebuilds
+      # the same tree under a different clock, locale, timezone, and hash seed
+      # and diffs the bytes, so the reproducibility claim is checked here
+      # rather than only asserted in a comment.
       - name: Build the sdist and wheel
-        shell: bash
-        run: |
-          set -euo pipefail
-          export LC_ALL=C TZ=UTC PYTHONHASHSEED=0
-          export SOURCE_DATE_EPOCH="$(git log -1 --pretty=format:%ct)"
-          echo "building with SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH"
-          uv build
-          # setuptools does not apply the epoch to sdists (tar members keep
-          # checkout mtimes and the builder's uid leaks in), so canonicalize
-          # them with the same pinned value; see scripts/reproducible_artifacts.py.
-          python3 scripts/reproducible_artifacts.py dist
+        run: make dist
+      - name: Verify the artifacts rebuild byte for byte
+        run: make dist-verify
 
       # A CycloneDX 1.5 inventory of exactly what the committed uv.lock
       # resolves to, attached beside the artifacts so consumers and

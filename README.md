@@ -156,6 +156,13 @@ module, `make test TEST='-k NAME'` one test, `make coverage` measures the
 suite, and `make badge BADGE=path.svg` renders the README badge. The suite is
 fully offline: no network, no credentials, no model.
 
+`make dist` builds the sdist and wheel into `dist/` exactly as a release does
+(the tagged commit's `SOURCE_DATE_EPOCH` under `LC_ALL=C`, `TZ=UTC`, and
+`PYTHONHASHSEED=0`, then the sdist canonicalizer), and `make dist-verify`
+builds the same tree a second time under a different clock, locale, timezone,
+and hash seed and diffs the bytes, which is the same check the release job
+runs before it uploads. `make clean` removes the build outputs.
+
 CI runs that suite on Ubuntu with Python 3.11–3.13. The CLI itself is pure
 Python (the published wheel is `py3-none-any`) and runs on macOS and Linux;
 its user config lands in `~/Library/Application Support/deadeye/` on macOS
