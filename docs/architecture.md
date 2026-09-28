@@ -9,16 +9,18 @@ decide what a review may and may not do.
 ## The flow
 
 ```
-caller ──(deadeye review CLI)──> consent gate → intent validation
-       → clip discovery → provider limits → sampling → disclosure
-       → provider.review(request) → validate_result → evidence envelope
+caller ──(deadeye review CLI)──> consent gate → evidence-path guard
+       → intent validation → clip discovery → provider limits → sampling
+       → disclosure → provider.review(request) → validate_result
+       → evidence envelope
 ```
 
 Order matters and is tested: consent first of all (before credentials are
-read), then local validation, then limits, then disclosure, then submission,
-then structural validation, then evidence. A failure at any step raises one
-user-actionable message and preserves no partial verdict as a completed
-review.
+read), then the evidence-path guard (a rerun into an occupied `--output` is
+refused before anything is contacted), then local validation, then limits,
+then disclosure, then submission, then structural validation, then evidence. A
+failure at any step raises one user-actionable message and preserves no
+partial verdict as a completed review.
 
 ## Boundaries that must not blur
 
@@ -50,10 +52,12 @@ the same family the audio-review pipeline uses (`summary`, `strengths`,
 
 **Credentials never travel or land.** They come from the environment or from
 `config.local.toml` (the gitignored local config; see `config.py` for the
-precedence: CLI flags > env > `config.local.toml` > `config.toml` > built-in
-defaults), never as a command argument, and never in stdout, JSON output,
-logs, or evidence. The redaction backstop in `intent.py` drops
-credential-named keys wherever they would otherwise land.
+precedence, which is per setting: command-line review options override their
+configured counterparts, credentials prefer the environment over the merged
+configuration, and every other setting comes from the merged configuration
+with a built-in default behind it), never as a command argument, and never in
+stdout, JSON output, logs, or evidence. The redaction backstop in `intent.py`
+drops credential-named keys wherever they would otherwise land.
 
 **Advisory only.** `ADVISORY_NOTE` rides every result and every evidence
 envelope: a model critique cannot mark an asset accepted. Human sign-off in

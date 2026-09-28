@@ -10,8 +10,9 @@ under.
 
 The shape is the sight-side mirror of the sibling audio-review intent:
 `purpose` is required and never inferred from a filename; everything else is
-optional context. `camera_path` is the motion the clip claims to show, not a
-free-form description of the asset.
+optional context. `camera_path` states the motion the clip claims to show; the
+canonical kinds in `CAMERA_PATHS` are documented so a generated case can name
+one, and a free description is accepted rather than refused.
 """
 
 from __future__ import annotations

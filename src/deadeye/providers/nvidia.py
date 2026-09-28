@@ -12,8 +12,9 @@ The model identifier is a default, not a contract: providers and model names
 change, so the caller can always pass `--model`. The generation defaults
 (`max_tokens`, `reasoning_budget`, `temperature`, `top_p`) mirror the
 verified payload for `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning`; they
-are module constants because they are the model's own tuning surface, not
-per-review knobs.
+are module constants read through `int_setting` / `float_setting`, so a
+deployment overrides any of them under `[providers.nvidia]` and a review is
+never sent parameters its evidence cannot account for.
 
 The key arrives from `NVIDIA_API_KEY` (environment) or
 `providers.nvidia.api_key` in the loaded configuration (normally the

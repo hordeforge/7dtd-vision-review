@@ -126,6 +126,7 @@ uv tool install \
 | `e2e.sh` | the end-to-end test: in-game capture + review (see above) |
 | `coverage_badge.py` | release tooling: render the coverage badge |
 | `release_notes.py` | release tooling: draft notes from the changelog |
+| `reproducible_artifacts.py` | release tooling: make a rebuilt sdist byte-identical |
 
 ## Reference
 

@@ -28,13 +28,15 @@ source checkout, run the same commands through the project venv instead:
 | `--json` | print the full evidence envelope to stdout |
 | `--output PATH` | also write the evidence envelope there; never overwrites an earlier one without `--force` |
 | `--keep-raw-response` | preserve a redacted copy of the provider's raw response in evidence |
+| `--force` | overwrite an earlier evidence envelope at `--output` |
 | `--timeout SECONDS` | provider budget; overrides `timeout_seconds` from configuration |
 
 `deadeye doctor [--json]` reports provider capability state without contacting
 any provider. `deadeye schema` prints the intent and result schemas.
-`deadeye prompt --intent FILE [--clip DIR]` renders the exact reviewer prompt
-the gateway would inject for that intent, without running a review — the
-harness for verifying what a model will be asked before anything is submitted.
+`deadeye prompt (--intent FILE | --intent-text JSON) [--clip CLIP]` renders the
+exact reviewer prompt the gateway would inject for that intent, without running
+a review — the harness for verifying what a model will be asked before anything
+is submitted.
 `deadeye mcp` serves the same surface as a Model Context Protocol server on
 stdio; see [docs/mcp-server.md](mcp-server.md).
 
@@ -94,10 +96,11 @@ optional context. The intent's exact bytes are hashed into the evidence
 document.
 
 Every free-text field is bounded locally before anything is submitted: the
-document itself is refused above 64 KiB at the read, each field is capped at
-2,000 characters, `avoid`/`questions` at 32 entries of 500 characters each,
-and `references` at 8 files. Every field lands verbatim in the billable
-prompt, so a runaway intent is refused with a named limit
+document itself is refused above 64 KiB at the read, each free-text field is
+capped at 2,000 characters, `avoid`/`questions` at 32 entries of 500 characters
+each, and `references` at 8 files. A reference's own `purpose` is bounded by the
+64 KiB document cap rather than the per-field one. Every field lands verbatim in
+the billable prompt, so a runaway intent is refused with a named limit
 instead of being priced at the provider.
 
 The prompt declares the author statement data-only between

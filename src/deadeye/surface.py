@@ -1,11 +1,11 @@
 """The shared tool surface behind both transports: the CLI and the MCP server.
 
 The gateway reaches its users two ways, and both must answer identically:
-`deadeye doctor --json` and the MCP `doctor` tool return the same shapes by
-contract, and so do `schema` and the rendered prompt preview. This module is
-the single home each of those answers is built in, so they cannot drift into
-two versions. Nothing here parses arguments or speaks a protocol; the
-transports own presentation and framing.
+`deadeye doctor --json` and the MCP `doctor` tool derive their provider states
+from this one function, and so do `schema` and the rendered prompt preview.
+This module is the single home each of those answers is built in, so they
+cannot drift into two versions. Nothing here parses arguments or speaks a
+protocol; the transports own presentation and framing.
 """
 
 from __future__ import annotations
@@ -121,9 +121,9 @@ def build_preview_prompt(
 def provider_states() -> list[dict[str, Any]]:
     """Per-provider capability state, for `doctor` on every surface.
 
-    The single home both print: `deadeye doctor --json` and the MCP `doctor`
-    tool return the same shapes by contract, so this is built once and never
-    allowed to drift into two versions.
+    The single home both print: the CLI emits this array as the `--json`
+    body, and the MCP `doctor` tool returns the same entries under its
+    `providers` key, so the two cannot drift into two versions.
     """
     states: list[dict[str, Any]] = []
     for name, constructor in sorted(PROVIDERS.items()):
@@ -142,9 +142,9 @@ def provider_states() -> list[dict[str, Any]]:
 def schema_document() -> dict[str, Any]:
     """The intent and result schemas as one document.
 
-    The single home both surfaces print: `deadeye schema` and the MCP
-    `schema` tool return the same shapes by contract, so this is built once
-    and never allowed to drift into two versions.
+    The single home both surfaces print: `deadeye schema` emits this document
+    as its JSON body and the MCP `schema` tool returns it unchanged, so it
+    cannot drift into two versions.
     """
     return {
         "intent": {

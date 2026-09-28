@@ -110,10 +110,9 @@ def discover(source: Path) -> ClipMedia:
 def _scan_directory(directory: Path) -> tuple[list[Path], Path | None, Path | None]:
     """Single-pass directory scan: find frames, muxed video, and log file.
 
-    Three separate ``iterdir()`` calls (one per file role) each reopen the
-    directory and re-stat every entry.  A single pass collapses them into one
-    readdir + one stat per file, cutting the syscall count roughly in thirds
-    for a clip with many frames.
+    One readdir plus one stat per entry, whatever the file's role: a scan per
+    role would re-open and re-stat the whole directory three times, which
+    matters for a clip with many frames.
     """
     numbered: list[tuple[int, Path]] = []
     fallback_images: list[Path] = []

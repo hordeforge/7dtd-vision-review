@@ -44,6 +44,28 @@ calls, spec error codes, and the review consent boundary.
   the following frame stays aligned, and the process cannot grow with one
   unbounded stdin line.
 
+## Result shapes
+
+Every tool result is one text content part carrying JSON, so a client reads
+`result.content[0].text` and parses it:
+
+| Tool | Text payload |
+|---|---|
+| `review` | the evidence envelope, identical to `deadeye review --json` |
+| `doctor` | `{"providers": [...]}`, the entries `deadeye doctor --json` prints as a bare array |
+| `schema` | the schema document, identical to `deadeye schema` |
+| `prompt` | `{"prompt": "..."}`, the text `deadeye prompt` prints bare |
+
+A refusal is the same text part prefixed `ERROR: ` with `isError: true`. The
+one exception is a review whose evidence write failed after a billed
+submission: the text part is `{"error": ..., "envelope": ...}` and
+`isError` is still true.
+
+`review` accepts `intent` or `intent_text`, never both and never neither: the
+core's exactly-one rule applies verbatim, and passing both is the refusal
+"takes exactly one of --intent PATH or --intent-text JSON, never both" despite
+the JSON-RPC parameter names.
+
 ## Out of scope for now
 
 stdio framing and session handling are built; the pinned protocol version is

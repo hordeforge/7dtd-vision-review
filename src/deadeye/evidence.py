@@ -43,18 +43,23 @@ USAGE_SENSITIVE_KEY_PARTS = tuple(part for part in SENSITIVE_KEY_PARTS if part !
 
 
 def sha256_bytes(payload: bytes) -> str:
+    """The SHA-256 hex digest of `payload`."""
     return hashlib.sha256(payload).hexdigest()
 
 
 def sha256_file(path: Path) -> tuple[str, int, bytes]:
+    """Read a submitted file once, returning (sha256 hex, byte length, bytes).
+
+    The bytes come back with the digest because every adapter inlines them in
+    the request; the caller keeps the one buffer the digest was taken from
+    instead of re-reading the file (which may have changed) before submitting.
+    """
     try:
         payload = path.read_bytes()
     except OSError as exc:
         raise DeadeyeError(f"cannot hash file {path}: {exc}") from exc
-    # The caller must retain the exact bytes for the inline-media request.
-    # Reading into chunks and joining them after hashing kept both the chunk
-    # list and a second whole-file copy alive at once. Hash the one retained
-    # buffer directly instead.
+    # One retained buffer, hashed directly: a chunked read that joined into a
+    # second whole-file copy kept both alive at once.
     return sha256_bytes(payload), len(payload), payload
 
 

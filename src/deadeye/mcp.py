@@ -171,8 +171,10 @@ def _call_review(params: dict[str, Any]) -> dict[str, Any]:
 
 
 def _call_doctor(params: dict[str, Any]) -> dict[str, Any]:
-    # The same shape `deadeye doctor --json` prints, from the same single
-    # home in surface.py: where the credential came from, never its value.
+    # The same per-provider state `deadeye doctor --json` prints, from the same
+    # single home in surface.py: where the credential came from, never its
+    # value. The JSON-RPC tool result wraps that array under a `providers` key
+    # so one tool result stays a JSON object.
     return {"providers": provider_states()}
 
 

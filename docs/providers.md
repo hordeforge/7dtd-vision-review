@@ -75,8 +75,8 @@ muxed video and falls back to the frame sequence (sampled down to the
 adapter's 12-image budget, recorded in the evidence) only when no video fits.
 The default model is `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning` with
 the generation settings its verified payload uses (`max_tokens`,
-`reasoning_budget`, `temperature`, `top_p`), all module constants rather
-than per-review knobs.
+`reasoning_budget`, `temperature`, `top_p`), each a module constant a
+deployment may override under `[providers.nvidia]`.
 
 The key arrives from `NVIDIA_API_KEY`, travels in an `Authorization` header
 (never a query string), and is never printed, logged, or written into
