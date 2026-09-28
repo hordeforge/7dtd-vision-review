@@ -788,3 +788,22 @@ def test_a_response_body_that_is_not_bytes_is_a_spent_submission(http_opener) ->
     http_opener(lambda request, timeout: io.StringIO('{"candidates": []}'))
     with pytest.raises(NoVerdictError, match="non-bytes response body"):
         _post()
+
+
+def test_an_oversized_integer_literal_is_a_mapped_refusal(http_opener) -> None:
+    """An envelope past CPython's integer digit limit is a spent submission.
+
+    `json.loads` refuses such a literal with a bare `ValueError`, not a
+    `JSONDecodeError`, so the guard below it never caught it: the provider
+    had answered and billed, and the refusal left as an unmapped `ValueError`
+    instead of the `NoVerdictError` that tells a deduplicating caller the key
+    is spent. It is the same fault as a truncated body, and must read the
+    same way."""
+    body = ('{"usageMetadata": {"n": ' + "9" * 5000 + "}}").encode()
+
+    def answering_open(request, timeout):
+        return io.BytesIO(body)
+
+    http_opener(answering_open)
+    with pytest.raises(NoVerdictError, match="non-JSON envelope"):
+        _post()

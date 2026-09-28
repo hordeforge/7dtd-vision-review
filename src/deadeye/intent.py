@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any
 
 from .errors import DeadeyeError, UsageError
+from .json_safe import loads
 from .prompt_text import (
     carries_fence_marker,
     fence_marker_error,
@@ -363,7 +364,7 @@ def _decode_json(raw: bytes, origin: str) -> Any:
     # on some platforms still write one; without this the document dies as
     # "not valid JSON" on a character the author never typed.
     try:
-        return json.loads(raw.decode("utf-8-sig"))
+        return loads(raw.decode("utf-8-sig"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise DeadeyeError(f"{origin} is not valid JSON: {exc}") from exc
     except RecursionError as exc:

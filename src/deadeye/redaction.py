@@ -25,7 +25,7 @@ import json
 import unicodedata
 from typing import Any
 
-from .json_safe import strict_json_numbers
+from .json_safe import loads, strict_json_numbers
 
 # Fields whose names look credential-bearing are dropped wherever they would
 # otherwise land in stored evidence. Credentials are never accepted as
@@ -160,7 +160,7 @@ def redact_json_text(text: str, parts: tuple[str, ...] = SENSITIVE_KEY_PARTS) ->
     if not stripped or stripped[0] not in "{[":
         return text
     try:
-        parsed = json.loads(stripped)
+        parsed = loads(stripped)
     except (json.JSONDecodeError, RecursionError):
         return text
     if not isinstance(parsed, (dict, list)):

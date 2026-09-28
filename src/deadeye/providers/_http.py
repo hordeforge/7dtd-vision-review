@@ -22,7 +22,7 @@ from contextvars import ContextVar
 from typing import Any
 
 from ..errors import DeadeyeError, NoVerdictError, did_not_answer, no_verdict
-from ..json_safe import strict_json_numbers
+from ..json_safe import loads, strict_json_numbers
 from ..prompt_text import flat_label_text
 
 _REDIRECT_CODES = frozenset({301, 302, 303, 307, 308})
@@ -375,7 +375,7 @@ def post_json(
             raw = _read_response_body(
                 response, provider, deadline=deadline, timeout_seconds=timeout_seconds
             )
-            envelope: Any = json.loads(
+            envelope: Any = loads(
                 _decode_envelope(provider, raw, getattr(response, "headers", None))
             )
         if not isinstance(envelope, dict):

@@ -23,10 +23,23 @@ while a recursive Python walk over that tree runs out of stack and raises
 caller is the evidence write for an already-billed submission. A container
 past the limit is replaced by null, for the reason `redact` gives: a walk
 that cannot finish cannot prove what the subtree holds.
+
+`loads` closes the same gap one level down, in the parser itself: CPython
+refuses an integer literal longer than `sys.int_info.str_digits_check_threshold`
+digits (4300 by default) with a bare `ValueError`, not a
+`JSONDecodeError`, because the limit guards `int()` on a string rather than
+JSON syntax. Every `except json.JSONDecodeError` in this tree therefore let
+it through, and a document carrying one oversized literal escaped as an
+unmapped `ValueError` at every parse boundary: a provider envelope, an
+intent, a raw response, and a single MCP stdio frame that killed the
+long-lived server. `loads` is the one door every one of those answers
+through, and it reports the refusal as the `JSONDecodeError` the callers
+already handle.
 """
 
 from __future__ import annotations
 
+import json
 import math
 from typing import Any
 
@@ -37,6 +50,39 @@ from typing import Any
 # bound here that were lower than that one would truncate a document the
 # redactor had already accepted whole.
 MAX_WALK_DEPTH = 64
+
+
+def loads(text: str) -> Any:
+    """`json.loads`, with every parse refusal reported as `JSONDecodeError`.
+
+    `json.JSONDecodeError` is a `ValueError`, but not every `ValueError` a
+    `json.loads` raises is one of them. An integer literal past the
+    interpreter's digit limit is refused by the `int()` the parser calls,
+    and that raises the bare form with a message about digit limits rather
+    than about JSON. Every parse boundary in this tree guards refusals with
+    `JSONDecodeError`, so that case reached none of them.
+
+    The consequence was a fault nobody had mapped: a provider envelope, an
+    intent file, or a preserved raw response carrying one such literal left
+    as a raw `ValueError` on a path whose contract is a refusal naming the
+    input, and an MCP stdio frame carrying one took the whole long-lived
+    server down instead of being answered with the spec's parse error.
+
+    Only that one case is translated. `RecursionError` and every other
+    exception the parser can raise keep their own type, because each is
+    already handled on its own terms at the call sites: a caller that
+    distinguishes "nested too deeply" from "not JSON" must still be able to.
+    """
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        raise
+    except ValueError as exc:
+        # `JSONDecodeError(msg, doc, pos)`. The position is unknown: the
+        # refusal came from converting one integer literal, not from a scan,
+        # so any position would be a fiction. The message is the parser's
+        # own, which names the limit that refused it.
+        raise json.JSONDecodeError(str(exc), text, 0) from exc
 
 
 def finite_float(value: Any) -> float | None:

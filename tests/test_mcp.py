@@ -1366,3 +1366,24 @@ def test_a_non_renderable_envelope_still_records_the_billed_submission() -> None
     entry = mcp._COMPLETED["job-50"]
     assert entry.retained_bytes == len(b"job-50")
     assert entry.fingerprint == mcp._call_fingerprint({"clip": "c"})
+
+
+def test_a_frame_with_an_oversized_integer_literal_is_answered_not_fatal() -> None:
+    """One malformed frame must not tear down the long-lived transport.
+
+    `json.loads` refuses an integer literal past CPython's digit limit with a
+    bare `ValueError`, not a `JSONDecodeError`, so the frame loop's parse
+    guard let it escape: a single frame carrying one such number ended the
+    server and every request behind it. It is a malformed frame like any
+    other and gets the spec's parse error."""
+    oversized = b'{"jsonrpc":"2.0","id":1,"method":"ping","n":' + b"9" * 5000 + b"}\n"
+    good = b'{"jsonrpc":"2.0","id":2,"method":"ping"}\n'
+    stdout = io.StringIO()
+
+    assert mcp.serve(io.BytesIO(oversized + good), stdout) == 0
+
+    answered = [json.loads(line) for line in stdout.getvalue().splitlines()]
+    # The bad frame is a parse error; the good one behind it is still served.
+    assert [frame.get("id") for frame in answered] == [None, 2]
+    assert answered[0]["error"]["code"] == -32700
+    assert answered[1]["result"] == {}

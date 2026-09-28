@@ -16,6 +16,9 @@ invariants the pipeline depends on:
   value, however deeply it is buried: the load-bearing credentials backstop;
 - a response body decodes under the declared charset or UTF-8, and refuses by
   name otherwise, never reaching an adapter as a bare decode error;
+- an integer literal past CPython's digit limit refuses as a
+  `JSONDecodeError` like every other unparseable document, never as a bare
+  `ValueError` that reaches past the caller's guard;
 - a sanitized envelope re-serializes under RFC 8259: no `NaN`, no `Infinity`,
   no `1e999`, whatever the provider emitted;
 - `flat_label_text` leaves no line separator or control character behind, so
@@ -64,7 +67,7 @@ except ImportError:
 from deadeye import config, mcp
 from deadeye.errors import DeadeyeError
 from deadeye.intent import load_intent, parse_intent
-from deadeye.json_safe import strict_json_numbers
+from deadeye.json_safe import loads, strict_json_numbers
 from deadeye.prompt_text import flat_label_text
 from deadeye.providers._http import _decode_envelope
 from deadeye.providers.base import float_setting, int_setting
@@ -1029,3 +1032,36 @@ def test_fuzz_mime_type_comes_from_the_table_or_is_refused(suffix: str) -> None:
         return  # refusal: the only allowed failure mode
     assert mime in set(MIME_BY_SUFFIX.values()), "no suffix invents its own MIME type"
     assert "/" in mime and mime == mime.strip()
+
+
+# The integer-literal length limit every parse boundary shares.
+#
+# CPython refuses an integer literal longer than its digit limit with a bare
+# `ValueError` from the `int()` the parser calls, not a `JSONDecodeError`,
+# because the limit guards string-to-int conversion rather than JSON syntax.
+# Every caller in this tree guards parse refusals with `JSONDecodeError`, so
+# the case reached none of them: a hostile or merely enormous literal escaped
+# the adapter, the intent reader, the redaction backstop, and the MCP frame
+# loop unmapped. `loads` is the one door they all answer through now, and the
+# property is that it never widens what a caller has to catch: whatever
+# `json.loads` refuses arrives as the type that caller already handles.
+# ---------------------------------------------------------------------------
+
+# Digits, not a parseable value: the point is a literal long enough to pass
+# the syntax check and then fail in `int()`, which the default limit of 4300
+# makes a length rather than a magnitude.
+_digit_run = st.integers(min_value=1, max_value=12_000).map(lambda n: "9" * n)
+
+
+@FUZZ
+@given(length=_digit_run)
+def test_fuzz_a_long_integer_literal_refuses_as_a_decode_error(length: str) -> None:
+    text = '{"n": ' + length + "}"
+    try:
+        loads(text)
+    except json.JSONDecodeError:
+        return  # the one refusal type every call site already handles
+    except ValueError as exc:
+        pytest.fail(f"loads let a bare {type(exc).__name__} through: {exc}")
+    # A literal under the limit is an ordinary number and must still parse.
+    assert isinstance(loads(text)["n"], int)
