@@ -121,6 +121,28 @@ required (`CONTRIBUTING.md`, "Changing a contract").
   arguments, answering a successful call or a tool refusal to a malformed
   frame. After: `-32602` every time. An omitted or explicitly null member is
   still read as absent and still served. No well-formed client changes.
+- An `--output` destination that cannot hold a file is now refused at
+  preflight, before the submission, where before it was discovered only when
+  the evidence write failed after the provider had been billed. Before:
+  `--output /some/unwritable/dir/evidence.json` ran the whole review and only
+  then reported `Permission denied`, so a mistyped path cost a billable
+  submission. After: `deadeye review` refuses with the same non-zero exit and
+  an `ERROR:` line naming the directory (`... is not writable and cannot hold
+  review evidence`, or `... is not a directory ...`), where an occupied
+  `--output` has always been refused: after the consent gate, before the
+  disclosure lines, and before any provider is contacted. Missing directories
+  are still created,
+  and a write that faults after the preflight (a full disk, a permission
+  change mid-run) still hands the full envelope back with the non-zero exit.
+  To upgrade: point `--output` at a writable directory, or write no evidence
+  at all. No envelope, schema, or result change.
+- A Gemini answer whose `candidates` entry is not an object is now refused as
+  `NoVerdictError`, the type that marks a spent submission. Before: it raised a
+  plain `DeadeyeError`, so a deduplicating MCP caller was handed a free key for
+  a submission the provider had already answered and may already have billed,
+  and its retry paid twice for the same bytes. After: it is the same
+  `no_verdict` refusal every other unusable answer from that adapter produces.
+  Nothing changes on the CLI, which exited `1` for both.
 
 ### Added
 

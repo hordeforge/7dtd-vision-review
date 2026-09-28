@@ -7,8 +7,10 @@ without a socket.
 
 from __future__ import annotations
 
+import errno
 import io
 import json
+from pathlib import Path
 
 from deadeye.mcp import PROTOCOL_VERSION, handle_frame
 
@@ -804,12 +806,14 @@ def test_a_refused_call_never_occupies_its_idempotency_key(tmp_path) -> None:
     assert recovered["result"].get("isError") is not True
 
 
-def test_a_billed_review_whose_evidence_write_failed_still_occupies_its_key(tmp_path) -> None:
+def test_a_billed_review_whose_evidence_write_failed_still_occupies_its_key(
+    tmp_path, monkeypatch
+) -> None:
     """The ledger exists so a retry never bills the same media twice. A
     verdict that was returned and then failed to reach disk was still billed,
     so the key holds that answer and a retry replays it, fault and all,
     instead of submitting the clip again."""
-    from deadeye import mcp
+    from deadeye import evidence, mcp
 
     submissions = 0
     original = mcp.run_review_core
@@ -821,13 +825,17 @@ def test_a_billed_review_whose_evidence_write_failed_still_occupies_its_key(tmp_
 
     occupied = tmp_path / "taken.json"
     occupied.write_text("earlier evidence", encoding="utf-8")
-    # An evidence path under a regular file: the preflight cannot see the
-    # fault, so the submission runs and the write fails afterwards, which is
-    # the billed case the ledger exists for.
-    blocker = tmp_path / "blocker"
-    blocker.write_text("not a directory", encoding="utf-8")
+
+    # A full filesystem after the verdict returned: the destination directory
+    # is writable at preflight and stops being at write time, so the fault
+    # arrives after the submission, which is the billed case the ledger exists
+    # for.
+    def out_of_space(path: Path, payload: bytes, *, force: bool) -> None:
+        raise OSError(errno.ENOSPC, "No space left on device", str(path))
+
+    monkeypatch.setattr(evidence, "_atomic_write", out_of_space)
     arguments = _review_arguments(
-        tmp_path, idempotency_key="job-44", output=str(blocker / "evidence.json")
+        tmp_path, idempotency_key="job-44", output=str(tmp_path / "evidence.json")
     )
     mcp.run_review_core = counted
     try:

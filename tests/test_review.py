@@ -177,6 +177,36 @@ def test_an_output_directory_refuses_before_any_submission(
     assert submissions == []
 
 
+def test_an_unwritable_output_destination_refuses_before_any_submission(
+    clip_dir, intent_path, tmp_path, monkeypatch
+) -> None:
+    """A destination that cannot hold a file is refused at preflight, like an
+    occupied path: the review never runs, so a mistyped --output directory
+    costs no billable submission."""
+    blocker = tmp_path / "blocker"
+    blocker.write_text("not a directory", encoding="utf-8")
+    output = blocker / "evidence.json"
+
+    submissions: list[object] = []
+    provider = FakeProvider()
+    real_review = provider.review
+
+    def counting(request):
+        submissions.append(request)
+        return real_review(request)
+
+    monkeypatch.setattr(provider, "review", counting)
+    with pytest.raises(DeadeyeError, match="not a directory"):
+        run_review(
+            clip_dir,
+            provider=provider,
+            intent_path=intent_path,
+            allow_network=True,
+            output=output,
+        )
+    assert submissions == []
+
+
 def test_a_failed_evidence_write_still_delivers_the_billed_verdict(
     clip_dir, intent_path, tmp_path, monkeypatch
 ) -> None:

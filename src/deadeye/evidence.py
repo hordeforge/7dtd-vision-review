@@ -322,7 +322,15 @@ def ensure_writable(path: Path, *, force: bool) -> None:
     placeholder a live writer still holds is refused like any other occupied
     path (still for free, before any submission); one stranded by a crash is
     reclaimed, and the recovery run converges on the same path.
+
+    A destination that cannot be written at all is refused here for the same
+    reason: `write_evidence` creates the parents it needs, so the directory
+    that decides the write is the nearest one that already exists, and
+    checking it costs a `stat`. Without the check an unwritable directory is
+    discovered only after the submission was billed, which is exactly the
+    cost the preflight exists to avoid.
     """
+    _ensure_writable_directory(path.parent)
     if path.exists() and not path.is_file():
         raise DeadeyeError(f"{path} is not a regular file and cannot hold review evidence")
     if (path.is_file() or path.is_symlink()) and not force:
@@ -330,6 +338,27 @@ def ensure_writable(path: Path, *, force: bool) -> None:
             raise DeadeyeError(_occupied_evidence_message(path))
         if not _is_abandoned_placeholder(path):
             raise DeadeyeError(_pending_write_message(path))
+
+
+def _ensure_writable_directory(directory: Path) -> None:
+    """Refuse a destination whose nearest existing parent cannot be written to.
+
+    `write_evidence` creates missing parents, so the write lands in the
+    closest ancestor that is already there. That ancestor is the one to check,
+    and it is checked for what the write needs: a directory to create the
+    entry in, and permission to do it. The check is advisory; a permission
+    that changes after it still lands on the write-time refusal.
+    """
+    ancestor = directory
+    while not ancestor.exists():
+        parent = ancestor.parent
+        if parent == ancestor:
+            return
+        ancestor = parent
+    if not ancestor.is_dir():
+        raise DeadeyeError(f"{ancestor} is not a directory and cannot hold review evidence")
+    if not os.access(ancestor, os.W_OK | os.X_OK):
+        raise DeadeyeError(f"{ancestor} is not writable and cannot hold review evidence")
 
 
 def _is_empty(path: Path) -> bool:

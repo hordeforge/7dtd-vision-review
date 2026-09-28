@@ -237,6 +237,12 @@ human summary; over MCP it rides the `isError` tool result. A completed,
 billable verdict is never discarded to a local write fault, so recovering
 it never means submitting the media twice.
 
+A destination that cannot hold a file at all is refused earlier still, before
+the submission: `--output` pointing at a path that is not a regular file, or
+under a directory that is not a directory or is not writable, never reaches
+the provider. Missing directories are still created, so a first run under a
+new path is free.
+
 The CLI has no key to offer here: a re-run is a new submission by design. The
 MCP `review` tool does, through the optional `idempotency_key` argument: a
 client that retries its own call with the same key and the same arguments
