@@ -17,6 +17,7 @@ from deadeye.errors import DeadeyeError
 from deadeye.providers.base import ProviderLimits, ReviewResponse
 from deadeye.providers.fake import FakeProvider
 from deadeye.review import run_review
+from deadeye.sampling import base64_wire_bytes
 
 
 def test_consent_is_demanded_before_credentials_are_even_read(
@@ -1138,6 +1139,80 @@ def test_the_request_budget_counts_base64_wire_size_not_raw_bytes(clip_dir, inte
     with pytest.raises(DeadeyeError, match=r"32 bytes \(64 as submitted base64\)"):
         run_review(clip_dir, provider=provider, intent_path=intent_path, allow_network=True)
     assert provider.requests == []
+
+
+class _FrameBudgetFake(FakeProvider):
+    """A request budget that fits the prompt and some frames, but not all of
+    the eight the fake's own frame limit would otherwise submit."""
+
+    GENEROUS = 1 << 20
+
+    def __init__(self, max_bytes: int) -> None:
+        self._max_bytes = max_bytes
+        super().__init__()
+
+    @property
+    def limits(self) -> ProviderLimits:
+        declared = self._limits
+        return ProviderLimits(
+            suffixes=declared.suffixes,
+            max_bytes=self._max_bytes,
+            max_frames=declared.max_frames,
+            accepts_video=declared.accepts_video,
+            max_video_bytes=declared.max_video_bytes,
+        )
+
+
+def test_a_frame_sequence_over_the_request_budget_is_sampled_not_refused(
+    tmp_path, intent_path
+) -> None:
+    """The frame path spends the whole-request budget the way the video path
+    does: down, rather than by refusing.
+
+    A gateway that refused here would trade a review for a refusal while the
+    frames that would have carried it sit in the same directory. The budget is
+    measured from a real submission rather than guessed, and the frames are
+    sized so the media dominates the request: the sampling note rides the
+    prompt, so a budget with no slack over the prompt would leave the scan
+    nothing to choose between.
+    """
+    clip = tmp_path / "clip"
+    clip.mkdir()
+    for index in range(10):
+        (clip / f"frame-{index:04d}.png").write_bytes(bytes(4096))
+
+    baseline = _FrameBudgetFake(_FrameBudgetFake.GENEROUS)
+    run_review(clip, provider=baseline, intent_path=intent_path, allow_network=True)
+    request = baseline.requests[-1]
+    prompt_wire = sum(
+        len(json.dumps(text).encode("utf-8")) for text in (request.system_prompt, request.prompt)
+    )
+    media_wire = sum(base64_wire_bytes(len(payload.data)) for payload in request.media)
+    full_request_wire = prompt_wire + media_wire
+    assert len(request.media) == 8
+
+    # Room for about half the frames, and strictly less than all of them.
+    budget = prompt_wire + media_wire // 2
+    assert prompt_wire < budget < full_request_wire
+
+    provider = _FrameBudgetFake(budget)
+    envelope = run_review(clip, provider=provider, intent_path=intent_path, allow_network=True)
+
+    # Fewer frames than the provider's own limit asked for, and more than
+    # none: the review was sent, sampled to what the budget allowed.
+    sent = len(provider.requests[-1].media)
+    assert 0 < sent < len(request.media)
+    # The evidence names what was dropped and maps each submitted frame back
+    # to the clip's own order, so an `at_frame` still resolves.
+    assert envelope["sampling"]["sampled"] is True
+    assert envelope["sampling"]["frames_available"] == 10
+    assert envelope["sampling"]["frames_submitted"] == sent
+    indices = envelope["sampling"]["submitted_frame_indices"]
+    assert len(indices) == sent
+    # Even spacing, first and last kept.
+    assert indices[0] == 0
+    assert indices[-1] == 9
+    assert "budget" in envelope["sampling"]["note"]
 
 
 class _PromptBudgetFake(FakeProvider):

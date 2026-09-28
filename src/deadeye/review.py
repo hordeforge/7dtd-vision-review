@@ -128,10 +128,11 @@ def run_review(
         _payload(path, kind, data)
         for (path, kind), data in zip(submission.files, submission.file_bytes, strict=True)
     )
-    # Read once here, before anything is sent: the adapter reads the same
-    # knobs again while it builds the body, and this is the copy the envelope
-    # records. A configuration that cannot produce them is refused here,
-    # before the upload, rather than after it.
+    # Read once here, before anything is sent, and handed to the adapter: the
+    # request body and the evidence envelope then carry the same mapping, so
+    # a config edit between the two cannot make the envelope name parameters
+    # the request never carried. A configuration that cannot produce them is
+    # refused here, before the upload, rather than after it.
     generation = provider.generation_settings()
     request = ReviewRequest(
         prompt=parts.user,
@@ -139,6 +140,7 @@ def run_review(
         media=payloads,
         model=resolved_model,
         timeout_seconds=timeout_seconds,
+        generation=generation,
     )
     # Monotonic latency of the provider call, recorded in the envelope beside
     # usage: token counts alone say nothing about how long the model thought.
@@ -264,6 +266,11 @@ def _decide_submission(
     between the preflight and that read.
     """
     reference_sizes = _reference_sizes(intent, limits, provider_name)
+    # The budget is not enforced on the way in: the decisions below exist to
+    # spend it (the video falls back to the frames, the frames sample down),
+    # and a candidate over the budget is what those decisions are looking for.
+    # The plan they settle on is checked before a single byte is read, so an
+    # impossible request still costs no attachment read and no retained memory.
     plan = _plan(
         media,
         intent,
@@ -271,6 +278,7 @@ def _decide_submission(
         reference_sizes,
         provider_name=provider_name,
         video_capable=limits.accepts_video,
+        enforce_budget=False,
     )
     if plan.record.primary_kind == "video" and media.frames:
         planned_parts = _prompt_parts(plan.record, plan.total_bytes, intent)
@@ -294,6 +302,19 @@ def _decide_submission(
             frame_parts = _prompt_parts(frames.record, frames.total_bytes, intent)
             if not _over_budget(_request_wire_bytes(frames, frame_parts), limits):
                 plan = frames
+    if plan.record.primary_kind == "frame" and media.frames:
+        # The frame path spends the whole-request budget the way the video
+        # path does: down, rather than by refusing. A clip whose frames do not
+        # fit the request budget has a smaller even-spaced sample of the same
+        # directory that does, and the review is worth more than the refusal
+        # that would otherwise end it. The count is settled here rather than in
+        # `sampling.sample` because the bound that refuses is the whole request,
+        # and the prompt that rides it is only sized once the plan is built.
+        plan = _shrunken_to_budget(plan, media, intent, limits, provider_name, reference_sizes)
+    # The preflight, now that the decision is made: a request no sampling
+    # choice could bring under the budget is refused here, before any
+    # attachment is read, with the figures the operator needs.
+    _enforce_request_budget(list(plan.sizes), limits.max_bytes, provider_name)
     # One read per file, after the decision: the plan above is sized from
     # metadata, so what is finally hashed and submitted is the same set of
     # paths, read once.
@@ -335,6 +356,48 @@ def _request_wire_bytes(sized: _Plan | _Submission, parts: PromptParts) -> int:
 def _over_budget(wire_bytes: int, limits: ProviderLimits) -> bool:
     """Whether a whole request is over what the provider accepts; no refusal."""
     return limits.max_bytes is not None and wire_bytes > limits.max_bytes
+
+
+def _shrunken_to_budget(
+    plan: _Plan,
+    media: sampling.ClipMedia,
+    intent: ReviewIntent,
+    limits: ProviderLimits,
+    provider_name: str,
+    reference_sizes: tuple[int, ...],
+) -> _Plan:
+    """The largest even-spaced frame sample of `plan` that fits the request budget.
+
+    The first fit wins, scanning down from the count the provider's own frame
+    limit allows, so the review keeps as much of the clip as the budget allows.
+    A plan that already fits is returned unchanged, and one that no smaller
+    sample rescues is returned as it stands for the caller's budget check to
+    refuse with the full figures. Every candidate is sized from metadata, so
+    scanning costs no disk read and no retained bytes.
+    """
+    parts = _prompt_parts(plan.record, plan.total_bytes, intent)
+    if not _over_budget(_request_wire_bytes(plan, parts), limits):
+        return plan
+    for count in range(plan.record.frames_submitted - 1, 0, -1):
+        candidate = _plan(
+            media,
+            intent,
+            limits,
+            reference_sizes,
+            provider_name=provider_name,
+            video_capable=False,
+            max_frames=count,
+            # Short on purpose: the sampling note rides the media summary in
+            # the prompt, so a wordier one would grow the request this
+            # candidate is being measured against and the count chosen would
+            # no longer be the count that fits.
+            note_prefix=f"sampled down to {count} to fit the request budget",
+            enforce_budget=False,
+        )
+        parts = _prompt_parts(candidate.record, candidate.total_bytes, intent)
+        if not _over_budget(_request_wire_bytes(candidate, parts), limits):
+            return candidate
+    return plan
 
 
 def _video_over_request_budget(media: sampling.ClipMedia, plan: _Plan) -> str:
@@ -432,6 +495,8 @@ def _plan(
     provider_name: str,
     video_capable: bool,
     note_prefix: str | None = None,
+    max_frames: int | None = None,
+    enforce_budget: bool = True,
 ) -> _Plan:
     """The local-only decision phase, before anything is contacted or read.
 
@@ -441,11 +506,25 @@ def _plan(
 
     `video_capable` is the caller's decision to consider the muxed video at
     all; `False` plans the frame sequence beside it. `note_prefix` records in
-    the sampling note why this plan is the one that was chosen.
+    the sampling note why this plan is the one that was chosen. `max_frames`
+    narrows the provider's own frame limit for one candidate, so the budget
+    scan can price a smaller sample without a second limit of its own.
+
+    `enforce_budget` is the media-only preflight. The scan turns it off for
+    the candidates it is measuring, because a candidate over the budget is the
+    one it is looking for; the plan it settles on is checked before a single
+    byte is read, so an impossible request still costs no attachment read.
     """
+    # The provider's own frame cap still bounds every candidate: a scan that
+    # could ask for more frames than the endpoint accepts would size a
+    # submission the provider refuses after the upload. An unpublished cap
+    # bounds nothing, so it narrows nothing.
+    frame_cap = limits.max_frames
+    if frame_cap is None or (max_frames is not None and max_frames < frame_cap):
+        frame_cap = max_frames
     record = sampling.sample(
         media,
-        max_frames=limits.max_frames,
+        max_frames=frame_cap,
         video_capable=video_capable,
         max_video_bytes=limits.max_video_bytes,
         reserved_wire_bytes=sum(base64_wire_bytes(size) for size in reference_sizes),
@@ -460,7 +539,10 @@ def _plan(
     # request limit; retaining all of them just to refuse the request wastes
     # disk I/O and can create a large, avoidable memory spike.
     submitted_sizes = [sampling.file_size(Path(path)) for path, _ in record.submitted_files]
-    _enforce_request_budget([*submitted_sizes, *reference_sizes], limits.max_bytes, provider_name)
+    if enforce_budget:
+        _enforce_request_budget(
+            [*submitted_sizes, *reference_sizes], limits.max_bytes, provider_name
+        )
     if note_prefix is not None:
         record = replace(record, note=f"{note_prefix}; {record.note}")
     return _Plan(record=record, files=files, sizes=(*submitted_sizes, *reference_sizes))
