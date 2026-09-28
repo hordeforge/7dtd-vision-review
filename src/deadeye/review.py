@@ -61,13 +61,15 @@ def run_review(
 ) -> dict[str, Any]:
     """Submit the actual clip media plus recorded intent, return the envelope.
 
-    Order matters and is tested: consent gate, evidence-path guard, local
-    intent validation, clip discovery, provider configuration, local
-    format/size limits, sampling, disclosure, submission, structural
-    validation, evidence. A failure at any step raises one user-actionable
-    message and preserves no partial verdict as a completed review; a fault
-    at the last step (after a billed submission) carries the full envelope
-    on `EvidenceWriteError` so the verdict survives it.
+    Order matters and is tested: consent gate, evidence-path guard, the
+    configuration read that must fail before a missing credential is blamed on
+    the operator, local intent validation, clip discovery, provider
+    configuration and model resolution, local format/size limits, sampling,
+    disclosure, submission, structural validation, evidence. A failure at any
+    step raises one user-actionable message and preserves no partial verdict as
+    a completed review; a fault at the last step (after a billed submission)
+    carries the full envelope on `EvidenceWriteError` so the verdict survives
+    it.
     """
     if not allow_network:
         # First of all, before credentials are read or anything is contacted.
@@ -253,11 +255,13 @@ def _decide_submission(
 ) -> tuple[_Submission, PromptParts]:
     """The media this review will send, and the prompt it will send with it.
 
-    The sampling decision and the whole-request budget are settled here,
-    before the disclosure and before a single byte is read, so what the
-    operator is told about leaving the machine is what the provider is
-    actually sent, and the media decision never costs a second read of the
-    files it settles between.
+    The sampling decision and the whole-request budget are made here, before
+    the disclosure and before any byte is read, so what the operator is told
+    about leaving the machine is what the provider is actually sent, and the
+    media decision costs one read of each file rather than a read per rejected
+    plan. The decision is sized from file metadata, so `_materialize` checks
+    the budget again against the bytes it actually reads: the files can change
+    between the preflight and that read.
     """
     reference_sizes = _reference_sizes(intent, limits, provider_name)
     plan = _plan(

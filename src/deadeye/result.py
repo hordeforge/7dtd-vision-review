@@ -7,11 +7,14 @@ that handles both review kinds reads one shape and does not branch on whether
 a critique was of a sound or a mesh.
 
 Video issues may name a moment two ways: `at_seconds` (seconds from clip
-start, the convention the audio side uses) and/or `at_frame` (the sampled
-frame index). A caller reads whichever is present; both are validated, and a
-review that drops frames to fit a provider budget records the sampling
-separately (see `sampling.py`) so a frame index is never mistaken for a
-wall-clock time.
+start, the convention the audio side uses) and/or `at_frame` (the index of
+the frame among those submitted, in attachment order, as
+`prompt.FRAME_TIMING_NOTE` tells the model). A caller reads whichever is
+present; both are validated. A review that drops frames to fit a provider
+budget records the submitted frames' positions in the clip's own order
+separately (`sampling.frame_indices`, see `sampling.py`), which is the map
+from a submitted index back to a clip frame, so an `at_frame` is never
+mistaken for a clip position or for a wall-clock time.
 """
 
 from __future__ import annotations

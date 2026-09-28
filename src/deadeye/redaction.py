@@ -98,9 +98,11 @@ def _is_sensitive_key(key: str, parts: tuple[str, ...], exceptions: tuple[str, .
     # Format characters go first: `api<ZWSP>_key` holds no `api_key`
     # substring, yet every reader, log, and re-serialization renders it as
     # `api_key`, so it names the same thing. Category Cf is the invisible set
-    # (zero-width space and non-joiner, ZWJ, word joiner, the bidi controls,
-    # the variation selectors); a character with a visible glyph is kept,
-    # because a key that reads differently is a different key. No Unicode
+    # (zero-width space and non-joiner, ZWJ, word joiner, the bidi controls),
+    # joined by the variation selectors, which render as nothing but are
+    # category Mn and so are matched by code point. A character with a visible
+    # glyph is kept, because a key that reads differently is a different key.
+    # No Unicode
     # normalization: every name in `parts` is ASCII, so NFC would compose
     # letters the match never looks at and leave the result identical.
     # No Cf code point is below U+0080 (the ASCII control range is Cc), so an
@@ -113,7 +115,20 @@ def _is_sensitive_key(key: str, parts: tuple[str, ...], exceptions: tuple[str, .
 
 
 def _strip_format_characters(key: str) -> str:
-    return "".join(char for char in key if unicodedata.category(char) != "Cf")
+    return "".join(
+        char
+        for char in key
+        if unicodedata.category(char) != "Cf" and not _is_variation_selector(char)
+    )
+
+
+def _is_variation_selector(char: str) -> bool:
+    # U+FE00..U+FE0F pick a glyph form for the character before them and render
+    # as nothing on their own, so they hide a credential name exactly as a
+    # zero-width space does. They are category Mn, not Cf, so the category walk
+    # above cannot reach them; the tag characters (U+E0100..U+E01EF) that do
+    # the same thing for emoji sequences are Cf and already covered.
+    return 0xFE00 <= ord(char) <= 0xFE0F
 
 
 def redact_json_text(text: str, parts: tuple[str, ...] = SENSITIVE_KEY_PARTS) -> str:

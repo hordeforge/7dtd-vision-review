@@ -41,12 +41,13 @@ reviewer instruction from the intent (`purpose`, `subject`, `camera_path`,
 `desired_qualities`, `avoid`, `questions`) plus the versioned rubric and the
 exact JSON result shape, and announces what media actually reached the model.
 The instruction and the intent travel in separate roles: the instruction is
-the provider's system instruction, and the intent is the only thing in the
-user turn, fenced between BEGIN/END markers the instruction has already
-declared as data. An intent may steer what the model looks at, never how it
-answers, and it cannot occupy the slot the contract and rubric sit in. Apart
-from the attachment labels naming the media, nothing else the model reads sits
-in the user turn.
+the provider's system instruction, and the intent is the only authored text in
+the user turn, fenced between BEGIN/END markers the instruction has already
+declared as data. Around that fence the user turn carries only the pipeline's
+own three sentences: the declaration that the block is data, the note that the
+media is attached to this turn, and the attachment labels naming it. An intent
+may steer what the model looks at, never how it answers, and it cannot occupy
+the slot the contract and rubric sit in.
 Intent text or a reference filename carrying a fence marker of its own is
 refused locally, so the fence cannot be closed early and spoken around, and
 filenames rendered into prompt text have control characters flattened so no

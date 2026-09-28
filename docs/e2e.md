@@ -15,12 +15,13 @@ scripts/e2e.sh
 ```
 
 The provider is chosen automatically: `default_provider` from `config.toml`
-when that provider has a key, otherwise the first configured provider; put
-the key in `config.local.toml` first (see the README quick start), or pass
-`--provider` explicitly. The run takes a few minutes: it scaffolds a fixture
-modlet, boots a stock dedicated server plus a real client through
-7dtd-playtest, captures a 12-second turntable clip in game, muxes it, and
-submits the video to the provider.
+when that provider has a key, otherwise the first configured hosted provider
+(`fake` never wins the fallback, so the e2e always validates a real
+credential); put the key in `config.local.toml` first (see the README quick
+start), or pass `--provider` explicitly. The run takes a few minutes: it
+scaffolds a fixture modlet, boots a stock dedicated server plus a real client
+through 7dtd-playtest, captures a 12-second turntable clip in game, muxes it,
+and submits the video to the provider.
 
 ## What it validates
 
@@ -95,7 +96,7 @@ changes state, and all three exit non-zero on a usage error.
 
 | Flag | Meaning |
 |---|---|
-| `--provider NAME` | provider to review with (default: the configured `default_provider`, else the first configured provider) |
+| `--provider NAME` | provider to review with (default: the configured `default_provider`, else the first configured hosted provider; `fake` is never chosen for you) |
 | `--model ID` | pass through to `deadeye review --model` |
 | `--game-srv DIR` | the stock dedicated server install |
 | `--clip PATH` | skip the in-game capture; review an existing clip (file or frame dir) |

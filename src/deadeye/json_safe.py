@@ -60,7 +60,12 @@ def finite_float(value: Any) -> float | None:
 
 
 def strict_json_numbers(value: Any, _depth: int = 0) -> Any:
-    """`value` with every non-finite float leaf replaced by None."""
+    """`value` with every non-finite float leaf replaced by None.
+
+    The walk is depth-bounded like `redact`'s: a container nested past
+    `MAX_WALK_DEPTH` is replaced by None, because a walk that cannot finish
+    cannot prove what the subtree holds.
+    """
     if isinstance(value, float) and not math.isfinite(value):
         return None
     if isinstance(value, dict):

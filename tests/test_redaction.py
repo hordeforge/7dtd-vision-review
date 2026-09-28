@@ -48,6 +48,18 @@ def test_redact_matches_keys_hiding_behind_invisible_format_characters() -> None
     assert _is_sensitive_key("keyz", SENSITIVE_KEY_PARTS) is False
 
 
+def test_redact_matches_keys_hiding_behind_variation_selectors() -> None:
+    # A variation selector (U+FE00..U+FE0F) picks a glyph form for the
+    # character before it and renders as nothing on its own, so it hides a
+    # credential name exactly as a zero-width space does. It is category Mn,
+    # not Cf, so the category walk that strips the format characters cannot
+    # reach it and it needs its own code-point rule.
+    selector = "api\ufe0f_key"
+    assert unicodedata.category(selector[3]) == "Mn"
+    assert _is_sensitive_key(selector, SENSITIVE_KEY_PARTS) is True
+    assert redact({selector: "x", "keep": 1}) == {"keep": 1}
+
+
 def test_redact_stops_descending_at_the_depth_bound() -> None:
     # `json.loads` accepts nesting a recursive walk cannot survive, so the
     # bound is what keeps a hostile document from turning a billed submission

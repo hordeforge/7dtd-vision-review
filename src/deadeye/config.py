@@ -424,10 +424,11 @@ def load() -> Config:
             _Cache.signature = signature
             return loaded
         directory = _discover()
-    # A file rewritten faster than it can be read, past the retry bound. The
-    # read that finishes is returned, and the cache is left empty rather than
-    # keyed on a signature this process never confirmed: the next call reads
-    # again instead of serving content of unknown vintage.
+    # A file rewritten faster than it can be read, past the retry bound. One
+    # more read answers the call rather than none at all, and the cache is
+    # left empty rather than keyed on a signature this process never
+    # confirmed: the next call reads again instead of serving content of
+    # unknown vintage.
     loaded = Config(directory)
     _Cache.loaded = None
     _Cache.failed = None
