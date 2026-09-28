@@ -252,8 +252,10 @@ provider, verdict or not, so a timeout, an answer the adapter cannot use (no
 candidate, no text, a body that does not parse, an envelope no verdict can be
 read out of), or one that failed result validation replays its refusal
 rather than billing the media twice. A status
-the provider refused before running the review (a rejected credential, a
-quota, a bad request) spends nothing and leaves the key free. See
+the provider refused before running the review (a redirect, a 4xx, a rejected
+credential, a quota) spends nothing and leaves the key free; a 5xx may have
+been billed after the media was uploaded, so it replays the refusal like a
+timeout does. See
 [docs/mcp-server.md](mcp-server.md).
 
 ## Providers

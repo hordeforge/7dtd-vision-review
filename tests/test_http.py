@@ -484,6 +484,40 @@ def test_a_connection_that_dies_mid_body_is_a_billable_submission_with_no_verdic
     assert not isinstance(excinfo.value, NoVerdictError)
 
 
+def test_a_server_error_status_is_a_spent_submission(http_opener) -> None:
+    """A 5xx is the provider reporting its own fault, and it can report it
+    after the review ran: the whole request, media included, was on the wire,
+    and the status says nothing about whether the attempt was billed first.
+
+    That is the ambiguity a timeout and a truncated response already carry,
+    and a deduplicating caller can only tell spent from free by the exception
+    type. Typed as a plain refusal, a 5xx tells the client its retry is safe,
+    and that retry is a second billable review of the same bytes.
+    """
+    for code in (500, 502, 503):
+
+        def server_error(request, timeout, code=code):
+            raise urllib.error.HTTPError(
+                request.full_url, code, "Server Error", {}, io.BytesIO(b'{"error":"upstream"}')
+            )
+
+        http_opener(server_error)
+        with pytest.raises(NoVerdictError, match="not a retry of this one") as excinfo:
+            _post()
+        assert f"HTTP {code}" in str(excinfo.value)
+        assert "upstream" in str(excinfo.value)
+
+    # The 4xx half of the same status line keeps the free key: the provider
+    # declined the request and no review ran.
+    def not_found(request, timeout):
+        raise urllib.error.HTTPError(request.full_url, 404, "Not Found", {}, io.BytesIO(b"{}"))
+
+    http_opener(not_found)
+    with pytest.raises(DeadeyeError, match="refused the review") as excinfo:
+        _post()
+    assert not isinstance(excinfo.value, NoVerdictError)
+
+
 def test_a_slow_drip_provider_is_refused_at_the_total_budget(http_opener, monkeypatch) -> None:
     """The advertised seconds bound the whole call, not one socket read.
 

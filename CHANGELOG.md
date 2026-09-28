@@ -338,6 +338,18 @@ required (`CONTRIBUTING.md`, "Changing a contract").
   without rebuilding. After: the intent file lands first and both it and the
   marker are renamed into place, so a partial scaffold leaves no marker, the
   next run re-scaffolds, and a complete one is still reused.
+- A provider 5xx is now reported as a `NoVerdictError`, the spent-submission
+  refusal, rather than as a plain one that left the MCP idempotency key free.
+  Before: a 5xx took the same branch as a 3xx, a 4xx, and a quota, so a
+  deduplicating client read "nothing was submitted" and retried the same
+  billable media under the same key, when the whole request had in fact been
+  uploaded and the attempt may already have been billed. After: the status is
+  classified like the timeout and the lost connection it resembles, the
+  structured error code is `no_verdict` rather than `refused`, and a retry
+  under the same key replays the refusal. A 3xx, a 4xx, a rejected credential,
+  and a 429 are unchanged: those are the provider declining before any review
+  ran, and their keys stay free. The CLI is unchanged either way; it has no
+  ledger and never retried.
 - A provider connection that dropped after the request reached the socket is
   now reported as a `NoVerdictError`, the spent-submission refusal, rather than
   raising `TypeError` out of the fault path. Before: the adapter called

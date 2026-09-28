@@ -1197,6 +1197,44 @@ def test_a_connection_lost_after_the_request_left_spends_its_key(
     assert mcp._COMPLETED["job-48"].fault is not None
 
 
+def test_a_provider_server_error_spends_its_key(tmp_path, monkeypatch, http_opener) -> None:
+    """A 5xx after the media was uploaded must not read as a free key.
+
+    A 4xx is the provider declining the request: no review ran, and a client
+    that retries pays nothing. A 5xx is the provider reporting that its own
+    side broke, which it can do after the review ran and billed: the whole
+    request, media included, was on the wire, and the status says nothing
+    about which of the two happened. Leaving that key free is the same
+    duplicate charge the timeout and the lost connection are guarded against,
+    so the ledger has to record it the way it records those.
+    """
+    from deadeye import mcp
+
+    submissions = 0
+
+    def server_error(request, timeout):
+        nonlocal submissions
+        submissions += 1
+        raise urllib.error.HTTPError(
+            request.full_url, 503, "Service Unavailable", {}, io.BytesIO(b'{"error":"upstream"}')
+        )
+
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    http_opener(server_error)
+    arguments = _review_arguments(tmp_path, idempotency_key="job-49", provider="gemini")
+
+    first = _call("tools/call", {"name": "review", "arguments": arguments})
+    second = _call("tools/call", {"name": "review", "arguments": arguments})
+
+    assert submissions == 1, "the retry must not reach the provider a second time"
+    assert first["result"]["isError"] is True
+    assert first["result"] == second["result"]
+    assert "HTTP 503" in first["result"]["content"][0]["text"]
+    assert "not a retry of this one" in first["result"]["content"][0]["text"]
+    assert mcp._COMPLETED["job-49"].envelope is None
+    assert mcp._COMPLETED["job-49"].fault is not None
+
+
 def test_a_provider_that_was_never_reached_leaves_its_key_free(
     tmp_path, monkeypatch, http_opener
 ) -> None:

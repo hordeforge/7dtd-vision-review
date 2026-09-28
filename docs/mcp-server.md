@@ -60,7 +60,10 @@ calls, spec error codes, and the review consent boundary.
     and is treated as spent, while a host that was never reached spent
     nothing. A status the provider
     refused before running the review (a rejected credential, a quota, a bad
-    request) spent nothing, so that key stays free for a corrected retry.
+    request) spent nothing, so that key stays free for a corrected retry. A
+    5xx is the other thing entirely: the provider reporting that its own side
+    broke, which it can do after the review ran and billed, so that one is
+    spent and replays the same way a timeout does.
     Neither submits the media a second time, and a client that
     genuinely wants another attempt names a new key;
   - the ledger is process-local, so the guarantee covers replay within one
@@ -121,7 +124,7 @@ place a client reads instead of matching on message text:
 | Code | Meaning | Retry under the same `idempotency_key`? |
 |---|---|---|
 | `usage` | the call was malformed (the exactly-one intent route, an argument of the wrong type, a blank or out-of-range value, an argument the schema does not declare, a key reused with different arguments) | yes, nothing was submitted |
-| `refused` | a provider or configuration refusal raised before the review ran | yes, nothing was submitted |
+| `refused` | a provider or configuration refusal raised before the review ran, including a 3xx, a 4xx, a rejected credential, or a quota | yes, nothing was submitted |
 | `no_verdict` | the submission reached the provider and produced nothing usable | no, the attempt may have billed |
 | `evidence_write` | a billed verdict that could not be persisted; the envelope rides alongside | no, and the envelope is the answer |
 | `fault` | an unexpected exception inside the tool; the trace is on stderr | no, the server is in an unknown state |

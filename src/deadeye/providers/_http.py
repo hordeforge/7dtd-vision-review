@@ -392,9 +392,23 @@ def post_json(
                 f"provider {provider!r} rate-limited or quota-exhausted the "
                 f"request (HTTP 429): {detail}"
             ) from exc
-        raise DeadeyeError(
-            f"provider {provider!r} refused the review (HTTP {exc.code}): {detail}"
-        ) from exc
+        reason = f"provider {provider!r} refused the review (HTTP {exc.code}): {detail}"
+        if exc.code >= 500:
+            # A 4xx is the provider declining the request: the credential, the
+            # quota, or the request itself was refused, no review ran, and the
+            # key stays free for a corrected retry. A 5xx is the provider
+            # reporting that *its* side broke, which it can do after the review
+            # ran: the whole request, media included, was on the wire, and
+            # nothing in the status says whether the attempt was billed before
+            # the fault. That is the same ambiguity a timeout and a lost
+            # connection carry, and both are already spent for exactly this
+            # reason, so a 5xx is spent here too. Leaving it free tells a
+            # deduplicating client the retry is safe, and that retry is a
+            # second billable review of bytes the first attempt may already
+            # have been charged for.
+            reason = f"provider {provider!r} failed the review (HTTP {exc.code}): {detail}"
+            raise no_verdict(reason) from exc
+        raise DeadeyeError(reason) from exc
     except TimeoutError as exc:
         # The request may have reached the provider and completed there:
         # a caller that resubmits starts a second billable review, it does
