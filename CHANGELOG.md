@@ -53,6 +53,20 @@ required (`CONTRIBUTING.md`, "Changing a contract").
   back to the sampled frame sequence, or is refused locally with the byte
   counts named. No consumer edit; a review that used to be submitted as a muxed
   video may now be sampled frames, which its `sampling` record shows.
+- The home config directory on macOS moved, so a macOS user's config can stop
+  being read without any error. Before: with `XDG_CONFIG_HOME` unset, the
+  installed tool read `~/.config/deadeye/`, a dotfile directory macOS itself
+  never looks in. After: it reads
+  `~/Library/Application Support/deadeye/`, where the rest of the host's
+  per-user configuration lives. `$XDG_CONFIG_HOME` still overrides both and
+  `DEADEYE_CONFIG_DIR` and a `config.toml` in the working directory are
+  unaffected. To upgrade, move `~/.config/deadeye/` to
+  `~/Library/Application Support/deadeye/` (or set `XDG_CONFIG_HOME`), then run
+  `deadeye doctor` and check the file each setting and credential came from.
+  Without the move a macOS user whose credential lived in that config is left
+  with no provider available and a review that refuses, and one whose settings
+  lived there runs on the built-in defaults instead. Linux and every other
+  host keep `~/.config/deadeye/`.
 
 ### Added
 
@@ -115,15 +129,10 @@ required (`CONTRIBUTING.md`, "Changing a contract").
 - `deadeye schema --help` and `deadeye mcp --help` gained the `description` and
   examples every other subcommand already carried. Help text only; no behavior
   or output change.
-- A config file that sets a key deadeye does not read is now refused at load
-  with the offending name, instead of leaving the built-in default in force
-  while its author believes the file applied. A misspelled top-level key, a
-  misspelled provider table, and a misspelled per-provider knob are all named
-  in the error. Every documented key loads unchanged.
 - `deadeye prompt` on a frame clip now renders the same frame-timing note a
   real review sends (`0 = the first submitted frame`), so a preview matches
-  the submission it previews. The review prompt itself is unchanged;
-  `prompt_version` still reads "2".
+  the submission it previews. The note is one text on both routes, and the
+  wording the review sends is part of what `prompt_version` moved to `3` for.
 - `scripts/e2e.sh` keeps its own shell and calls three new scripts for what it
   used to embed as `python3 -c` bodies and a heredoc:
   `scripts/doctor_query.py` (provider selection, state, credential detail),
@@ -178,13 +187,6 @@ required (`CONTRIBUTING.md`, "Changing a contract").
 - A reference attachment that is a muxed video was labelled `reference image`
   in the reviewer prompt. The label now names the media type, so the model is
   told it is looking at a video.
-- The home config directory on macOS. `XDG_CONFIG_HOME` is unset there and
-  macOS never reads `~/.config`, so the fallback put the config in a dotfile
-  directory no macOS tool looks in. It now resolves to
-  `~/Library/Application Support/deadeye/` on macOS and `~/.config/deadeye/`
-  everywhere else; `$XDG_CONFIG_HOME` still overrides both. `DEADEYE_CONFIG_DIR`
-  and a `config.toml` in the working directory are unaffected, so a config
-  already at `~/.config/deadeye` has to be moved to be found.
 - `scripts/e2e.sh` ran its provider detection and its summary through a bare
   `python3` it never checked for, while the preflight verified only `deadeye`,
   `ffmpeg`, and `uv`. On a host with `uv` but no system `python3` the run died
@@ -264,13 +266,43 @@ required (`CONTRIBUTING.md`, "Changing a contract").
   writes a bare `NaN`/`Infinity` token (RFC 8259 defines neither) into the
   evidence document, so a strict reader can parse that document back.
 - `--timeout` (and the `timeout_seconds` it overrides) now bounds the whole
-  provider call instead of one socket read. urllib's `timeout=` is a
-  per-operation timeout, so a provider trickling a few bytes per read reset it
-  and the billable submission ran indefinitely, which in a long-lived
-  `deadeye mcp` server held the call open without bound. The budget is
-  enforced on a `time.monotonic` deadline across the response reads, so a
+  provider call instead of one socket read (see Breaking, above). urllib's
+  `timeout=` is a per-operation timeout, so a provider trickling a few bytes
+  per read reset it and the billable submission ran indefinitely, which in a
+  long-lived `deadeye mcp` server held the call open without bound. The budget
+  is enforced on a `time.monotonic` deadline across the response reads, so a
   clock change mid-review cannot shorten or extend it either. A timed-out
   submission still ends as the same "did not answer within Ns" refusal.
+- A verdict with a character outside ASCII no longer dies on a C or POSIX
+  locale. Python binds stdout to the locale's encoding, so under `cron`, a
+  systemd unit, or a CI job with no `LANG` one non-ASCII character in a model
+  summary or a filename raised `UnicodeEncodeError` inside `print`, after the
+  submission had been billed and the verdict validated: the caller lost the
+  exact result it paid for. Both presentation streams are now bound to UTF-8
+  with `backslashreplace`, so an unrepresentable character renders as an
+  escape rather than raising, on the first line of every run. Output a UTF-8
+  terminal already printed is unchanged; the evidence document is written
+  through its own encoding and is unaffected.
+- The MCP stdio frame cap counts bytes, not code points, for a text frame. A
+  test double, or any source that yields `str` rather than `bytes`, had its
+  frame measured in characters, so a frame of four-byte characters reached
+  four times the intended `_MAX_FRAME_BYTES` before it was refused. The bytes
+  transport is unaffected, and a frame at the cap is still refused the same
+  way.
+
+### Security
+
+- The redaction backstop no longer misses a sensitive key hidden behind an
+  invisible character. A parameter named `api<ZWSP>_key` holds no `api_key`
+  substring, yet every reader, log, and re-serialization renders it as
+  `api_key`, so it names the same credential; the match ran on the raw key and
+  did not catch it, which left the value eligible for the evidence envelope.
+  Characters in Unicode category Cf (the zero-width and non-joiner family, the
+  word joiner, the bidi controls, the variation selectors) are now removed
+  before the case-folded comparison. A character with a visible glyph is still
+  kept, because a key that reads differently is a different key, and no
+  normalization is applied: every sensitive name the backstop looks for is
+  ASCII. Refusal and redaction text are unchanged.
 
 ## [0.1.1] - 2026-09-20
 

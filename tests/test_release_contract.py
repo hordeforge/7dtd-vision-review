@@ -228,6 +228,16 @@ def test_current_schema_versions_are_one() -> None:
     assert EVIDENCE_SCHEMA_VERSION == 1
 
 
+def test_rubric_and_prompt_versions_are_pinned() -> None:
+    # Both ride in every envelope beside `schema_version`, and a consumer
+    # comparing them to decide whether it can trust an older verdict needs
+    # them to move only on purpose. `prompt_version` reads 3 because the
+    # reviewer instruction travels as the system instruction and the author's
+    # statement is the only authored text in the user turn.
+    assert RUBRIC_VERSION == "1", BREAKING
+    assert PROMPT_VERSION == "3", BREAKING
+
+
 # --- Release artifacts -----------------------------------------------------
 #
 # A vX.Y.Z tag publishes the sdist and wheel `uv build` produces (see
