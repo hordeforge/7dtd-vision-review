@@ -93,7 +93,10 @@ latency. Two runs may disagree; disagreement is preserved, never averaged. A
 later review never overwrites an earlier evidence envelope by default. The
 write occupies the destination name with `O_CREAT|O_EXCL` before the atomic
 replace, so two concurrent reviews of the same `--output` path cannot both
-publish: the first envelope stays, the second is refused.
+publish: the first envelope stays, the second is refused. The placeholder
+that reservation creates, and the stranded one a crash-recovery run
+reclaims, are cleared by identity rather than by name, so neither unlink can
+delete an envelope another process published into that path in between.
 
 ## Sampling honesty
 

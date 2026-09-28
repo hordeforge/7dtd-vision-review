@@ -172,15 +172,69 @@ def _pending_write_message(path: Path) -> str:
     )
 
 
-def _is_abandoned_placeholder(path: Path) -> bool:
-    """Whether `path` is an empty reserve old enough to reclaim, not one in flight."""
+def _stale_placeholder_stat(path: Path) -> os.stat_result | None:
+    """The stat of `path` when it is an empty reserve old enough to reclaim.
+
+    Returning the stat rather than a bool is what lets the reclaim act on the
+    file it inspected: a name can stop being that file between the check and
+    the unlink.
+    """
     try:
         occupied = path.stat()
     except OSError:
-        return False
+        return None
     if not stat.S_ISREG(occupied.st_mode) or occupied.st_size != 0:
+        return None
+    if (time.time() - occupied.st_mtime) < _STALE_PLACEHOLDER_SECONDS:
+        return None
+    return occupied
+
+
+def _is_abandoned_placeholder(path: Path) -> bool:
+    """Whether `path` is an empty reserve old enough to reclaim, not one in flight."""
+    return _stale_placeholder_stat(path) is not None
+
+
+# One file's identity: device and inode. A name is not an identity, and the
+# evidence path is shared state across processes, so every destructive act on
+# a name another writer may hold is fenced by it.
+_FileIdentity = tuple[int, int]
+
+
+def _identity_of(status: os.stat_result) -> _FileIdentity:
+    return (status.st_dev, status.st_ino)
+
+
+def _open_reserve(path: Path, flags: int) -> _FileIdentity:
+    """Create the exclusive placeholder and return the identity of the file
+    this call created (so a later cleanup can tell it from its successor)."""
+    fd = os.open(path, flags, 0o600)
+    try:
+        return _identity_of(os.fstat(fd))
+    finally:
+        os.close(fd)
+
+
+def _unlink_if_same_file(path: Path, identity: _FileIdentity) -> bool:
+    """Unlink `path` only while it still names the file `identity` describes.
+
+    `stat` then `unlink` is a check-then-act over a name another process owns.
+    The window is one syscall wide, which is as narrow as POSIX allows
+    (unlinking by inode does not exist), and it is the difference between
+    clearing this writer's own placeholder and destroying a review another
+    writer published into the same name.
+    """
+    try:
+        current = path.stat()
+    except OSError:
         return False
-    return (time.time() - occupied.st_mtime) >= _STALE_PLACEHOLDER_SECONDS
+    if _identity_of(current) != identity:
+        return False
+    try:
+        path.unlink()
+    except OSError:
+        return False
+    return True
 
 
 def ensure_writable(path: Path, *, force: bool) -> None:
@@ -239,7 +293,7 @@ def write_evidence(path: Path, document: dict[str, Any], *, force: bool) -> tupl
     return path, sha256_bytes(payload)
 
 
-def _reserve_exclusive(path: Path) -> None:
+def _reserve_exclusive(path: Path) -> _FileIdentity:
     """Occupy `path` only if the name is free; the no-overwrite publish lock.
 
     `ensure_writable` is a cheap preflight. Two processes can both see a
@@ -252,34 +306,42 @@ def _reserve_exclusive(path: Path) -> None:
     An empty occupant is reclaimed once it is older than
     `_STALE_PLACEHOLDER_SECONDS`; a fresh one belongs to a live writer and is
     refused, so the concurrent-duplicate guarantee is unchanged.
+
+    Returns the identity of the placeholder created, which the caller uses to
+    clear exactly that file on its way out.
     """
     flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
     if hasattr(os, "O_BINARY"):
         flags |= os.O_BINARY
     try:
-        fd = os.open(path, flags, 0o600)
+        return _open_reserve(path, flags)
     except FileExistsError:
         pass
-    else:
-        os.close(fd)
-        return
-    if not _is_abandoned_placeholder(path):
+    stale = _stale_placeholder_stat(path)
+    if stale is None:
         raise DeadeyeError(_refusal_for_occupant(path)) from None
     # Reclaim: drop the stranded name, then take it. A writer that reclaimed
     # the same placeholder first wins this race, and the loser sees its own
     # `O_EXCL` fail on the fresh placeholder the winner just created.
-    with contextlib.suppress(OSError):
-        path.unlink()
+    #
+    # The unlink is fenced by the identity just observed. Age alone is not
+    # proof of death: a writer stalled past `_STALE_PLACEHOLDER_SECONDS`
+    # between reserve and replace (a suspended process, a starved host) can
+    # publish in the window between this stat and this unlink, and an unlink
+    # by name would then delete a review that was never overwritten on
+    # purpose. If the occupant is not the file inspected, the reclaim does
+    # not happen and the refusal names what actually holds the name.
+    if not _unlink_if_same_file(path, _identity_of(stale)):
+        raise DeadeyeError(_refusal_for_occupant(path)) from None
     try:
-        fd = os.open(path, flags, 0o600)
+        return _open_reserve(path, flags)
     except FileExistsError:
         raise DeadeyeError(_pending_write_message(path)) from None
-    os.close(fd)
 
 
 def _atomic_write(path: Path, payload: bytes, *, force: bool) -> None:
     temporary: Path | None = None
-    placeholder: Path | None = None
+    placeholder: _FileIdentity | None = None
     try:
         # `NamedTemporaryFile` creates a unique file with private permissions
         # in the destination directory. A predictable `path + ".tmp"` name
@@ -300,8 +362,7 @@ def _atomic_write(path: Path, payload: bytes, *, force: bool) -> None:
             # Reserve the destination name before replace so a concurrent
             # writer cannot publish onto the same path. `--force` skips
             # this: overwrite is then the caller's stated intent.
-            _reserve_exclusive(path)
-            placeholder = path
+            placeholder = _reserve_exclusive(path)
         temporary.replace(path)
         temporary = None
         placeholder = None
@@ -313,12 +374,13 @@ def _atomic_write(path: Path, payload: bytes, *, force: bool) -> None:
         if temporary is not None:
             with contextlib.suppress(OSError):
                 temporary.unlink(missing_ok=True)
-        # A 0-byte exclusive placeholder occupies the name between reserve
-        # and replace. Drop it only while it is still empty: after a
-        # successful replace the destination holds the envelope, and an
-        # interrupt between replace and clearing `placeholder` must not
-        # unlink real evidence.
+        # The exclusive placeholder occupies the name between reserve and
+        # replace, and is dropped only when it is still the file this call
+        # created. The identity is the check a size test cannot make: after
+        # the replace the destination holds the envelope (a different
+        # inode), and a `--force` writer that published into the reclaimed
+        # name in between would have its review deleted by a stat-then-unlink
+        # that saw the placeholder a moment earlier.
         if placeholder is not None:
             with contextlib.suppress(OSError):
-                if placeholder.stat().st_size == 0:
-                    placeholder.unlink()
+                _unlink_if_same_file(path, placeholder)

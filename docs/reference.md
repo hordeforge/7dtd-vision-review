@@ -158,7 +158,11 @@ review at all. Left alone it would refuse every later run with a message
 about an earlier review that does not exist. An empty occupant older than 60
 seconds is therefore reclaimed and the run converges on the same path; a
 fresher one belongs to a live writer and is still refused, and a real
-envelope is never reclaimed however old it is. `--force` remains the only
+envelope is never reclaimed however old it is. Age is not proof of death, so
+every unlink of a placeholder is fenced by the identity (device and inode) of
+the file it inspected: a writer that published into that name in the window
+between the check and the unlink keeps its review, and the run that came to
+reclaim the name refuses instead. `--force` remains the only
 way to overwrite a published review.
 
 ## Running a review twice

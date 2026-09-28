@@ -463,6 +463,85 @@ def test_a_published_envelope_is_never_reclaimed_however_old_it_is(tmp_path) -> 
     assert json.loads(output.read_text(encoding="utf-8"))["kind"] == "deadeye-review"
 
 
+def test_reclaiming_a_stale_placeholder_never_unlinks_a_review_published_after_the_check(
+    tmp_path, monkeypatch
+) -> None:
+    """Age is not proof of death, so the reclaim must act on the file it saw.
+
+    A writer stalled past `_STALE_PLACEHOLDER_SECONDS` between its reserve and
+    its replace can publish in the window between the reclaiming writer's stat
+    and its unlink. Unlinking by name there would delete a review that was
+    never overwritten on purpose, and the reclaiming writer's own replace
+    would then hide the deletion. The reclaim is fenced by identity, so the
+    late publisher keeps its envelope and this run refuses instead.
+    """
+    from deadeye import evidence
+
+    output = tmp_path / "evidence.json"
+    evidence._reserve_exclusive(output)
+    old = time.time() - evidence._STALE_PLACEHOLDER_SECONDS - 1
+    os.utime(output, (old, old))
+
+    real_stat = evidence._stale_placeholder_stat
+
+    def stat_then_publish(path):
+        inspected = real_stat(path)
+        assert inspected is not None, "the placeholder must be reclaimable for this race"
+        # The stalled writer resumes and publishes between the check and the
+        # unlink that would follow it.
+        evidence.write_evidence(path, {"kind": "theirs"}, force=True)
+        return inspected
+
+    monkeypatch.setattr(evidence, "_stale_placeholder_stat", stat_then_publish)
+    # `_atomic_write` directly: the reclaiming writer is past the preflight,
+    # so the patched stat is the one the reclaim itself makes.
+    with pytest.raises(DeadeyeError, match="already holds an earlier review"):
+        evidence._atomic_write(output, json.dumps({"kind": "deadeye-review"}), force=False)
+
+    assert json.loads(output.read_text(encoding="utf-8"))["kind"] == "theirs"
+    assert list(tmp_path.glob("*.tmp")) == []
+
+
+def test_a_failed_write_never_unlinks_another_writers_review_from_its_placeholder(
+    tmp_path, monkeypatch
+) -> None:
+    """The placeholder cleanup is fenced by the file this call created.
+
+    A writer that holds a placeholder clears it on every failed path, and the
+    name it clears is shared: a `--force` writer, or the reclaiming writer that
+    took the name over, can have published a review into it first. Unlinking by
+    name there deletes a review nobody chose to overwrite, and this write's own
+    outcome cannot report it. The identity reserved here says which file is
+    still ours to clear.
+    """
+    from pathlib import Path
+
+    from deadeye import evidence
+
+    output = tmp_path / "evidence.json"
+    real_reserve = evidence._reserve_exclusive
+
+    def reserve_then_publish(path):
+        identity = real_reserve(path)
+        # Another process publishes into the name we still hold, then this
+        # write fails before its own replace.
+        evidence._atomic_write(path, json.dumps({"kind": "theirs"}), force=True)
+        assert json.loads(output.read_text(encoding="utf-8"))["kind"] == "theirs"
+
+        def boom(self, target):
+            raise RuntimeError("interrupted")
+
+        monkeypatch.setattr(Path, "replace", boom)
+        return identity
+
+    monkeypatch.setattr(evidence, "_reserve_exclusive", reserve_then_publish)
+    with pytest.raises(RuntimeError, match="interrupted"):
+        evidence.write_evidence(output, {"kind": "deadeye-review"}, force=False)
+
+    assert json.loads(output.read_text(encoding="utf-8"))["kind"] == "theirs"
+    assert list(tmp_path.glob("*.tmp")) == []
+
+
 def _race_two_writers(tmp_path, monkeypatch, gate) -> list[str]:
     """Write two envelopes to one path from two threads; return their outcomes."""
     from deadeye import evidence

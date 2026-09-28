@@ -149,6 +149,13 @@ required (`CONTRIBUTING.md`, "Changing a contract").
   fault mapping after a billable submission. It now takes the same
   fall-back-to-UTF-8 path as any other undecodable declaration. Found by
   `tests/test_fuzz_parsers.py`, pinned in `tests/test_http.py`.
+- The evidence publish cleared its exclusive placeholder and reclaimed a
+  stranded one by name, after a separate check: a second `deadeye` process
+  publishing into that name in the window between the two syscalls had its
+  review deleted, with no refusal and no evidence that it ever existed. Both
+  unlinks are now fenced by the identity of the file they inspected, so a
+  writer only ever clears the placeholder it created, and a run that finds a
+  different file at the name refuses and names it.
 - The suite no longer lies about the release gate. Four tests in
   `tests/test_config.py` requested a fixture named `_isolated_config` that
   the shared conftest does not define, so they errored at setup instead of
