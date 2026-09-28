@@ -71,8 +71,24 @@ Generation always carries a `maxOutputTokens` cap (module constant
 runaway generation cannot bill without end; override it per setup with
 `providers.gemini.max_output_tokens`. The cap exists to stop runaway spend,
 not to shape answers, so it sits at the ceiling rather than a tight budget.
-The reviewer instruction rides `systemInstruction` and the authored intent the
-`user` turn, which is where Gemini gives an instruction its standing.
+The request also states `temperature` (module constant
+`DEFAULT_TEMPERATURE`) rather than leaving it to the provider's default: the
+2.5 series defaults to `1.0`, and a review is meant to be traceable to the
+submission that produced it, not drawn from a distribution a server-side
+default can widen without a version bump. Override it with
+`providers.gemini.temperature`. The reviewer instruction rides
+`systemInstruction` and the authored intent the `user` turn, which is where
+Gemini gives an instruction its standing.
+
+The verdict shape rides `generationConfig.responseSchema` beside the JSON
+mime type, so the decoder is constrained to the keys the reviewer instruction
+names: every required result key, and every rubric dimension spelled out from
+`BASE_RUBRIC`. A model that would otherwise answer in prose, or with a key the
+instruction never mentioned, cannot, so a schema mismatch does not turn a
+billed submission into a post-hoc refusal. The schema accepts a moment as a
+single number rather than a `[start, end]` pair, since the OpenAPI subset
+Gemini takes has no union type; that is the narrower of the two forms
+`validate_result` already accepts.
 
 The live path is covered by an opt-in test
 (`DEADEYE_NETWORK_TESTS=gemini` + `GEMINI_API_KEY`); the offline suite pins

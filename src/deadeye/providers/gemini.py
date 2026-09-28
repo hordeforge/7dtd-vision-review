@@ -32,6 +32,7 @@ import urllib.parse
 
 from .. import config
 from ..errors import DeadeyeError
+from ..result import BASE_RUBRIC, RESULT_KEYS
 from ..sampling import IMAGE_SUFFIXES, VIDEO_SUFFIXES
 from ._http import post_json
 from .base import (
@@ -40,6 +41,7 @@ from .base import (
     ReviewResponse,
     attachment_label,
     first_response_object,
+    float_setting,
     int_setting,
     response_object,
 )
@@ -56,9 +58,60 @@ MAX_FRAMES_PER_REQUEST = 40
 # than a tight cap: its job is to stop a runaway or looping generation from
 # billing without end, not to truncate an honest verdict mid-JSON.
 DEFAULT_MAX_OUTPUT_TOKENS = 65536
+# A single sample, not a tuning knob that was left alone: the 2.5 series
+# defaults to temperature 1.0, and a review is a judgment call meant to be
+# traceable to the submission, not a draw from a wide distribution. Naming
+# the sampling parameters puts them in the request the evidence accounts for
+# instead of leaving them to a provider default that can move server-side
+# without a version bump. A deployment overrides it under
+# `providers.gemini.temperature`.
+DEFAULT_TEMPERATURE = 0.2
 # A default, not a contract: a deployment overrides it with
 # `providers.gemini.model` or `--model`, exactly as for the other providers.
 DEFAULT_MODEL = "gemini-2.5-flash"
+
+# The verdict shape, as a `responseSchema`, so the decoder is held to the
+# contract the reviewer instruction states in prose.
+#
+# The prose in `prompt.py` lets a moment be named either way (`[start, end]`
+# or a single number); the OpenAPI subset Gemini accepts has no union type, so
+# this names the single-number form, which is the intersection of what the
+# instruction permits and what `validate_result` accepts. Every key the
+# validator requires is listed and marked required, and the rubric dimensions
+# are spelled out from `BASE_RUBRIC`, so "score every dimension listed; score
+# nothing that is not listed" is enforced by the decoder rather than left to a
+# refusal after the submission has been billed. A model that would otherwise
+# answer in prose, or with a wrapped key the prompt never mentioned, now
+# cannot: the shape is constrained before generation starts.
+_RESPONSE_SCHEMA: dict[str, object] = {
+    "type": "OBJECT",
+    "properties": {
+        "summary": {"type": "STRING"},
+        "strengths": {"type": "ARRAY", "items": {"type": "STRING"}},
+        "issues": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "description": {"type": "STRING"},
+                    "at_seconds": {"type": "NUMBER", "nullable": True},
+                    "at_frame": {"type": "NUMBER", "nullable": True},
+                },
+                "required": ["description"],
+            },
+        },
+        "recommended_changes": {"type": "ARRAY", "items": {"type": "STRING"}},
+        "rubric_scores": {
+            "type": "OBJECT",
+            "properties": {
+                dimension.key: {"type": "NUMBER", "nullable": True} for dimension in BASE_RUBRIC
+            },
+        },
+        "confidence": {"type": "NUMBER"},
+        "limitations": {"type": "ARRAY", "items": {"type": "STRING"}},
+    },
+    "required": list(RESULT_KEYS),
+}
 
 
 class GeminiProvider:
@@ -170,6 +223,10 @@ def build_body(request: ReviewRequest, *, provider_name: str = "gemini") -> dict
     turn. Gemini gives a `systemInstruction` the standing the OpenAI-shaped
     `system` message does elsewhere; keeping them apart is what stops intent
     text from being read as instruction.
+
+    The verdict shape travels as `responseSchema` beside the JSON mime type, so
+    the decoder is constrained to the keys the instruction names rather than
+    asked for them in prose and refused when it misses.
     """
     parts: list[dict[str, object]] = [{"text": request.prompt}]
     for payload in request.media:
@@ -187,12 +244,14 @@ def build_body(request: ReviewRequest, *, provider_name: str = "gemini") -> dict
         "contents": [{"role": "user", "parts": parts}],
         "generationConfig": {
             "response_mime_type": "application/json",
+            "responseSchema": _RESPONSE_SCHEMA,
             # A cap, not a tuning knob: an uncapped generation is unbounded
             # spend when the model loops. Override with
             # providers.gemini.max_output_tokens.
             "maxOutputTokens": int_setting(
                 provider_name, "max_output_tokens", DEFAULT_MAX_OUTPUT_TOKENS, minimum=1
             ),
+            "temperature": float_setting(provider_name, "temperature", DEFAULT_TEMPERATURE),
         },
     }
     if request.system_prompt:

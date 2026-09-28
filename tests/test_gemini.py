@@ -278,6 +278,90 @@ def test_max_output_tokens_can_be_overridden_by_config(
     assert seen["body"]["generationConfig"]["maxOutputTokens"] == 1024
 
 
+def test_the_verdict_shape_rides_as_a_response_schema(monkeypatch, http_opener) -> None:
+    """The result shape is asked for in prose, so a model that wraps the
+    verdict in a fence, drops a key, or invents one turns a billed submission
+    into a structural refusal. Constrained decoding removes that class at the
+    source, and the keys it names must be the ones the validator requires."""
+    from deadeye.result import BASE_RUBRIC, RESULT_KEYS
+
+    seen = _capture_body(monkeypatch, http_opener, _ENVELOPE)
+    GeminiProvider().review(_review_request())
+    schema = seen["body"]["generationConfig"]["responseSchema"]
+    assert schema["type"] == "OBJECT"
+    assert schema["required"] == list(RESULT_KEYS)
+    assert set(schema["properties"]) == set(RESULT_KEYS)
+    # "score every dimension listed; score nothing that is not listed" is
+    # enforced by the decoder, not left to a refusal after the submission.
+    assert set(schema["properties"]["rubric_scores"]["properties"]) == {
+        dimension.key for dimension in BASE_RUBRIC
+    }
+    moment = schema["properties"]["issues"]["items"]["properties"]
+    # A single number is the shape both the instruction and `validate_result`
+    # accept, and the only one expressible without a union type.
+    assert moment["at_frame"] == {"type": "NUMBER", "nullable": True}
+    assert moment["at_seconds"] == {"type": "NUMBER", "nullable": True}
+
+
+def test_an_answer_in_the_constrained_shape_passes_validation() -> None:
+    """The schema and the validator are two contracts for one verdict; a
+    response the schema can produce must not be refused by the validator."""
+    from deadeye.result import validate_result
+
+    result = validate_result(
+        {
+            "summary": "s",
+            "strengths": ["a"],
+            "issues": [{"description": "d", "at_frame": 3, "at_seconds": None}],
+            "recommended_changes": ["r"],
+            "rubric_scores": {"semantic_fit": 4, "proportions": None},
+            "confidence": 0.5,
+            "limitations": [],
+        }
+    )
+    assert result["issues"] == [{"description": "d", "at_frame": [3.0, 3.0]}]
+
+
+def test_sampling_is_named_rather_than_left_to_the_provider_default() -> None:
+    """The 2.5 series defaults to temperature 1.0. A review is meant to be
+    traceable to the submission that produced it, and a provider default can
+    move server-side without a version bump, so the request states the
+    sampling parameters its evidence accounts for."""
+    from deadeye.providers.base import ReviewRequest
+    from deadeye.providers.gemini import DEFAULT_TEMPERATURE, build_body
+
+    body = build_body(ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0))
+    assert body["generationConfig"]["temperature"] == DEFAULT_TEMPERATURE
+
+
+def test_temperature_can_be_overridden_by_config(monkeypatch, http_opener, isolated_config) -> None:
+    (isolated_config / "config.local.toml").write_text(
+        "[providers.gemini]\ntemperature = 0.0\n", encoding="utf-8"
+    )
+    from deadeye import config
+
+    config.reset()
+    seen = _capture_body(monkeypatch, http_opener, _ENVELOPE)
+    GeminiProvider().review(_review_request())
+    assert seen["body"]["generationConfig"]["temperature"] == 0.0
+
+
+def test_an_unusable_temperature_is_refused_before_submission(monkeypatch, isolated_config) -> None:
+    """`float_setting` is the one home every adapter's generation knobs read
+    through, so a non-finite or wrongly typed value names the key and refuses
+    here rather than reaching the request body as a bare `NaN` token."""
+    from deadeye import config
+
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    for value in ("nan", "inf", '"hot"'):
+        (isolated_config / "config.local.toml").write_text(
+            f"[providers.gemini]\ntemperature = {value}\n", encoding="utf-8"
+        )
+        config.reset()
+        with pytest.raises(DeadeyeError, match="providers\\.gemini\\.temperature"):
+            GeminiProvider().review(_review_request())
+
+
 def test_a_non_positive_output_cap_is_refused_before_submission(
     monkeypatch, isolated_config
 ) -> None:

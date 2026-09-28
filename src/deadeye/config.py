@@ -71,7 +71,7 @@ TOP_LEVEL_KEYS = frozenset(
 )
 PROVIDER_KEYS: dict[str, frozenset[str]] = {
     "fake": frozenset(),
-    "gemini": frozenset({"api_key", "endpoint", "max_output_tokens", "model"}),
+    "gemini": frozenset({"api_key", "endpoint", "max_output_tokens", "model", "temperature"}),
     "nvidia": frozenset(
         {
             "api_key",
