@@ -91,3 +91,46 @@ def test_e2e_report_summarizes_a_non_ascii_verdict(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     assert "字幕の品質は良好です" in result.stdout
     assert "issues     1" in result.stdout
+
+
+def _sibling_checkout(tmp_path: Path, compat: str) -> Path:
+    """A stub 7dtd-playtest checkout whose `compat` answer is `compat`."""
+    scripts = tmp_path / "scripts"
+    scripts.mkdir(parents=True)
+    (scripts / "playtest_run.py").write_text(
+        "def client_game_dir():\n"
+        "    return ''\n"
+        "\n"
+        "def client_compat_for_game(path):\n"
+        f"    return {compat}\n"
+        "\n"
+        "def steam_library_dirs():\n"
+        "    return []\n"
+        "\n"
+        "DEFAULT_GAME_SRV = ''\n",
+        encoding="utf-8",
+    )
+    return tmp_path
+
+
+def test_playtest_detect_compat_prints_nothing_when_the_sibling_finds_no_prefix(
+    tmp_path: Path,
+) -> None:
+    """`e2e.sh` reads "not detected" as an empty line and dies on it. A sibling
+    that answers with None instead would print the word `None`, which is not
+    empty and would pass the caller's `-n` check as a prefix path."""
+    root = _sibling_checkout(tmp_path / "playtest", "None")
+
+    result = _run("playtest_detect.py", str(root), "compat", str(tmp_path / "game"))
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "\n"
+
+
+def test_playtest_detect_compat_prints_the_derived_prefix(tmp_path: Path) -> None:
+    root = _sibling_checkout(tmp_path / "playtest", "'/steam/pfx'")
+
+    result = _run("playtest_detect.py", str(root), "compat", str(tmp_path / "game"))
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "/steam/pfx"

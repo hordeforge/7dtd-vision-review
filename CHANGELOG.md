@@ -291,6 +291,13 @@ required (`CONTRIBUTING.md`, "Changing a contract").
   message keeps the "invalid candidate" wording, now followed by the spent
   submission warning. `tests/test_gemini.py` pinned the type and the suite was
   red on it.
+- `scripts/playtest_detect.py compat` printed a sibling that found no Proton
+  prefix as the word `None` instead of an empty line, so `scripts/e2e.sh` read
+  it as a detected prefix, passed its non-empty check, and went on to build a
+  `Mods` path under `None/pfx/...`. It now prints nothing, the same answer the
+  `game` and `server` questions already give, which is what the caller reads
+  as "not detected" and refuses on.
+
 - A default evidence write could overwrite a review a `--force` run published
   underneath it. The non-force path reserves the destination name with
   `O_CREAT|O_EXCL` and then replaces onto it, but `--force` takes no

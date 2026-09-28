@@ -64,7 +64,10 @@ def main(argv: list[str]) -> int:
     if command == "game":
         print(playtest_run.client_game_dir() or "")
     elif command == "compat":
-        print(playtest_run.client_compat_for_game(pathlib.Path(arguments[0])))
+        # `or ""`, like the other two answers: the caller reads "nothing found"
+        # as an empty line, and a bare `None` prints as the word "None", which
+        # is not empty and would pass a `-n` check the caller makes.
+        print(playtest_run.client_compat_for_game(pathlib.Path(arguments[0])) or "")
     else:
         for library in playtest_run.steam_library_dirs():
             candidate = library / "common" / SERVER_STEM

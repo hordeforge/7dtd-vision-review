@@ -38,6 +38,7 @@ from typing import Any
 # redactor had already accepted whole.
 MAX_WALK_DEPTH = 64
 
+
 def finite_float(value: Any) -> float | None:
     """`value` as a finite float, or None when it is not one.
 
