@@ -202,7 +202,10 @@ then the current directory, then `$XDG_CONFIG_HOME/deadeye/` when
 (`[providers.nvidia] api_key = "..."`), with the per-provider one winning.
 `deadeye doctor` prints which files were loaded and where a credential came
 from — the environment, or which of the loaded files holds the key — never
-its value.
+its value. Under `--json` the stdout array is the provider states alone, so a
+config that failed to parse is reported as an `ERROR: ...` line on stderr: a
+failed parse makes every provider read as `unavailable`, which in the array
+alone is indistinguishable from a missing credential.
 
 Values are validated before use, not deep inside a submission:
 `default_provider` must name a known provider (an unknown name is refused,

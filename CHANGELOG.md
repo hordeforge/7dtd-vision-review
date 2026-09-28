@@ -15,6 +15,23 @@ left to be discovered by a failing parse downstream.
 
 ## Unreleased
 
+### Fixed
+
+- `deadeye doctor --json` no longer hides a malformed config. A config that
+  fails to parse makes every provider report `unavailable`, so the array on
+  stdout was byte-identical to a missing API key; the fault now rides stderr
+  under the usual `ERROR: cannot read config file ...` prefix, with stdout
+  still the parseable array and the exit code still 0. The human-readable
+  `deadeye doctor` output is unchanged. Not a breaking change for consumers:
+  the stdout array keeps its shape, so `7dtd-asset-pipeline` and
+  `7dtd-playtest` need no edit.
+
+### Changed
+
+- `deadeye schema --help` and `deadeye mcp --help` gained the `description` and
+  examples every other subcommand already carried. Help text only; no behavior
+  or output change.
+
 ## [0.1.1] - 2026-09-20
 
 ### Changed

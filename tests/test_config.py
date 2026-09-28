@@ -7,6 +7,8 @@ process-wide cache, so the checkout's own file cannot leak into assertions.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from deadeye import config
@@ -114,6 +116,24 @@ def test_a_malformed_config_fails_loudly_and_doctor_reports_it(_isolated_config,
 
     assert main(["doctor"]) == 0
     assert "config error:" in capsys.readouterr().out
+
+
+def test_doctor_json_reports_a_malformed_config_on_stderr(_isolated_config, capsys) -> None:
+    """The machine form must not read a broken config as 'no credential'.
+
+    A failed parse makes every provider `unavailable`, which in the array on
+    stdout is byte-identical to a missing API key. The fault has to ride
+    stderr under the usual `ERROR:` prefix, or a script's operator hunts for a
+    credential that was never the problem.
+    """
+    _write(_isolated_config, "config.toml", "this is not [ toml\n")
+    from deadeye.cli import main
+
+    assert main(["doctor", "--json"]) == 0
+    captured = capsys.readouterr()
+    states = json.loads(captured.out)
+    assert {state["name"] for state in states} == {"fake", "gemini", "nvidia"}
+    assert captured.err.startswith("ERROR: cannot read config file")
 
 
 def test_a_review_over_a_broken_config_names_the_file_not_the_credential(

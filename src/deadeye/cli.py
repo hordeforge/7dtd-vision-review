@@ -142,6 +142,11 @@ def _build_parser() -> argparse.ArgumentParser:
     schema = subparsers.add_parser(
         "schema",
         help="print the intent and result schemas as JSON",
+        description=(
+            "print the intent and result schemas as JSON: the fields an intent "
+            "file may carry, and the keys a review result always has. The "
+            "output is always JSON, with or without a flag."
+        ),
         epilog=(
             "examples:\n"
             "  deadeye schema\n"
@@ -192,6 +197,22 @@ def _build_parser() -> argparse.ArgumentParser:
     mcp = subparsers.add_parser(
         "mcp",
         help="serve the same surface as a Model Context Protocol server on stdio",
+        description=(
+            "serve the same surface as a Model Context Protocol server on "
+            "stdio: review, doctor, schema, and prompt over MCP instead of "
+            "argv, with the same results. It is a long-running server: it "
+            "reads requests on stdin until the client disconnects or the "
+            "process is interrupted, and submits nothing on its own."
+        ),
+        epilog=(
+            "examples:\n"
+            "  deadeye mcp\n"
+            "      speak MCP over stdin/stdout for a client that launches it\n"
+            "\n"
+            "Credentials come from the environment or config.local.toml, never\n"
+            "from an argument, and the consent gate still applies to `review`."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     mcp.set_defaults(handler=_handle_mcp)
     return parser
@@ -309,6 +330,15 @@ def _handle_doctor(args: argparse.Namespace) -> int:
     load_failure = config.load_failure()
     if args.json:
         print(json.dumps(states, indent=2, sort_keys=True))
+        # A config that failed to parse makes every provider read as
+        # `unavailable`, which is indistinguishable from a missing credential
+        # in the array above. Without this the JSON form of `doctor` sends a
+        # script's operator hunting for an API key when the fault is one line
+        # of TOML. stdout stays the parseable array; the fault rides stderr
+        # under the same `ERROR:` prefix as every other refusal, and the exit
+        # code stays 0 because the diagnosis itself succeeded.
+        if load_failure:
+            print(f"ERROR: {load_failure}", file=sys.stderr)
     else:
         for state in states:
             print(f"{state['name']}: {state['state']} ({state['detail']})")
