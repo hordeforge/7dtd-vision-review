@@ -78,19 +78,21 @@ already defined in `base.py`. An undocumented capability is one the next
 session will rebuild from scratch.
 
 - `scripts/bootstrap` — `uv sync` from the committed lockfile with the dev group
-- `make check test` — lint, shellcheck, typecheck, compileall, and the unit
-  suite
+- `make all` — lint, shellcheck, typecheck, compileall, the unit suite, and
+  the CLI smoke step, which is what the offline CI job runs
+- `make test TEST=tests/test_review.py` — one module, or `TEST='-k NAME'` for
+  one test
 
 ```bash
 scripts/bootstrap
-make check test
+make all
 ```
 
 Use **uv** for every Python step — environments, installs, and runs. Do not
 add `pip`, `pipx`, `venv`, or `python -m pip` invocations to scripts, docs, or
 CI.
 
-`make check test` must pass before you hand work back. It needs no network, no
+`make all` must pass before you hand work back. It needs no network, no
 credentials, and no model.
 
 ## Cost and blast radius

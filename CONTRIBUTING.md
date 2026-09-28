@@ -4,16 +4,33 @@ Contributions must preserve two boundaries. Everything else is negotiable.
 
 ```bash
 scripts/bootstrap
-make check test
+make all
 ```
 
+`make all` is check, test, and smoke: the offline job CI runs, start to
+finish. `make check test` alone leaves the smoke step out, and a change that
+breaks an entry point passes it and fails the push.
+
 While iterating, run one module or one test instead of the whole suite:
-`uv run pytest tests/test_review.py -q`, filtering further with `-k NAME`.
+`make test TEST=tests/test_review.py`, filtering further with
+`make test TEST='-k NAME'`. It goes through the same interpreter and locked
+environment as the full run.
 
 The dev group in `pyproject.toml` (ruff, mypy, pytest, coverage, hypothesis,
 setuptools) is exact pins, the same versions `uv.lock` resolves. A range
 there lets a lock-less install pick a newer major and disagree with CI;
-bump the pin and regenerate the lock together.
+bump the pin and regenerate the lock together:
+
+```bash
+uv add --dev 'ruff==<new version>'   # edits pyproject.toml and uv.lock together
+uv lock                              # re-resolve after any other manifest edit
+```
+
+Commit the regenerated `uv.lock` with the pin. Until it matches,
+`scripts/bootstrap` and CI both fail on `uv sync --locked` rather than
+installing a different set of versions than the one you pinned. A pin in
+`[build-system]` needs the same treatment: the sdist build resolves it
+separately, and a test builds the artifact to prove the two agree.
 
 `make check` also runs shellcheck over `scripts/bootstrap` and
 `scripts/e2e.sh`. Shellcheck is a host tool, not a Python dependency, so it

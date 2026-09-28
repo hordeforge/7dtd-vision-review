@@ -141,10 +141,13 @@ uv tool install \
 ## Development
 
 ```bash
-make check test
+scripts/bootstrap
+make all
 ```
 
-`make all` is everything CI's offline job runs; `make coverage` measures the
+`make all` is everything CI's offline job runs. `make check test` is the same
+without the CLI smoke step. `make test TEST=tests/test_review.py` runs one
+module, `make test TEST='-k NAME'` one test, `make coverage` measures the
 suite, and `make badge BADGE=path.svg` renders the README badge. The suite is
 fully offline: no network, no credentials, no model.
 

@@ -50,8 +50,8 @@ help:
 	@echo "badge     coverage report plus the README badge SVG (BADGE=path)"
 	@echo "all       check + test + smoke: everything CI's offline job runs"
 	@echo
-	@echo "single test module:  uv run pytest tests/test_config.py -q"
-	@echo "single test by name: uv run pytest -k redact -q"
+	@echo "single test module:  make test TEST=tests/test_config.py"
+	@echo "single test by name: make test TEST='-k redact'"
 
 all: check test smoke
 
@@ -95,8 +95,15 @@ else
 	fi
 endif
 
+# TEST narrows the run the same way the suite runs: a module, a directory, or
+# a bare pytest expression such as `-k redact`. It stays inside this recipe so
+# a narrowed run uses the same interpreter, the same PYTHONPATH, and the same
+# locked environment as the full one; a pytest invocation typed straight into
+# the shell is a different run and can pass where the suite fails.
+TEST ?=
+
 test:
-	PYTHONPATH=src $(PYTHON) -m pytest -q
+	PYTHONPATH=src $(PYTHON) -m pytest -q $(TEST)
 
 # The three CLI entry points CI runs (make smoke) before the suite, so a
 # broken console script or capability registry surfaces before push, not after.
