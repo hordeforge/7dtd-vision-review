@@ -67,6 +67,13 @@ required (`CONTRIBUTING.md`, "Changing a contract").
   with no provider available and a review that refuses, and one whose settings
   lived there runs on the built-in defaults instead. Linux and every other
   host keep `~/.config/deadeye/`.
+- A JSON-RPC `params` or `tools/call` `arguments` member that is present but
+  not an object is now the spec's `-32602`, including when it is falsy
+  (`[]`, `""`, `0`, `false`). Before: only a truthy non-object was refused, so
+  `"arguments": []` was read as the empty object and the tool ran with no
+  arguments, answering a successful call or a tool refusal to a malformed
+  frame. After: `-32602` every time. An omitted or explicitly null member is
+  still read as absent and still served. No well-formed client changes.
 
 ### Added
 
@@ -123,6 +130,19 @@ required (`CONTRIBUTING.md`, "Changing a contract").
   as a notification. JSON-RPC separates a notification from a request by the
   presence of the member, not by its value, so a client that sent a null id
   was left waiting for a reply that never came.
+- The published `review` and `prompt` input schemas now carry the exactly-one
+  intent rule as a `oneOf` (`intent` or `intent_text`, never both, never
+  neither), which is what the core has always refused, and `timeout_seconds`
+  carries `exclusiveMinimum: 0`; the `prompt` tool's parameters gained the
+  descriptions they lacked. Before: a client generating a call from
+  `tools/list` read `required: ["clip", "allow_network"]` and built a
+  `clip`-only review that the server then refused. The schemas also carry
+  `additionalProperties: false`, and a tool now refuses an argument it does not
+  publish, by name, before anything is submitted. Before: `intetnt` in place of
+  `intent` was dropped silently and the client collected a refusal about the
+  intent route it believed it had supplied. After: "review does not take
+  'intetnt'; it takes allow_network, clip, ...". A client sending only declared
+  arguments is unaffected.
 
 - The reviewer instruction and the author's statement now travel in separate
   roles. The instruction (role, JSON output contract, rubric, and the

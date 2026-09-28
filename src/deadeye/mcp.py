@@ -108,6 +108,25 @@ class _LedgerEntry:
     retained_bytes: int
 
 
+
+def _intent_route_schema() -> dict[str, Any]:
+    """The exactly-one intent rule as the tool schemas publish it.
+
+    `load_intent` refuses a call that names neither route and one that names
+    both, but `required` alone can only say "at least these", so a client
+    generating a call from the published schema would build a `clip`-only
+    review and collect the refusal at call time instead of reading the rule
+    where it reads every other argument. The `not` halves are what make it
+    "exactly one" rather than "one or the other".
+    """
+    return {
+        "oneOf": [
+            {"required": ["intent"], "not": {"required": ["intent_text"]}},
+            {"required": ["intent_text"], "not": {"required": ["intent"]}},
+        ]
+    }
+
+
 TOOLS: list[dict[str, Any]] = [
     {
         "name": "review",
@@ -130,8 +149,16 @@ TOOLS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "clip": {"type": "string", "description": "clip directory or video file"},
-                "intent": {"type": "string", "description": "intent JSON file path"},
-                "intent_text": {"type": "string", "description": "inline intent JSON"},
+                "intent": {
+                    "type": "string",
+                    "description": "intent JSON file path; exactly one of intent or "
+                    "intent_text, never both and never neither",
+                },
+                "intent_text": {
+                    "type": "string",
+                    "description": "inline intent JSON; exactly one of intent or "
+                    "intent_text, never both and never neither",
+                },
                 "provider": {
                     "type": "string",
                     "enum": sorted(PROVIDERS),
@@ -144,7 +171,9 @@ TOOLS: list[dict[str, Any]] = [
                 "allow_network": {"type": "boolean", "description": "explicit upload consent"},
                 "timeout_seconds": {
                     "type": "number",
-                    "description": "positive seconds to wait for the provider",
+                    "exclusiveMinimum": 0,
+                    "description": "positive seconds to wait for the provider; zero, "
+                    "a negative number, and a non-number are refused before submission",
                 },
                 "keep_raw_response": {
                     "type": "boolean",
@@ -166,17 +195,19 @@ TOOLS: list[dict[str, Any]] = [
                 },
             },
             "required": ["clip", "allow_network"],
+            "additionalProperties": False,
+            **_intent_route_schema(),
         },
     },
     {
         "name": "doctor",
         "description": "Report provider capability state without contacting any provider.",
-        "inputSchema": {"type": "object", "properties": {}},
+        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
     },
     {
         "name": "schema",
         "description": "The intent and result schemas as JSON.",
-        "inputSchema": {"type": "object", "properties": {}},
+        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
     },
     {
         "name": "prompt",
@@ -185,11 +216,25 @@ TOOLS: list[dict[str, Any]] = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "intent": {"type": "string"},
-                "intent_text": {"type": "string"},
-                "clip": {"type": "string"},
+                "intent": {
+                    "type": "string",
+                    "description": "intent JSON file path; exactly one of intent or "
+                    "intent_text, never both and never neither",
+                },
+                "intent_text": {
+                    "type": "string",
+                    "description": "inline intent JSON; exactly one of intent or "
+                    "intent_text, never both and never neither",
+                },
+                "clip": {
+                    "type": "string",
+                    "description": "optional clip directory or video file, described "
+                    "in the rendered prompt's media summary",
+                },
             },
             "required": [],
+            "additionalProperties": False,
+            **_intent_route_schema(),
         },
     },
 ]
@@ -197,6 +242,7 @@ TOOLS: list[dict[str, Any]] = [
 
 def _tool_result(payload: Any) -> dict[str, Any]:
     """A successful tool result: text content carrying the JSON payload."""
+
     return {"content": [{"type": "text", "text": json.dumps(payload, indent=2, sort_keys=True)}]}
 
 
@@ -275,7 +321,26 @@ def _provider_arg(name: Any) -> str:
     return provider
 
 
+def _known_args(tool: str, params: dict[str, Any]) -> None:
+    """Refuse an argument the tool's published schema does not declare.
+
+    Every other argument at this boundary is read, typed, and named, so a
+    misspelled one is the last way a call can go quietly wrong: `intetnt`
+    instead of `intent` is dropped, and the client collects a refusal about
+    the intent route it believes it supplied. The published properties are
+    the list, so the schema and this check cannot drift apart.
+    """
+    declared = next(item["inputSchema"]["properties"] for item in TOOLS if item["name"] == tool)
+    unknown = sorted(set(params) - set(declared))
+    if unknown:
+        raise DeadeyeError(
+            f"{tool} does not take {', '.join(repr(name) for name in unknown)}; "
+            f"it takes {', '.join(sorted(declared))}"
+        )
+
+
 def _call_review(params: dict[str, Any]) -> dict[str, Any]:
+    _known_args("review", params)
     if params.get("allow_network") is not True:
         raise DeadeyeError(
             "review uploads the clip to a third party; pass allow_network=true "
@@ -435,6 +500,7 @@ def _remember_result(
 
 
 def _call_doctor(params: dict[str, Any]) -> dict[str, Any]:
+    _known_args("doctor", params)
     # The same per-provider state `deadeye doctor --json` prints, from the same
     # single home in surface.py: where the credential came from, never its
     # value. The JSON-RPC tool result wraps that array under a `providers` key
@@ -443,10 +509,12 @@ def _call_doctor(params: dict[str, Any]) -> dict[str, Any]:
 
 
 def _call_schema(params: dict[str, Any]) -> dict[str, Any]:
+    _known_args("schema", params)
     return schema_document()
 
 
 def _call_prompt(params: dict[str, Any]) -> dict[str, Any]:
+    _known_args("prompt", params)
     return {
         "prompt": build_preview_prompt(
             _path_arg("prompt", params, "intent"),
@@ -476,7 +544,9 @@ def handle_frame(frame: dict[str, Any]) -> dict[str, Any] | None:
     method = frame.get("method")
     if not isinstance(method, str):
         return _error(request_id, -32600, "Invalid Request")
-    params = frame.get("params") or {}
+    params = frame.get("params")
+    if params is None:
+        params = {}
     if not isinstance(params, dict):
         return _error(request_id, -32602, "Invalid params")
     if method == "initialize":
@@ -487,7 +557,9 @@ def handle_frame(frame: dict[str, Any]) -> dict[str, Any] | None:
         return {"jsonrpc": "2.0", "id": request_id, "result": {"tools": TOOLS}}
     if method == "tools/call":
         name = params.get("name")
-        arguments = params.get("arguments") or {}
+        arguments = params.get("arguments")
+        if arguments is None:
+            arguments = {}
         if not isinstance(name, str) or not isinstance(arguments, dict):
             return _error(
                 request_id, -32602, "Invalid params: name must be a string and arguments an object"

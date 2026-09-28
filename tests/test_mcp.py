@@ -36,6 +36,22 @@ def test_ping_and_tools_list() -> None:
     assert review["inputSchema"]["required"] == ["clip", "allow_network"]
 
 
+def test_every_tool_that_takes_an_intent_publishes_the_exactly_one_rule() -> None:
+    """The core refuses a review naming neither intent route or both, so the
+    published schema has to say it: `required` alone reads as "at least these"
+    and a client building a `clip`-only call from it learns the rule only by
+    collecting the refusal."""
+    from deadeye.mcp import TOOLS
+
+    for name in ("review", "prompt"):
+        tool = next(tool for tool in TOOLS if tool["name"] == name)
+        schema = tool["inputSchema"]
+        assert schema["oneOf"] == [
+            {"required": ["intent"], "not": {"required": ["intent_text"]}},
+            {"required": ["intent_text"], "not": {"required": ["intent"]}},
+        ], name
+
+
 def test_review_refuses_without_explicit_consent(tmp_path) -> None:
     clip = tmp_path / "clip"
     clip.mkdir()
@@ -338,6 +354,62 @@ def test_unknown_method_and_tool_get_spec_errors() -> None:
     assert error["code"] == -32601
     response = _call("tools/call", {"name": "nope", "arguments": {}})
     assert response["error"]["code"] == -32602
+
+
+def test_an_argument_the_schema_does_not_declare_is_refused(tmp_path) -> None:
+    """A misspelled argument used to be dropped, and the client learned about
+    it from an unrelated refusal (`intetnt` reads as no intent route at all).
+    The published properties are the allowlist, so the schema says so too."""
+    from deadeye.mcp import TOOLS
+
+    assert all(tool["inputSchema"]["additionalProperties"] is False for tool in TOOLS)
+    response = _call(
+        "tools/call",
+        {"name": "review", "arguments": {"allow_network": True, "intetnt": "intent.json"}},
+    )
+    assert response["result"]["isError"] is True
+    text = response["result"]["content"][0]["text"]
+    assert "'intetnt'" in text and "intent_text" in text
+    # No argument is submitted before the refusal: a wrong name must not reach
+    # the provider path either.
+    assert "allow_network=true" not in text
+
+
+def test_a_falsy_non_object_params_member_is_invalid_params() -> None:
+    """`params` and `arguments` are objects. A falsy non-object (`[]`, `""`,
+    `0`) is the invalid params it is, not the empty object `or {}` would make
+    it: reading it as absent would answer a malformed frame with a tool
+    refusal or a successful call, and the client would never learn its frame
+    was malformed."""
+    for params in ([], "", 0, False):
+        response = handle_frame({"jsonrpc": "2.0", "id": 1, "method": "ping", "params": params})
+        assert response is not None
+        assert response["error"]["code"] == -32602, params
+        response = handle_frame(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": "schema", "arguments": params},
+            }
+        )
+        assert response is not None
+        assert response["error"]["code"] == -32602, params
+
+
+def test_an_omitted_or_null_params_member_is_still_served() -> None:
+    """Absent and null are what the optional routes read as; a client that
+    sends either must be served, not refused."""
+    for params in ({}, None):
+        response = handle_frame(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": "schema", "arguments": params},
+            }
+        )
+        assert response is not None and "result" in response, params
 
 
 def test_a_missing_required_argument_names_the_tool_and_the_key(tmp_path) -> None:

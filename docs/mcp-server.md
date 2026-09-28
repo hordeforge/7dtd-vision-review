@@ -101,7 +101,20 @@ submission: the text part is `{"error": ..., "envelope": ...}` and
 `review` accepts `intent` or `intent_text`, never both and never neither: the
 core's exactly-one rule applies verbatim, and passing both is the refusal
 "takes exactly one of --intent PATH or --intent-text JSON, never both" despite
-the JSON-RPC parameter names.
+the JSON-RPC parameter names. The published input schema states the rule as a
+`oneOf` over the two parameters, so a client building a call from `tools/list`
+reads it where it reads every other argument instead of discovering it from a
+refusal.
+
+`params` and `tools/call`'s `arguments` are objects: present but not an object
+is `-32602`, including the falsy forms (`[]`, `""`, `0`, `false`). Omitted or
+explicitly null is absent, and is served.
+
+A tool takes exactly the arguments its schema publishes
+(`additionalProperties: false`), and an undeclared one is refused by name
+before anything is submitted. A misspelled `intetnt` is otherwise dropped in
+silence, and the client then collects a refusal about the intent route it
+believes it supplied.
 
 ## A session
 
