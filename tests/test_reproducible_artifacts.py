@@ -85,6 +85,30 @@ def _unstamped_sdist(path: Path, payload: bytes) -> Path:
     return path
 
 
+def test_every_extracted_member_stream_is_closed(tmp_path: Path, monkeypatch) -> None:
+    """`extractfile` hands back one stream per member and this loop reads them
+    all; each is a handle opened here and closed here, not left to the
+    archive's own exit after the whole set has been read."""
+    path = _unstamped_sdist(tmp_path / "thing-0.1.0.tar.gz", b"Metadata-Version: 2.1\n")
+    opened: list[io.BufferedIOBase] = []
+    extractfile = tarfile.TarFile.extractfile
+
+    def recording(self, member):  # type: ignore[no-untyped-def]
+        stream = extractfile(self, member)
+        if stream is not None:
+            opened.append(stream)
+        return stream
+
+    monkeypatch.setattr(tarfile.TarFile, "extractfile", recording)
+
+    assert artifacts.normalise_sdist(path, 1700000000) is True
+
+    assert opened, "the archive held a member, so the loop read at least one stream"
+    assert all(stream.closed for stream in opened)
+    with tarfile.open(path, "r:gz") as archive:
+        assert archive.getnames() == sorted(archive.getnames())
+
+
 def test_normalising_a_second_time_changes_nothing(tmp_path: Path) -> None:
     """The step claims to converge on re-run, and the claim is what a
     re-published release depends on: a second pass over an already-normalized

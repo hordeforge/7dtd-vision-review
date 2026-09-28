@@ -16,6 +16,7 @@ hash-addressed, so revisions stay comparable.
 from __future__ import annotations
 
 import contextlib
+import glob
 import hashlib
 import json
 import os
@@ -459,9 +460,42 @@ def _reserve_exclusive(path: Path) -> _FileIdentity:
         raise DeadeyeError(_refusal_for_occupant(path)) from None
 
 
+def _reclaim_stranded_temporaries(path: Path) -> None:
+    """Remove the temporaries a killed publish left beside `path`.
+
+    The publish writes its payload to a unique file in the destination
+    directory and renames it into place. Its `finally` unlinks that file on
+    every exit the interpreter delivers (an OSError, a KeyboardInterrupt, a
+    failed flush), so the file is a temporary for the length of one write. A run
+    that never reaches the `finally` (SIGKILL, a power cut, an `os._exit` from
+    an embedding caller) strands it instead, and nothing else ever removes it:
+    the destination-name reclaim ages out an empty placeholder, not a
+    `.<name>.<rand>.tmp`. One per killed review, accumulating in the
+    operator's evidence directory across restarts of a long-lived server.
+
+    Age is the only test, and it is the same bounded one the placeholder
+    reclaim uses: the window between creating the temporary and renaming it is
+    sub-second, because the payload is written and fsynced inside it. A
+    temporary older than that belongs to a run that is not coming back, and one
+    the live writer still holds reads as fresh through `_now_floor`, for the
+    reason that helper gives. The unlink is not journalled either: a sweep that
+    a power cut rolls back is a sweep the next run repeats.
+    """
+    for candidate in list(path.parent.glob(f".{glob.escape(path.name)}.*.tmp")):
+        with contextlib.suppress(OSError):
+            status = candidate.stat()
+            if stat.S_ISREG(status.st_mode) and (
+                _now_floor() - status.st_mtime >= _STALE_PLACEHOLDER_SECONDS
+            ):
+                candidate.unlink(missing_ok=True)
+
+
 def _atomic_write(path: Path, payload: bytes, *, force: bool) -> None:
     temporary: Path | None = None
     placeholder: _FileIdentity | None = None
+    # Before the new temporary exists, so a sweep and a live writer never race
+    # over the same name.
+    _reclaim_stranded_temporaries(path)
     try:
         # `NamedTemporaryFile` creates a unique file with private permissions
         # in the destination directory. A predictable `path + ".tmp"` name

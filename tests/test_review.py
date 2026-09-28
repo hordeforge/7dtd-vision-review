@@ -605,6 +605,52 @@ def test_a_forward_wall_clock_step_never_frees_a_live_placeholder(tmp_path, monk
     assert evidence._reserve_exclusive(stranded) is not None
 
 
+def test_a_killed_publish_stranded_temporary_is_reclaimed_by_the_next_publish(tmp_path) -> None:
+    """A run killed between the temporary write and the rename strands a file
+    no later run would otherwise remove.
+
+    The placeholder reclaim covers the destination name; nothing covered this
+    side of the publish, so a server killed once per crash left one
+    `.<name>.<random>.tmp` per killed review in the evidence directory, for as
+    many restarts as the operator went through. The next publish reclaims it,
+    and the name may carry a glob metacharacter, which the sweep must treat as
+    part of the name rather than as a pattern."""
+    from deadeye.evidence import write_evidence
+
+    output = tmp_path / "evidence[1].json"
+    stranded = tmp_path / ".evidence[1].json.stranded.tmp"
+    stranded.write_bytes(b"half a review")
+    stale = time.time() - 60 * 60
+    os.utime(stranded, (stale, stale))
+
+    write_evidence(output, {"kind": "deadeye-review"}, force=False)
+
+    assert json.loads(output.read_text(encoding="utf-8"))["kind"] == "deadeye-review"
+    assert not stranded.exists()
+
+
+def test_a_live_temporary_beside_the_destination_is_never_reclaimed(tmp_path) -> None:
+    """The sweep is age-based, so a concurrent writer's in-flight temporary
+    survives it, and so does a stranded temporary belonging to a different
+    evidence path: reclaiming is per destination, never a sweep of the
+    directory."""
+    from deadeye.evidence import write_evidence
+
+    live = tmp_path / ".evidence.json.inflight.tmp"
+    live.write_bytes(b"")
+    other = tmp_path / ".other.json.stranded.tmp"
+    other.write_bytes(b"")
+    old = time.time() - 60 * 60
+    os.utime(other, (old, old))
+
+    output = tmp_path / "evidence.json"
+    write_evidence(output, {"kind": "deadeye-review"}, force=False)
+
+    assert live.exists()
+    assert other.exists()
+    assert json.loads(output.read_text(encoding="utf-8"))["kind"] == "deadeye-review"
+
+
 def test_a_published_envelope_is_never_reclaimed_however_old_it_is(tmp_path) -> None:
     """Only an empty placeholder is reclaimable. Real evidence, however old,
     still ends a rerun without --force: the age rule must not become a way to

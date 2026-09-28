@@ -25,6 +25,18 @@ required (`CONTRIBUTING.md`, "Changing a contract").
 
 ### Fixed
 
+- A publish killed between its temporary write and its rename no longer leaves
+  a file in the evidence directory forever. Before: the temporary's `finally`
+  removed it on every exit the interpreter delivered, and nothing removed it
+  on the exits it does not (SIGKILL, a power cut), so a long-lived MCP server
+  left one `.<name>.<random>.tmp` per killed review in the operator's evidence
+  directory, and no later run collected them; the crash recovery covered the
+  destination name, not this side of the write. After: each publish first
+  reclaims the temporaries for its own destination that are older than the same
+  threshold the placeholder reclaim uses, a live writer's in-flight temporary
+  reads as fresh and is left alone, and a temporary belonging to another
+  evidence path is never touched.
+
 - The MCP stdio frame cap counts bytes on a text source that delivers a
   frame over several reads. It counted characters there, so a frame of
   four-byte characters was admitted at up to four times the cap. A bytes

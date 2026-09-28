@@ -285,7 +285,7 @@ influence over the verdict rather than over the process.
 | `idempotency_key` bounded to 200 characters and must be a non-empty string | a client naming a megabyte key and pinning it in the process-local ledger (D) | `mcp.py` `_MAX_IDEMPOTENCY_KEY_CHARS`, `_idempotency_key` (`518-543`) |
 | The key is NFC-normalized before the cap is applied, and a key reused with different arguments is refused by call fingerprint | two spellings of one key buying two billable submissions (R/D) | `mcp.py:518-543` (normalization at `537`), `_call_fingerprint` (`546-556`), reuse refusal at `566-573` |
 | MCP tool failures carry a machine-readable code (`no_verdict`, `usage`, `refused`, `evidence_write`, `fault`) | a client that cannot tell a spent submission from a refused one, retrying a bill against a fault | `mcp.py:282-313`, structured content at `715-720` |
-| Evidence no-overwrite by default: pre-flight `ensure_writable` before credentials are read, exclusive `O_CREAT|O_EXCL` publish then atomic replace with fsync (and a directory fsync, `evidence.py:259-282`), temp unlink on every failed path, publish, placeholder unlink, and reclaim unlink fenced by file identity, SHA-256 addressing | history rewriting (T/R), including two writers racing the same `--output` **without `--force`**, and a placeholder unlink or a publish deleting a review another writer published into the name; stranded `.tmp` files. `--force` skips the exclusive publish, so it destroys a default run's reservation but is not overwritten in turn — see T7 | `evidence.py` `ensure_writable` (`321-351`) / `_atomic_write` (`458-528`) / `_reserve_exclusive` (`406-455`); the publish re-checks the reserved inode at `494-499` |
+| Evidence no-overwrite by default: pre-flight `ensure_writable` before credentials are read, exclusive `O_CREAT|O_EXCL` publish then atomic replace with fsync (and a directory fsync, `evidence.py:259-282`), temp unlink on every failed path, publish, placeholder unlink, and reclaim unlink fenced by file identity, SHA-256 addressing, plus an age-bounded reclaim of this destination's stranded temporaries | history rewriting (T/R), including two writers racing the same `--output` **without `--force`**, and a placeholder unlink or a publish deleting a review another writer published into the name; stranded `.tmp` files. `--force` skips the exclusive publish, so it destroys a default run's reservation but is not overwritten in turn — see T7 | `evidence.py` `ensure_writable` (`326-356`) / `_atomic_write` (`493-566`) / `_reserve_exclusive` (`411-460`) / `_reclaim_stranded_temporaries` (`463-490`); the publish re-checks the reserved inode at `532-537` |
 | Endpoint override validated: https only, plain http loopback-only, refused before submission, and an override carrying a `user:key@` userinfo component refused without echoing the value | cleartext credential egress via config, and the key itself landing in the refusal message (part of T1) | `config.py` `_override_root` (`500-544`; the userinfo refusal at `529-539`); pinned by `tests/test_config.py` endpoint tests |
 | Config read bracketed by a before/after stat and retried up to a fixed bound; after the bound the read is returned uncached | a file rewritten between the stat and the parse pinning a superseded credential in the signature cache (T) | `config.py:403-436`, `_LOAD_SIGNATURE_ATTEMPTS` (`60`) |
 | Config fails loud: an unknown or unread key refuses the whole file with a named error, no key silently dropped | a mistyped generation knob quietly leaving the default in force (misconfiguration) | `config.py:286-295`; key tables `config.py:77-94,129-196` |
@@ -444,6 +444,14 @@ identity, and inside the process user's own write permission, so it is a
 narrower primitive than the write itself; named here because T7 previously
 claimed a force run never destroys a published review and said nothing about a
 default run destroying a file.
+
+The second deletion is narrower still: each publish reclaims the files matching
+`.<destination>.*.tmp` that are older than the same 60 seconds
+(`_reclaim_stranded_temporaries`, `evidence.py:459-487`), which is what a
+publish killed between its temporary write and its rename leaves behind. Only
+regular files whose name carries this destination's own name are candidates, a
+live writer's in-flight temporary reads as fresh, and no published review can
+match the pattern.
 
 Over the CLI this needs a human to pass the flag, which is the same trust
 level as everything else on B1. Over MCP it does not: `output` and `force`

@@ -77,7 +77,15 @@ def normalise_sdist(path: Path, epoch: int) -> bool:
         payloads: list[bytes | None] = []
         for member in members:
             stream = archive.extractfile(member)
-            payloads.append(stream.read() if stream is not None else None)
+            if stream is None:
+                payloads.append(None)
+                continue
+            # Closed per member, not left to the archive's own exit: the
+            # extracted stream is a handle this loop opens once per member, and
+            # a rewrite over a few thousand members holds every one of them
+            # until the archive closes.
+            with stream:
+                payloads.append(stream.read())
 
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w", format=tarfile.GNU_FORMAT) as out:

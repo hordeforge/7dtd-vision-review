@@ -212,6 +212,13 @@ default run is holding, and the default run then finds the name holding a
 review it did not write and refuses rather than overwriting it. `--force`
 remains the only way to overwrite a published review.
 
+A process killed between the temporary write and its replace strands that
+temporary too, and the `finally` that deletes it cannot run. Each publish
+therefore reclaims the temporaries matching its own destination that are older
+than the same 60 seconds, and only its own: another evidence path's stranded
+temporary is left where it is, and one a live writer is still filling reads as
+fresh and is never touched.
+
 The age is measured against the smaller of the wall clock and this process's
 own monotonic time. A wall clock that steps forward (NTP, `date -s`, a
 restored VM) would otherwise make a placeholder a live writer reserved a
