@@ -463,24 +463,13 @@ def test_a_published_envelope_is_never_reclaimed_however_old_it_is(tmp_path) -> 
     assert json.loads(output.read_text(encoding="utf-8"))["kind"] == "deadeye-review"
 
 
-def test_two_concurrent_writes_without_force_keep_exactly_one_envelope(
-    tmp_path, monkeypatch
-) -> None:
-    """Two writers that both pass the preflight must not both replace: the
-    first envelope to occupy the name stays, the second is refused. A
-    barrier after `ensure_writable` is what makes the race deterministic
-    instead of timing-dependent."""
+def _race_two_writers(tmp_path, monkeypatch, gate) -> list[str]:
+    """Write two envelopes to one path from two threads; return their outcomes."""
     from deadeye import evidence
 
     output = tmp_path / "evidence.json"
-    barrier = threading.Barrier(2, timeout=5)
     original = evidence._atomic_write
-
-    def gated(path, payload, *, force):
-        barrier.wait()
-        return original(path, payload, force=force)
-
-    monkeypatch.setattr(evidence, "_atomic_write", gated)
+    monkeypatch.setattr(evidence, "_atomic_write", gate(original))
     outcomes: list[str] = []
     lock = threading.Lock()
 
@@ -501,19 +490,75 @@ def test_two_concurrent_writes_without_force_keep_exactly_one_envelope(
         thread.start()
     for thread in threads:
         thread.join()
+    return outcomes
+
+
+def test_two_writers_that_both_pass_the_preflight_keep_exactly_one_envelope(
+    tmp_path, monkeypatch
+) -> None:
+    """The second writer must not replace the first envelope, and must say why.
+
+    Both threads clear `ensure_writable` before either publishes, so the
+    write-time `O_CREAT|O_EXCL` reserve is the only thing standing between the
+    two. The gate holds the second writer at the write until the first has
+    published, which is what makes the outcome deterministic: a barrier alone
+    only lines the two up, and the loser then raced the winner's replace, so
+    the refusal it read was a coin flip between "an earlier review" and "a
+    write in progress"."""
+    published = threading.Event()
+
+    def gate(original):
+        def gated(path, payload, *, force):
+            if "second" in payload:
+                assert published.wait(timeout=5), "the first writer never published"
+            result = original(path, payload, force=force)
+            if "first" in payload:
+                published.set()
+            return result
+
+        return gated
+
+    output = tmp_path / "evidence.json"
+    outcomes = _race_two_writers(tmp_path, monkeypatch, gate)
 
     ok = [item for item in outcomes if item == "ok"]
     refused = [item for item in outcomes if item != "ok"]
     assert len(ok) == 1, outcomes
     assert len(refused) == 1, outcomes
-    # Which refusal the loser gets depends on how far the winner got before it
-    # arrived: a loser that reaches the name while it is still the winner's
-    # empty placeholder is told a write is in progress, one that arrives after
-    # the envelope is published is told an earlier review holds it. Both are
-    # the same guarantee, so the test pins the shared part (the name is named,
-    # one writer lost) instead of the scheduling that picked the wording.
-    assert str(output) in refused[0]
-    assert "write in progress" in refused[0] or "already holds an earlier review" in refused[0]
+    assert "already holds an earlier review" in refused[0]
+    assert json.loads(output.read_text(encoding="utf-8"))["kind"] == "first"
+    assert list(tmp_path.glob("*.tmp")) == []
+
+
+def test_two_writers_reaching_the_reserve_together_keep_exactly_one_envelope(
+    tmp_path, monkeypatch
+) -> None:
+    """The same race with neither writer given a head start.
+
+    Whichever writer wins the reserve publishes; the other is refused for the
+    one reason that holds at the instant it looks, an empty placeholder still
+    in flight or the envelope that beat it. Either message is correct here,
+    and the invariant is the same: one envelope on disk, no stranded temp
+    file, and the loser never overwrote the winner."""
+    barrier = threading.Barrier(2, timeout=5)
+
+    def gate(original):
+        def gated(path, payload, *, force):
+            barrier.wait()
+            return original(path, payload, force=force)
+
+        return gated
+
+    output = tmp_path / "evidence.json"
+    outcomes = _race_two_writers(tmp_path, monkeypatch, gate)
+
+    ok = [item for item in outcomes if item == "ok"]
+    refused = [item for item in outcomes if item != "ok"]
+    assert len(ok) == 1, outcomes
+    assert len(refused) == 1, outcomes
+    assert any(
+        reason in refused[0] for reason in ("already holds an earlier review", "write in progress")
+    ), refused[0]
     assert json.loads(output.read_text(encoding="utf-8"))["kind"] in {"first", "second"}
     assert list(tmp_path.glob("*.tmp")) == []
 

@@ -101,6 +101,18 @@ those repositories:
 - record it under a **breaking** heading in [CHANGELOG.md](CHANGELOG.md),
 - and say in the pull request what the consuming repositories must do.
 
+Those three are the contracts the sibling repositories parse. A change breaks
+the same way without touching them, and belongs under the same heading:
+
+- a configuration file that used to load now being refused, or a key that used
+  to be read now ignored or renamed;
+- a submission that used to complete now being refused, because a default, a
+  budget, or a timeout now bounds it;
+- a refusal message, an exit code, or a stdout stream a caller reads.
+
+Name the before, the after, and what the caller does about it. "Not a breaking
+change" is a claim the changelog has to earn in those three words.
+
 The call contract is documented in
 [docs/integration.md](docs/integration.md); keep it true in the same change,
 not afterwards.

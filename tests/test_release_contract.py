@@ -312,3 +312,42 @@ def test_wheel_ships_exactly_the_package(built_artifacts: dict[str, list[str]]) 
         f"modules on disk but absent from the wheel: {sorted(dropped)}; a "
         "subpackage was added without being packaged?"
     )
+
+
+# Keep a Changelog's subsection order, with the breaking heading this repo
+# requires first. The order is the release contract: a consumer reads
+# `### Breaking` and nothing else, so an entry filed under `Changed` is
+# invisible to the reader who needs it.
+SECTION_ORDER = ("Breaking", "Added", "Changed", "Fixed", "Security")
+
+
+def _assert_declared_headings(section: str, headings: list[str], rank: dict[str, int]) -> None:
+    undeclared = [name for name in headings if name not in rank]
+    assert not undeclared, (
+        f"CHANGELOG.md section {section!r} uses heading(s) {undeclared}; the "
+        f"declared ones are {list(SECTION_ORDER)}"
+    )
+    ranks = [rank[name] for name in headings]
+    assert ranks == sorted(ranks), (
+        f"CHANGELOG.md section {section!r} lists {headings} out of the declared "
+        f"order {list(SECTION_ORDER)}"
+    )
+
+
+def test_changelog_sections_use_the_declared_headings() -> None:
+    document = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert "`### Breaking`" in document, (
+        "the changelog preamble must state the breaking heading CONTRIBUTING.md "
+        "'Changing a contract' requires, so a contributor finds it while "
+        "writing the entry"
+    )
+    rank = {name: position for position, name in enumerate(SECTION_ORDER)}
+    section = "the preamble"
+    headings: list[str] = []
+    for line in document.splitlines():
+        if line.startswith("## "):
+            _assert_declared_headings(section, headings, rank)
+            section, headings = line.removeprefix("## ").strip(), []
+        elif line.startswith("### "):
+            headings.append(line.removeprefix("### ").strip())
+    _assert_declared_headings(section, headings, rank)

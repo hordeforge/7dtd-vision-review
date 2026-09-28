@@ -3,9 +3,11 @@
 ## Supported versions
 
 Only the latest tagged release is supported; older releases receive no
-fixes. The version lives in `src/deadeye/_version.py`, mirrored by
-`pyproject.toml`. Until the first `vX.Y.Z` tag exists there is no supported
-release and `main` is the only surface.
+fixes, and no release is patched in place: a fix ships in a new tag. The
+version lives in `src/deadeye/_version.py`, mirrored by `pyproject.toml`, and
+the release is the `vX.Y.Z` tag the artifacts are built from, so the release
+notes that state which version carries a fix are the changelog section for
+that tag.
 
 ## Trust boundaries
 

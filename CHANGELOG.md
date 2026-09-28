@@ -11,9 +11,48 @@ disagrees with the manifest fails the release instead of publishing.
 A change to `schema_version` in the intent file, to the field set of a result,
 or to the shape of an evidence envelope is a **breaking change for consumers**
 (`7dtd-asset-pipeline`, `7dtd-playtest`) and is called out as such here, not
-left to be discovered by a failing parse downstream.
+left to be discovered by a failing parse downstream. A change that makes a
+previously accepted input refuse, or that changes the outcome of a submission
+which used to succeed, breaks the same way, whatever contract it lands on.
+
+Every such change goes under `### Breaking`, first in its section, with the
+before, the after, and what the caller must do. The remaining subsections keep
+the Keep a Changelog order: `Added`, `Changed`, `Fixed`, `Security`. While the
+version is 0.x a breaking change may ride a minor bump; the heading is still
+required (`CONTRIBUTING.md`, "Changing a contract").
 
 ## Unreleased
+
+### Breaking
+
+- A config file that sets a key deadeye does not read is now refused at load,
+  where before it was ignored and the built-in default stayed in force. Before:
+  a `default_provder` typo, an unknown `[providers.geminie]` table, or a knob
+  misspelled as `max_token` left deadeye running, on the built-in default,
+  while the file's author believed the setting applied. After: `deadeye review`
+  refuses with a non-zero exit naming the offending dotted path, before any
+  provider is contacted, and `deadeye doctor` names the fault as
+  `config error: ...` (`ERROR: ...` on stderr in `--json`) with its own exit
+  code unchanged at 0. To upgrade, correct the name or delete the line, then
+  run `deadeye doctor` to confirm the settings that loaded. Every key
+  `docs/reference.md` lists still loads unchanged, and a released config is
+  unaffected unless it carried a key deadeye never read. No envelope, schema,
+  or result change.
+- `--timeout` (and the `timeout_seconds` it overrides) is now a budget on the
+  whole provider call, where before it was urllib's per-socket-operation
+  timeout. Before: a provider trickling a few bytes per read reset the timeout
+  on every read, so a review running well past `timeout_seconds` still
+  completed. After: a provider call that has not finished by
+  `timeout_seconds` is refused with the same "did not answer within Ns"
+  message. Raise `--timeout` (or `timeout_seconds`) if a legitimate review of a
+  large clip now times out; the default is still 120 seconds.
+- The per-request byte budget now counts the reviewer prompt and the reference
+  media that ride the same request, not the candidate media alone. Before: a
+  submission that fit on the candidate's encoded size was accepted locally and
+  refused by the provider after the full upload. After: such a submission falls
+  back to the sampled frame sequence, or is refused locally with the byte
+  counts named. No consumer edit; a review that used to be submitted as a muxed
+  video may now be sampled frames, which its `sampling` record shows.
 
 ### Added
 
@@ -48,6 +87,17 @@ left to be discovered by a failing parse downstream.
 
 ### Fixed
 
+- The suite no longer lies about the release gate. Four tests in
+  `tests/test_config.py` requested a fixture named `_isolated_config` that
+  the shared conftest does not define, so they errored at setup instead of
+  running: the malformed-config, misspelled-key, and documented-settings
+  checks had stopped executing entirely while the suite stayed green around
+  them. They name `isolated_config` now. The concurrent evidence-write test
+  was also a coin flip: its barrier lined the two writers up but not their
+  outcome, so the loser's refusal was sometimes "an earlier review" and
+  sometimes "a write in progress". It is split into the staggered case, which
+  is deterministic and pins the exact refusal, and the simultaneous case,
+  which pins the invariant either message must preserve.
 - `scripts/e2e.sh --help` dropped the last line of its own header: the usage
   text was a hardcoded line range, so anything the header grew past it was
   silently cut, and `2  usage error` was already gone. The block now ends at
@@ -130,12 +180,10 @@ left to be discovered by a failing parse downstream.
   on the same path; a placeholder a live writer still holds, and any
   published envelope however old, are refused as before.
 - The per-request byte budget now counts the reviewer prompt and the
-  reference media that ride the same request, not the candidate media alone.
-  A submission that only fits on the media's encoded size was accepted
-  locally and refused by the provider after the upload; a muxed video that
-  fits alone but not beside the references now falls back to the sampled
-  frame sequence instead of overrunning the request. No envelope, schema, or
-  CLI surface changes.
+  reference media that ride the same request, not the candidate media alone
+  (see Breaking, above). A muxed video that fits alone but not beside the
+  references falls back to the sampled frame sequence instead of overrunning
+  the request.
 - A raw provider response preserved with `--keep-raw-response` no longer
   writes a bare `NaN`/`Infinity` token (RFC 8259 defines neither) into the
   evidence document, so a strict reader can parse that document back.
