@@ -504,22 +504,31 @@ def _keys_read_by(module: object, provider: str) -> set[str]:
 
     The two shapes an adapter uses: a `config.<reader>(("providers", name,
     key))` key path, and the `int_setting`/`float_setting` knob readers that
-    take the key as an argument.
+    take the key as an argument. The knob readers arrive as bare names
+    (`int_setting(...)`, imported from `base`), not as attributes, so the
+    name is matched as well: matching only the attribute form would find no
+    knob at all and let the schema drift unnoticed.
     """
     readers = {"value", "text", "endpoint", "endpoint_problem"}
     knobs = {"int_setting", "float_setting"}
     source = Path(str(module.__file__))
     keys: set[str] = set()
     for node in ast.walk(ast.parse(source.read_text(encoding="utf-8"))):
-        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+        if not isinstance(node, ast.Call):
             continue
-        if node.func.attr in readers and node.args:
+        if isinstance(node.func, ast.Name):
+            called = node.func.id
+        elif isinstance(node.func, ast.Attribute):
+            called = node.func.attr
+        else:
+            continue
+        if called in readers and node.args:
             path = node.args[0]
             parts = list(path.elts) if isinstance(path, ast.Tuple) else []
             strings = [part.value for part in parts if isinstance(part, ast.Constant)]
             if len(parts) == 3 and len(strings) == 3 and strings[:2] == ["providers", provider]:
                 keys.add(strings[2])
-        elif node.func.attr in knobs and len(node.args) > 1:
+        elif called in knobs and len(node.args) > 1:
             key = node.args[1]
             if isinstance(key, ast.Constant) and isinstance(key.value, str):
                 keys.add(key.value)

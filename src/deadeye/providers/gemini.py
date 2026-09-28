@@ -56,6 +56,9 @@ MAX_FRAMES_PER_REQUEST = 40
 # than a tight cap: its job is to stop a runaway or looping generation from
 # billing without end, not to truncate an honest verdict mid-JSON.
 DEFAULT_MAX_OUTPUT_TOKENS = 65536
+# A default, not a contract: a deployment overrides it with
+# `providers.gemini.model` or `--model`, exactly as for the other providers.
+DEFAULT_MODEL = "gemini-2.5-flash"
 
 
 class GeminiProvider:
@@ -66,7 +69,7 @@ class GeminiProvider:
 
     @property
     def default_model(self) -> str:
-        return config.text(("providers", "gemini", "model")) or "gemini-2.5-flash"
+        return config.text(("providers", "gemini", "model")) or DEFAULT_MODEL
 
     @property
     def limits(self) -> ProviderLimits:

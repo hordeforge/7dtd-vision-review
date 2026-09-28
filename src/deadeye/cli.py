@@ -111,7 +111,10 @@ def _build_parser() -> argparse.ArgumentParser:
         type=float,
         default=None,
         metavar="SECONDS",
-        help="seconds to wait for the provider (default: config timeout_seconds or 120)",
+        help=(
+            "seconds to wait for the provider (default: config timeout_seconds "
+            f"or {config.DEFAULT_TIMEOUT_SECONDS:g})"
+        ),
     )
     review.add_argument(
         "--force",
