@@ -118,8 +118,13 @@ ignore = [
   # import lazily so `--help`, `doctor`, and offline runs stay fast and never
   # touch the network.
   "PLC0415",
-  # Structural-complexity ceilings flag the argparse dispatcher; splitting it
-  # is a code-review decision, not a gate this repo has earned yet.
+  # Structural-complexity ceilings. Measured: 13 sites across seven files
+  # (review.py, providers/_http.py, result.py, mcp.py, evidence.py, cli.py,
+  # scripts/doctor_query.py), not the one dispatcher an earlier revision of this
+  # comment named. Splitting them is a code-review decision, not a gate this
+  # repo has earned yet. Re-measure with
+  # `ruff check --select PLR0911,PLR0912,PLR0913,PLR0915,PLR0917 --statistics .`
+  # before narrowing this to per-file-ignores.
   "PLR0911", "PLR0912", "PLR0913", "PLR0915", "PLR0917",
   # Magic-value comparisons fire on the domain constants (limits, versions).
   "PLR2004",

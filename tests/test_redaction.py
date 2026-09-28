@@ -131,7 +131,12 @@ def test_the_evidence_usage_walk_is_the_bounded_one() -> None:
     envelope = build_envelope(
         media_entries=(),
         sampling=SamplingRecord(
-            0, 0, sampled=False, frame_indices=(), submitted_files=(), note="none"
+            frames_available=0,
+            frames_submitted=0,
+            sampled=False,
+            frame_indices=(),
+            submitted_files=(),
+            note="none",
         ),
         intent=ReviewIntent("p", "", "", "", (), (), (), "", ""),
         intent_raw=b"{}",
