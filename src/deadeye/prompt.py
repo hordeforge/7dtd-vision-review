@@ -19,8 +19,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .intent import ReviewIntent
+from .prompt_text import flat_label_text
 from .result import BASE_RUBRIC
-from .sampling import ClipMedia, flat_label_text
+from .sampling import ClipMedia
 
 PROMPT_VERSION = "3"
 # 2: the author statement became a fenced, data-only block.

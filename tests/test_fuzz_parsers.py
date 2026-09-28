@@ -61,11 +61,11 @@ from deadeye import config, mcp
 from deadeye.errors import DeadeyeError
 from deadeye.intent import load_intent, parse_intent
 from deadeye.json_safe import strict_json_numbers
+from deadeye.prompt_text import flat_label_text
 from deadeye.providers._http import _decode_envelope
 from deadeye.providers.base import float_setting, int_setting
 from deadeye.redaction import SENSITIVE_KEY_PARTS, redact
 from deadeye.result import BASE_RUBRIC, RESULT_KEYS, parse_model_json, validate_result
-from deadeye.sampling import flat_label_text
 
 FUZZ = settings(max_examples=300, deadline=None)
 

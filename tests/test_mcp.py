@@ -227,6 +227,31 @@ def test_doctor_tool_returns_the_same_shape_as_the_cli() -> None:
     )
 
 
+def test_doctor_tool_carries_the_effective_configuration_the_cli_prints() -> None:
+    """The CLI's doctor is the gateway's only diagnosis, so a caller driving
+    it over MCP must get the same facts: the tool result names the effective
+    provider, model, and timeout the terminal prints beside the provider
+    array, and never a credential value."""
+    from deadeye.surface import config_diagnosis
+
+    payload = json.loads(
+        _call("tools/call", {"name": "doctor", "arguments": {}})["result"]["content"][0]["text"]
+    )
+    assert payload["config"] == config_diagnosis()
+    assert payload["config"]["default_provider"] == {"value": "gemini"}
+    assert payload["config"]["load_error"] is None
+    assert set(payload["config"]) == {
+        "sources",
+        "load_error",
+        "note",
+        "example_path",
+        "default_provider",
+        "default_model",
+        "timeout_seconds",
+        "endpoint_problems",
+    }
+
+
 def test_schema_tool_returns_exactly_what_deadeye_schema_prints() -> None:
     from deadeye.surface import schema_document
 

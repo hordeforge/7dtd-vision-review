@@ -31,6 +31,7 @@ from .review import run_review
 from .surface import (
     PROVIDERS,
     build_preview_prompt,
+    config_diagnosis,
     provider_states,
     resolve_provider,
     resolve_timeout,
@@ -369,12 +370,8 @@ def _handle_prompt(args: argparse.Namespace) -> int:
 
 def _handle_doctor(args: argparse.Namespace) -> int:
     states = provider_states()
-    try:
-        sources = config.load().sources()
-    except (ValueError, DeadeyeError):
-        # A broken config is reported below, never a crash.
-        sources = []
-    load_failure = config.load_failure()
+    diagnosis = config_diagnosis()
+    load_failure = diagnosis["load_error"]
     if args.json:
         print(json.dumps(states, indent=2, sort_keys=True))
         # A config that failed to parse makes every provider read as
@@ -389,43 +386,42 @@ def _handle_doctor(args: argparse.Namespace) -> int:
     else:
         for state in states:
             print(f"{state['name']}: {state['state']} ({state['detail']})")
-        if sources:
-            print("config: " + ", ".join(str(path) for path in sources))
+        if diagnosis["sources"]:
+            print("config: " + ", ".join(diagnosis["sources"]))
         elif load_failure:
             # A file was found and refused, so "none (copy the example)" would
             # send the reader after a config file that is already there.
             print("config: unreadable, see the ERROR line on stderr")
         else:
-            print(f"config: none (copy {config.EXAMPLE_PATH} to config.local.toml)")
+            print(f"config: none (copy {diagnosis['example_path']} to config.local.toml)")
         if load_failure:
             # The same fault, on the same channel, in the same words as the
             # JSON form above: stdout carries the report, stderr carries what
             # went wrong.
             print(f"ERROR: {load_failure}", file=sys.stderr)
-        note = config.discovery_note()
-        if note:
-            print(f"config note: {note}")
+        if diagnosis["note"]:
+            print(f"config note: {diagnosis['note']}")
         # The effective top-level knobs, so a misconfiguration is visible
         # without reading the files; never any credential material here.
-        try:
-            print(f"default_provider: {resolve_provider(None)}")
-        except DeadeyeError as exc:
-            print(f"default_provider: not usable ({exc})")
-        default_model = config.text(("default_model",))
-        if default_model:
-            print(f"default_model: {default_model}")
-        try:
-            print(f"timeout_seconds: {resolve_timeout(None):g}")
-        except DeadeyeError as exc:
-            print(f"timeout_seconds: not usable ({exc})")
+        _print_setting("default_provider", diagnosis["default_provider"])
+        if diagnosis["default_model"]:
+            print(f"default_model: {diagnosis['default_model']}")
+        _print_setting("timeout_seconds", diagnosis["timeout_seconds"], fmt="g")
         # Per-provider endpoint overrides, validated here so a bad one is
         # visible at diagnosis time instead of at review start. Pure config
         # validation: nothing is contacted.
-        for name in sorted(PROVIDERS):
-            problem = config.endpoint_problem(("providers", name, "endpoint"))
-            if problem is not None:
-                print(f"endpoint: {problem}")
+        for problem in diagnosis["endpoint_problems"].values():
+            print(f"endpoint: {problem}")
     return 0
+
+
+def _print_setting(name: str, setting: dict[str, Any], fmt: str = "") -> None:
+    """One resolved setting as a doctor line, or the refusal that replaced it."""
+    if "error" in setting:
+        print(f"{name}: not usable ({setting['error']})")
+        return
+    value = setting["value"]
+    print(f"{name}: {value:{fmt}}" if fmt else f"{name}: {value}")
 
 
 def _handle_schema(args: argparse.Namespace) -> int:

@@ -89,7 +89,7 @@ Every tool result is one text content part carrying JSON, so a client reads
 | Tool | Text payload |
 |---|---|
 | `review` | the evidence envelope, identical to `deadeye review --json` |
-| `doctor` | `{"providers": [...]}`, the entries `deadeye doctor --json` prints as a bare array |
+| `doctor` | `{"providers": [...], "config": {...}}`, the entries `deadeye doctor --json` prints as a bare array plus the effective-configuration diagnosis it prints beside it |
 | `schema` | the schema document, identical to `deadeye schema` |
 | `prompt` | `{"prompt": "..."}`, the text `deadeye prompt` prints bare |
 

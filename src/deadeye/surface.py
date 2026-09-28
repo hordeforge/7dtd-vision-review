@@ -142,6 +142,51 @@ def provider_states() -> list[dict[str, Any]]:
     return states
 
 
+def _effective_setting(resolve: Callable[[Any], Any], unset: Any) -> dict[str, Any]:
+    """One resolved setting as `{"value": ...}`, or `{"error": ...}`.
+
+    A setting that cannot be resolved is a diagnosis, not a crash: the
+    question doctor answers is why the tool is unusable, so the refusal text
+    is the answer and the report still renders.
+    """
+    try:
+        return {"value": resolve(unset)}
+    except DeadeyeError as exc:
+        return {"error": str(exc)}
+
+
+def config_diagnosis() -> dict[str, Any]:
+    """The effective configuration, for `doctor` on every surface.
+
+    The single home both print, alongside `provider_states`: the CLI renders
+    these lines under its provider array, and the MCP `doctor` tool returns
+    the same document under `config`, so a caller driving the gateway over
+    MCP sees the same diagnosis a person gets at a terminal. The build is
+    here rather than in the CLI because the answer is a fact about the loaded
+    configuration, not a rendering of it; only the wording is a transport's.
+    Nothing here contacts a provider.
+    """
+    try:
+        sources = [str(path) for path in config.load().sources()]
+    except (ValueError, DeadeyeError):
+        # A file that was found and refused is reported below, never a crash.
+        sources = []
+    return {
+        "sources": sources,
+        "load_error": config.load_failure(),
+        "note": config.discovery_note(),
+        "example_path": str(config.EXAMPLE_PATH),
+        "default_provider": _effective_setting(resolve_provider, None),
+        "default_model": config.text(("default_model",)) or None,
+        "timeout_seconds": _effective_setting(resolve_timeout, None),
+        "endpoint_problems": {
+            name: problem
+            for name in sorted(PROVIDERS)
+            if (problem := config.endpoint_problem(("providers", name, "endpoint"))) is not None
+        },
+    }
+
+
 def schema_document() -> dict[str, Any]:
     """The intent and result schemas as one document.
 

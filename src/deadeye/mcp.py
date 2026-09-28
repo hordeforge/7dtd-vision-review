@@ -43,6 +43,7 @@ from .review import run_review as run_review_core
 from .surface import (
     PROVIDERS,
     build_preview_prompt,
+    config_diagnosis,
     provider_states,
     resolve_provider,
     resolve_timeout,
@@ -206,7 +207,8 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "doctor",
-        "description": "Report provider capability state without contacting any provider.",
+        "description": "Report provider capability state and the effective "
+        "configuration without contacting any provider.",
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
     },
     {
@@ -506,11 +508,12 @@ def _remember_result(
 
 def _call_doctor(params: dict[str, Any]) -> dict[str, Any]:
     _known_args("doctor", params)
-    # The same per-provider state `deadeye doctor --json` prints, from the same
+    # The same per-provider state `deadeye doctor --json` prints, and the same
+    # effective-configuration diagnosis it prints beside it, from the same
     # single home in surface.py: where the credential came from, never its
-    # value. The JSON-RPC tool result wraps that array under a `providers` key
+    # value. The JSON-RPC tool result wraps them under `providers` and `config`
     # so one tool result stays a JSON object.
-    return {"providers": provider_states()}
+    return {"providers": provider_states(), "config": config_diagnosis()}
 
 
 def _call_schema(params: dict[str, Any]) -> dict[str, Any]:

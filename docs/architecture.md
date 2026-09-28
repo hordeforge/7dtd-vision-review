@@ -78,7 +78,7 @@ platform's newline translation cannot rewrite it, and `post_json` serializes
 its body with `json.dumps`, whose `ensure_ascii` default holds a request
 carrying a non-ASCII filename to ASCII on the wire. Filenames and the intent
 reach the prompt through
-`flat_label_text`, which replaces every non-printable character (including
+`prompt_text.flat_label_text`, which replaces every non-printable character (including
 category Cf: bidi controls, zero-width joiners) with a space so a name cannot
 forge a label-shaped line. Both presentation streams are bound to UTF-8 with
 `backslashreplace` in `_streams.py`: under a C or POSIX locale Python would

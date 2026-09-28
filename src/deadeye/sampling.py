@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Literal
 
 from .errors import DeadeyeError
+from .prompt_text import flat_label_text
 
 # The one suffix -> MIME table; the accepted-suffix sets below are derived
 # from it so the two can never drift apart.
@@ -360,25 +361,6 @@ def _evenly_spaced_indices(available: int, count: int) -> tuple[int, ...]:
     if count == 1:
         return (0,)
     return tuple(sorted(round(i * (available - 1) / (count - 1)) for i in range(count)))
-
-
-def flat_label_text(value: str) -> str:
-    """A filename made safe to interpolate into reviewer-prompt text.
-
-    Filenames are authored-local untrusted text that reaches the model both
-    outside the author-statement fence (attachment labels) and inside it (the
-    reference listing, the media summary). A name carrying a newline or any
-    other control character could forge extra label-shaped lines there; every
-    non-printable character becomes a space. Evidence keeps the true path;
-    only prompt-facing renderings are flattened.
-
-    `isprintable()` settles the common name on its own: a string with nothing
-    to flatten is returned unchanged, so the per-character Python walk runs
-    only for the hostile names this exists to catch.
-    """
-    if value.isprintable():
-        return value
-    return "".join(char if char.isprintable() else " " for char in value)
 
 
 def mime_for_suffix(suffix: str) -> str:

@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Any
 
 from .errors import DeadeyeError, UsageError
-from .sampling import flat_label_text
+from .prompt_text import flat_label_text
 
 INTENT_SCHEMA_VERSION = 1
 
@@ -95,7 +95,7 @@ DASH_FOLD = str.maketrans(dict.fromkeys(DASH_LOOKALIKES, "-"))
 def _line_safe(value: str) -> str:
     """`value` with every non-printable character flattened to a space.
 
-    The same rule filenames already pass through (`sampling.flat_label_text`),
+    The same rule filenames already pass through (`prompt_text.flat_label_text`),
     and authored prose needs it at least as much: these fields are interpolated
     into the author-statement block one per line, so an embedded newline
     forges lines the pipeline wrote. A `purpose` reading

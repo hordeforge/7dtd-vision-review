@@ -20,7 +20,8 @@ from typing import Any, Protocol
 
 from .. import config
 from ..errors import DeadeyeError
-from ..sampling import IMAGE_SUFFIXES, VIDEO_SUFFIXES, MediaKind, flat_label_text
+from ..prompt_text import flat_label_text
+from ..sampling import IMAGE_SUFFIXES, VIDEO_SUFFIXES, MediaKind
 
 
 @dataclass(frozen=True)

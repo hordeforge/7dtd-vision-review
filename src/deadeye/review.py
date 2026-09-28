@@ -32,6 +32,7 @@ from .errors import DeadeyeError, EvidenceWriteError, NoVerdictError, did_not_an
 from .evidence import build_envelope, ensure_writable, sha256_file, write_evidence
 from .intent import ReviewIntent, load_intent
 from .prompt import FRAME_TIMING_NOTE, PromptParts, build_prompt_parts
+from .prompt_text import flat_label_text
 from .providers import MediaPayload, ProviderLimits, ReviewRequest
 from .redaction import redact_json_text
 from .result import parse_model_json, validate_result
@@ -326,7 +327,7 @@ def _video_over_request_budget(media: sampling.ClipMedia, plan: _Plan) -> str:
     if video is None:  # unreachable: only called for a plan that took the video
         raise DeadeyeError(f"{media.source} holds no muxed video to replace")
     return (
-        f"muxed video {sampling.flat_label_text(video.name)} is "
+        f"muxed video {flat_label_text(video.name)} is "
         f"{plan.sizes[0]} bytes, over the provider's whole-request "
         "budget once the prompt rides with it; sampled frames instead"
     )

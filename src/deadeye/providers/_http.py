@@ -19,7 +19,7 @@ from typing import Any
 
 from ..errors import DeadeyeError, NoVerdictError, did_not_answer
 from ..json_safe import strict_json_numbers
-from ..sampling import flat_label_text
+from ..prompt_text import flat_label_text
 
 _REDIRECT_CODES = frozenset({301, 302, 303, 307, 308})
 # How much of a provider's error body may ride in a refusal line: enough to
