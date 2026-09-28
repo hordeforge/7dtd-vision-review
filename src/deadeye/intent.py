@@ -25,6 +25,7 @@ data-only declaration.
 from __future__ import annotations
 
 import json
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -60,9 +61,63 @@ MAX_INTENT_BYTES = 64 * 1024
 # refused wherever intent text is accepted.
 FENCE_MARKERS = ("-----BEGIN AUTHOR STATEMENT", "-----END AUTHOR STATEMENT")
 
+# Code points a model reads as the ASCII HYPHEN-MINUS the fence markers are
+# built from. A marker spelled with any of them holds no ASCII substring and
+# would pass a raw test while rendering as the real fence line to the model
+# that has to decide where the data-only block ends. Some have a compatibility
+# decomposition NFKC resolves (FULLWIDTH HYPHEN-MINUS, SMALL EM DASH) and
+# some have none (HYPHEN, NON-BREAKING HYPHEN, MINUS SIGN), so the check folds
+# in both directions rather than trusting normalization to have reached a
+# particular one. Spelled as code points: this inventory is by definition the
+# set of look-alikes the project's own confusable lint rule flags, so writing
+# the characters literally would make the constant unreadable.
+#
+# Folding happens only inside `_carries_fence_marker`; the value that reaches
+# the prompt is the author's own text, unmodified.
+DASH_LOOKALIKES = frozenset(
+    {
+        chr(0x2010),  # HYPHEN
+        chr(0x2011),  # NON-BREAKING HYPHEN
+        chr(0x2012),  # FIGURE DASH
+        chr(0x2212),  # MINUS SIGN
+        chr(0xFE58),  # SMALL EM DASH (NFKC decomposes this to EM DASH)
+        chr(0xFE63),  # SMALL HYPHEN-MINUS
+        chr(0x30FC),  # KATAKANA-HIRAGANA PROLONGED SOUND MARK
+    }
+)
+"""Characters a reviewer model renders as a short dash, mapped to HYPHEN-MINUS."""
+
+DASH_FOLD = str.maketrans(dict.fromkeys(DASH_LOOKALIKES, "-"))
+
 
 def _carries_fence_marker(value: str) -> bool:
-    return any(marker in value for marker in FENCE_MARKERS)
+    """Whether `value` carries an author-statement fence marker in any spelling.
+
+    The raw substring test is not enough on its own. The marker is judged by a
+    language model reading the rendered prompt, not by this module, and a model
+    reads U+2010 HYPHEN, U+2011 NON-BREAKING HYPHEN, and U+FF0D FULLWIDTH
+    HYPHEN-MINUS as the dashes the fence is built from. A value carrying
+    `-----\uff0dBEGIN AUTHOR STATEMENT` therefore holds no ASCII marker and
+    passes the raw test, yet reads at the model as the fence opening, and
+    everything after it sits outside the data-only block the instruction
+    declares.
+
+    Compatibility decomposition closes the width class, and `DASH_LOOKALIKES`
+    closes the ones normalization preserves: together they fold every spelling
+    of the marker's dashes onto ASCII, so the match sees the characters a
+    reader sees. Every marker is pure ASCII, so this leaves an honest ASCII
+    string identical. Only the check widens: nothing that parses today is
+    rejected, and no parsed value is rewritten.
+
+    It does not fold cross-script letter lookalikes (a Cyrillic A for the Latin
+    one), which would need a per-character confusable table. The marker is a
+    control the author of a local intent file would have to work to reach, and
+    the structural defence is the two-role split in `prompt.py`, which keeps
+    authored text out of the instruction's slot whatever the text says.
+    """
+    normalized = value.translate(DASH_FOLD)
+    normalized = unicodedata.normalize("NFKC", normalized).translate(DASH_FOLD)
+    return any(marker in normalized for marker in FENCE_MARKERS)
 
 
 def _refuse_fence_marker(key: str, origin: str) -> DeadeyeError:
