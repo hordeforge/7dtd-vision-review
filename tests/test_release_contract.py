@@ -336,6 +336,12 @@ def test_sdist_is_a_complete_source_tree(built_artifacts: dict[str, list[str]]) 
         f"{SDIST_PREFIX}/CHANGELOG.md",
         f"{SDIST_PREFIX}/SECURITY.md",
         f"{SDIST_PREFIX}/CONTRIBUTING.md",
+        # The shipped suite reads these two out of the tree: ci.yml for the
+        # interpreter matrix behind the classifiers, release.yml for the
+        # checksum manifest. Without them the tarball's own test run fails.
+        f"{SDIST_PREFIX}/.github/workflows/ci.yml",
+        f"{SDIST_PREFIX}/.github/workflows/release.yml",
+        f"{SDIST_PREFIX}/.github/actions/test-suite/action.yml",
     )
     missing = [name for name in must_ship if name not in members]
     assert not missing, (
@@ -425,6 +431,27 @@ def test_wheel_classifiers_claim_exactly_the_tested_interpreters(
     assert "License-Expression: MIT" in built_artifacts["metadata"], (
         "the wheel must state the license as an SPDX expression, next to the "
         "license text it ships in dist-info/licenses"
+    )
+
+
+def test_readme_install_url_names_the_current_release() -> None:
+    """The documented install command must download the release it documents.
+
+    README hands the reader a literal wheel URL, so a tagged release leaves
+    that URL one version behind unless the bump touches it. The command then
+    installs the previous release with no error anywhere, which is exactly the
+    kind of drift a packaging contract is meant to catch.
+    """
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    wheel = f"{SDIST_PREFIX}-py3-none-any.whl"
+    assert f"releases/download/v{__version__}/{wheel}" in readme, (
+        f"README's install URL does not name v{__version__}/{wheel}; the "
+        "documented command would install the previous release"
+    )
+    stale = re.findall(r"releases/download/(v\d+\.\d+\.\d+)/", readme)
+    assert set(stale) <= {f"v{__version__}"}, (
+        f"README points at several releases ({sorted(set(stale))}); the install "
+        "command must name the current one"
     )
 
 

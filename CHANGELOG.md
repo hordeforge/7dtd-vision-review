@@ -330,6 +330,15 @@ required (`CONTRIBUTING.md`, "Changing a contract").
 
 ### Fixed
 
+- The sdist now ships the CI workflows, so its own test suite runs from an
+  unpacked tarball. Before: `MANIFEST.in` grafted `tests/`, and
+  `tests/test_release_contract.py` reads the interpreter matrix out of
+  `.github/workflows/ci.yml` and the checksum steps out of
+  `.github/workflows/release.yml`, so `pytest tests` in the tarball died on
+  `no setup-uv step found; the workflows cannot have changed as expected`
+  while the checkout passed. After: `.github` is grafted into the sdist, the
+  three files the suite reads are named in the sdist file-set assertion, and
+  the whole suite passes from an unpacked release tarball.
 - The e2e's fixture modlet is no longer left half-built by a run that dies
   partway. Before: `.suite`, the marker the next run tests to decide whether
   to reuse the fixture, was written before the intent file it names, so a run

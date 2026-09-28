@@ -9,4 +9,9 @@ include src/deadeye/config.local.toml.example
 graft tests
 graft docs
 graft scripts
+# tests/test_release_contract.py reads the CI matrix and the release job out of
+# .github to pin the wheel classifiers and the release checksums, so the
+# shipped suite fails from a tarball that leaves those out. Graft both halves:
+# the workflows, and the composite action ci.yml calls.
+graft .github
 global-exclude __pycache__ *.py[cod]
