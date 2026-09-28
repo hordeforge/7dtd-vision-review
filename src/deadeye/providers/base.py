@@ -14,12 +14,12 @@ a supply-chain surface a consuming mod author never has to audit.
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 from typing import Any, Protocol
 
 from .. import config
 from ..errors import DeadeyeError, no_verdict
+from ..json_safe import finite_float
 from ..prompt_text import flat_label_text
 from ..sampling import IMAGE_SUFFIXES, VIDEO_SUFFIXES, MediaKind
 
@@ -284,7 +284,9 @@ def float_setting(
     in TOML) is refused rather than passed through: it would reach the
     request body as a bare `NaN`/`Infinity` token that no JSON reader on the
     provider side accepts, and refusing beats sending a silently different
-    parameter than the one configured.
+    parameter than the one configured. A TOML integer too large for a double
+    is refused the same way, by name, rather than raising out of the
+    narrowing that a refusal was supposed to replace.
 
     `minimum` and `maximum`, when given, are the inclusive range the
     provider's own API documents for that knob (`temperature` 0 to 2,
@@ -297,13 +299,9 @@ def float_setting(
     value = config.value(("providers", provider, key))
     if value is None:
         return fallback
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, (int, float))
-        or not math.isfinite(float(value))
-    ):
+    number = finite_float(value)
+    if number is None:
         raise _unusable(provider, key, value, "a finite number")
-    number = float(value)
     if minimum is not None and number < minimum:
         raise _unusable(provider, key, value, _range_text(minimum, maximum))
     if maximum is not None and number > maximum:

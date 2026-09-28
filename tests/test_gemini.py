@@ -383,7 +383,9 @@ def test_an_unusable_temperature_is_refused_before_submission(monkeypatch, isola
     from deadeye import config
 
     monkeypatch.setenv("GEMINI_API_KEY", "k")
-    for value in ("nan", "inf", '"hot"'):
+    # A TOML integer too large for a double narrows nowhere: `float()` on it
+    # raises rather than answering, so it has to be refused by name too.
+    for value in ("nan", "inf", '"hot"', "9" * 400):
         (isolated_config / "config.local.toml").write_text(
             f"[providers.gemini]\ntemperature = {value}\n", encoding="utf-8"
         )

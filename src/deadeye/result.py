@@ -17,12 +17,12 @@ wall-clock time.
 from __future__ import annotations
 
 import json
-import math
 import re
 from dataclasses import dataclass
 from typing import Any
 
 from .errors import DeadeyeError
+from .json_safe import finite_float
 
 RUBRIC_VERSION = "1"
 
@@ -81,25 +81,27 @@ def _moment(value: Any, *, non_negative: bool) -> list[float] | None:
     second is the natural way to name one frame, and refusing it would put a
     hard failure on a legitimate answer. Returns None when the value is
     present but neither shape is valid. Non-finite floats (`NaN`, the
-    infinities) are refused: they would survive into evidence JSON that no
-    strict JSON reader can parse.
+    infinities) and integers too large for a double are refused: the first
+    would survive into evidence JSON that no strict JSON reader can parse,
+    and the second cannot be narrowed at all.
     """
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
-        if not math.isfinite(value) or (non_negative and value < 0):
+    single = finite_float(value)
+    if single is not None:
+        if non_negative and single < 0:
             return None
-        return [float(value), float(value)]
-    if (
-        isinstance(value, list)
-        and len(value) == 2
-        and all(
-            isinstance(bound, (int, float)) and not isinstance(bound, bool) and math.isfinite(bound)
-            for bound in value
-        )
-        and (not non_negative or value[0] >= 0)
-        and value[0] <= value[1]
-    ):
-        return [float(value[0]), float(value[1])]
-    return None
+        return [single, single]
+    if not isinstance(value, list) or len(value) != 2:
+        return None
+    start = finite_float(value[0])
+    end = finite_float(value[1])
+    if start is None or end is None:
+        return None
+    # Ordered on the values as written, not on the doubles they narrow to: two
+    # distinct frame indices past 2^53 are the same float, and a reversed pair
+    # has to be refused on the integers the model actually wrote.
+    if (non_negative and value[0] < 0) or value[0] > value[1]:
+        return None
+    return [start, end]
 
 
 def parse_model_json(raw_text: str) -> dict[str, Any]:

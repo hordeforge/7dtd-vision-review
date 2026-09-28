@@ -10,7 +10,6 @@ protocol; the transports own presentation and framing.
 
 from __future__ import annotations
 
-import math
 import os
 from collections.abc import Callable
 from pathlib import Path
@@ -19,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 from . import config, sampling
 from .errors import DeadeyeError
 from .intent import CAMERA_PATHS, INTENT_SCHEMA_VERSION, load_intent
+from .json_safe import finite_float
 from .prompt import build_prompt, preview_media
 from .providers import FakeProvider, GeminiProvider, NvidiaProvider
 from .result import BASE_RUBRIC, RESULT_KEYS, RUBRIC_VERSION
@@ -70,10 +70,8 @@ def resolve_timeout(raw: Any) -> float:
     value = raw if raw is not None else config.value(("timeout_seconds",))
     if value is None:
         return config.DEFAULT_TIMEOUT_SECONDS
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise DeadeyeError(f"timeout must be a positive number of seconds, not {value!r}")
-    seconds = float(value)
-    if not math.isfinite(seconds) or seconds <= 0:
+    seconds = finite_float(value)
+    if seconds is None or seconds <= 0:
         raise DeadeyeError(f"timeout must be a positive number of seconds, not {value!r}")
     return seconds
 

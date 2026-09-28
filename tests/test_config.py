@@ -188,7 +188,7 @@ def test_timeout_resolution_flag_over_config_over_default(isolated_config) -> No
 
 
 def test_timeout_refuses_unusable_values_instead_of_failing_late(isolated_config) -> None:
-    for bad in (0, -1, float("nan"), float("inf"), True):
+    for bad in (0, -1, float("nan"), float("inf"), True, 10**400):
         with pytest.raises(DeadeyeError, match="positive number of seconds"):
             resolve_timeout(bad)
     _write(isolated_config, "config.toml", 'timeout_seconds = "120"\n')

@@ -135,6 +135,36 @@ def test_non_finite_moments_are_refused() -> None:
         validate_result({**VALID, "issues": [{"description": "x", "at_frame": [0, float("inf")]}]})
 
 
+def test_moments_too_large_for_a_double_are_refused_not_crashed() -> None:
+    # json.loads hands a bare integer literal to Python as an int of any size,
+    # and both math.isfinite() and float() raise OverflowError on one past
+    # 2^1024. A model answering `at_frame` with 400 digits must land on the
+    # refusal, not unwind the validator on a submission that has been billed.
+    huge = 10**400
+    for moment in (huge, [0, huge], [huge, huge]):
+        with pytest.raises(DeadeyeError, match="at_frame must be"):
+            validate_result({**VALID, "issues": [{"description": "x", "at_frame": moment}]})
+        with pytest.raises(DeadeyeError, match="at_seconds must be"):
+            validate_result({**VALID, "issues": [{"description": "x", "at_seconds": moment}]})
+
+
+def test_a_moment_pair_is_ordered_on_the_values_as_written() -> None:
+    # Past 2^53 two distinct integers are the same double, so ordering the
+    # narrowed floats would wave through a reversed pair. The comparison is
+    # on what the model wrote.
+    with pytest.raises(DeadeyeError, match="at_frame must be"):
+        validate_result(
+            {
+                **VALID,
+                "issues": [{"description": "x", "at_frame": [2**53 + 1, 2**53]}],
+            }
+        )
+    result = validate_result(
+        {**VALID, "issues": [{"description": "x", "at_frame": [2**53, 2**53 + 1]}]}
+    )
+    assert result["issues"][0]["at_frame"] == [float(2**53), float(2**53)]
+
+
 def test_the_singular_moment_aliases_normalize() -> None:
     result = validate_result({**VALID, "issues": [{"description": "pops", "frame": 9}]})
     assert result["issues"][0]["at_frame"] == [9.0, 9.0]
