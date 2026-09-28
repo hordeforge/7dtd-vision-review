@@ -12,13 +12,13 @@ from __future__ import annotations
 import contextlib
 import http.client
 import json
-import math
 import time
 import urllib.error
 import urllib.request
 from typing import Any
 
 from ..errors import DeadeyeError, did_not_answer
+from ..json_safe import strict_json_numbers
 from ..sampling import flat_label_text
 
 _REDIRECT_CODES = frozenset({301, 302, 303, 307, 308})
@@ -56,25 +56,6 @@ class _NoRedirects(urllib.request.HTTPRedirectHandler):
 
 
 _OPENER = urllib.request.build_opener(_NoRedirects)
-
-
-def _strict_json_numbers(value: Any) -> Any:
-    """Neutralize `NaN`/`Infinity` leaves a provider emitted.
-
-    Python's JSON parser accepts those bare tokens although RFC 8259 does
-    not, and an extreme exponent (`1e999`) silently parses to infinity. Left
-    in place they would survive into evidence, stdout, and MCP payloads that
-    no strict reader can parse. They become null instead of refusing the
-    whole envelope: the verdict text is billable, usage metadata is not worth
-    discarding it over. Finite numbers pass through untouched.
-    """
-    if isinstance(value, float) and not math.isfinite(value):
-        return None
-    if isinstance(value, dict):
-        return {key: _strict_json_numbers(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_strict_json_numbers(item) for item in value]
-    return value
 
 
 def _decode_envelope(provider: str, raw: bytes, headers: Any) -> str:
@@ -197,7 +178,12 @@ def post_json(
             # Valid JSON that is not an object (a bare array, a string) would
             # otherwise crash an adapter's key lookup with a raw traceback.
             raise DeadeyeError(f"provider {provider!r} returned a non-object JSON envelope")
-        return {key: _strict_json_numbers(value) for key, value in envelope.items()}
+        # A `NaN` or `1e999` leaf a provider emitted would survive into
+        # evidence, stdout, and MCP payloads no strict reader can parse; it
+        # becomes null rather than refusing the whole envelope, because the
+        # verdict text is billable and the usage metadata is not worth
+        # discarding it over.
+        return {key: strict_json_numbers(value) for key, value in envelope.items()}
     except urllib.error.HTTPError as exc:
         # A body that cannot be read must degrade to the status line, not
         # to an unbound name when the message below formats it. The read

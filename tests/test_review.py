@@ -628,6 +628,31 @@ def test_the_request_budget_counts_base64_wire_size_not_raw_bytes(clip_dir, inte
     assert provider.requests == []
 
 
+class _PromptBudgetFake(FakeProvider):
+    """A per-request budget that fits the encoded media and nothing beside it."""
+
+    @property
+    def limits(self) -> ProviderLimits:
+        declared = self._limits
+        return ProviderLimits(
+            suffixes=declared.suffixes,
+            max_bytes=512,
+            max_frames=declared.max_frames,
+            accepts_video=declared.accepts_video,
+            max_video_bytes=declared.max_video_bytes,
+        )
+
+
+def test_the_request_budget_counts_the_prompt_that_rides_the_request(clip_dir, intent_path) -> None:
+    """The prompt is part of the same JSON body as the media: a budget that
+    covers the 64 encoded media bytes but not the prompt beside them must
+    refuse here, not after an upload the provider would reject with 400."""
+    provider = _PromptBudgetFake()
+    with pytest.raises(DeadeyeError, match=r"prompt included"):
+        run_review(clip_dir, provider=provider, intent_path=intent_path, allow_network=True)
+    assert provider.requests == []
+
+
 def test_an_over_budget_request_is_refused_before_any_attachment_is_read(
     clip_dir, intent_path, monkeypatch
 ) -> None:

@@ -182,6 +182,7 @@ def sample(
     max_frames: int | None,
     video_capable: bool,
     max_video_bytes: int | None,
+    reserved_wire_bytes: int = 0,
 ) -> SamplingRecord:
     """Pick the media to submit under a provider's limits.
 
@@ -191,27 +192,37 @@ def sample(
     keeping the first and last frame. The record names every file that is
     actually sent and any dropping that happened, so the evidence can say
     exactly what reached the model.
+
+    `reserved_wire_bytes` is the encoded size of media already bound for the
+    same request (the intent's reference assets). The budget is a whole-request
+    budget, so those bytes are spent before the video decision: a video that
+    fits only on its own would be picked here and then push the request over
+    the cap, refusing the submission outright where the frame sequence would
+    have fit.
     """
     if media.video is not None and video_capable:
         size = file_size(media.video)
         # The budget names what the request carries, and the request carries
         # the video base64-encoded: compare the encoded size, never the raw.
         wire = base64_wire_bytes(size)
-        if max_video_bytes is not None and wire > max_video_bytes:
+        figures = f"{wire} as submitted base64"
+        if reserved_wire_bytes:
+            figures += f" plus {reserved_wire_bytes} for the reference media in the same request"
+        if max_video_bytes is not None and wire + reserved_wire_bytes > max_video_bytes:
             if not media.frames:
                 # The provider ingests video fine; the file is simply over its
                 # byte budget and there is nothing to fall back to. Naming the
                 # capability instead would send the operator hunting for a
                 # different provider when the clip is what must change.
                 raise DeadeyeError(
-                    f"{media.video} is {size} bytes ({wire} as submitted base64), "
+                    f"{media.video} is {size} bytes ({figures}), "
                     f"over the provider's "
                     f"{max_video_bytes}-byte video budget, and there are no "
                     "frames to sample instead; shorten or recompress the clip"
                 )
             note = (
                 f"muxed video {flat_label_text(media.video.name)} is {size} bytes "
-                f"({wire} as submitted base64), over "
+                f"({figures}), over "
                 f"the provider's {max_video_bytes}-byte video budget; sampled frames instead"
             )
         else:

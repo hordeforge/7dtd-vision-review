@@ -46,7 +46,10 @@ JSON output. A muxed video goes inline when it fits the ~20 MB per-request
 budget; otherwise the sampled frame sequence goes as multi-image input — the
 broadly supported fallback every vision-chat API shares. Byte budgets count
 what the wire carries: every adapter submits inline base64, so 3 raw bytes
-are charged as 4, and the local budget checks compare the encoded size.
+are charged as 4, and the local budget checks compare the encoded size. The
+budget bounds the whole request, so reference media and the reviewer prompt
+are counted against it too, and a muxed video that fits alone but not beside
+them falls back to the frame sequence instead of overrunning the request.
 
 The key arrives from `GEMINI_API_KEY` or `GOOGLE_API_KEY`, travels in a header
 (never a query string), and is never printed, logged, or written into

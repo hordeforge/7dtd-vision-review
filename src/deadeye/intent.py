@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from .errors import DeadeyeError
+from .json_safe import strict_json_numbers
 
 INTENT_SCHEMA_VERSION = 1
 
@@ -327,6 +328,11 @@ def redact_json_text(text: str, parts: tuple[str, ...] = SENSITIVE_KEY_PARTS) ->
     re-serialized; anything else (model prose, a bare scalar, broken or
     truncated JSON) comes back byte-identical: there is nothing
     structure-shaped to clean, and guessing further would rewrite the record.
+
+    A non-finite number (`NaN`, `1e999`) is neutralized on the way out:
+    re-serializing it would write the bare `NaN`/`Infinity` token that RFC
+    8259 does not define, so the stored evidence document could no longer be
+    read back by any strict parser.
     """
     stripped = text.strip()
     if not stripped or stripped[0] not in "{[":
@@ -337,4 +343,4 @@ def redact_json_text(text: str, parts: tuple[str, ...] = SENSITIVE_KEY_PARTS) ->
         return text
     if not isinstance(parsed, (dict, list)):
         return text
-    return json.dumps(redact(parsed, parts))
+    return json.dumps(strict_json_numbers(redact(parsed, parts)))

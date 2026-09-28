@@ -21,6 +21,7 @@ than averaged.
 
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -112,6 +113,17 @@ def run_review(
     media_summary = _media_summary(submission.record, submission.total_bytes)
     frame_note = _frame_timing_note(submission.record)
     prompt = build_prompt(intent, media_summary=media_summary, frame_timing_note=frame_note)
+    # The budget names the whole request, and the prompt rides the same
+    # request as the media: count its encoded bytes too. A media-only total
+    # waves through a submission the provider refuses with 400 after the full
+    # upload has already crossed the network.
+    _enforce_wire_budget(
+        submission.total_bytes,
+        submission.wire_bytes + _json_string_bytes(prompt),
+        provider.limits.max_bytes,
+        provider.name,
+        detail="as submitted base64, prompt included",
+    )
 
     payload_list: list[MediaPayload] = []
     for (path, kind), data in zip(submission.files, submission.file_bytes, strict=True):
@@ -244,6 +256,8 @@ class _Submission:
     entries: tuple[dict[str, Any], ...]
     """The envelope's `media` entries, hashed once here."""
     total_bytes: int
+    wire_bytes: int
+    """The same total as the media reach the wire as, once base64-encoded."""
     file_bytes: tuple[bytes, ...]
     """Cached file contents, one per entry, read during hashing."""
 
@@ -270,11 +284,15 @@ def _prepare_submission(
                 f"a format provider {provider_name!r} accepts ({', '.join(limits.suffixes)})"
             )
 
+    # Reference media rides the same request as the candidate, so its encoded
+    # size is already spent when the video budget decides what to submit.
+    reference_sizes = [sampling.file_size(reference.path) for reference in intent.references]
     record = sampling.sample(
         media,
         max_frames=limits.max_frames,
         video_capable=limits.accepts_video,
         max_video_bytes=limits.max_video_bytes,
+        reserved_wire_bytes=sum(base64_wire_bytes(size) for size in reference_sizes),
     )
     files: list[tuple[str, sampling.MediaKind]] = [
         *record.submitted_files,
@@ -284,7 +302,8 @@ def _prepare_submission(
     # particular, references may total far more than a hosted provider's
     # request limit; retaining all of them just to refuse the request wastes
     # disk I/O and can create a large, avoidable memory spike.
-    declared_sizes = [sampling.file_size(Path(path)) for path, _ in files]
+    submitted_sizes = [sampling.file_size(Path(path)) for path, _ in record.submitted_files]
+    declared_sizes = submitted_sizes + reference_sizes
     _enforce_request_budget(declared_sizes, limits.max_bytes, provider_name)
     # Per entry, not per unique path: the same file listed twice (a repeated
     # reference, a reference inside the clip) is uploaded twice, and the
@@ -314,20 +333,50 @@ def _prepare_submission(
         files=tuple(files),
         entries=tuple(entries),
         total_bytes=total_bytes,
+        wire_bytes=sum(base64_wire_bytes(size) for _, size, _ in hashed),
         file_bytes=cached_bytes,
     )
 
 
 def _enforce_request_budget(sizes: list[int], max_bytes: int | None, provider_name: str) -> None:
     """Refuse encoded media that cannot fit in one provider request."""
-    total_bytes = sum(sizes)
-    wire_bytes = sum(base64_wire_bytes(size) for size in sizes)
+    _enforce_wire_budget(
+        sum(sizes),
+        sum(base64_wire_bytes(size) for size in sizes),
+        max_bytes,
+        provider_name,
+    )
+
+
+def _enforce_wire_budget(
+    raw_bytes: int,
+    wire_bytes: int,
+    max_bytes: int | None,
+    provider_name: str,
+    *,
+    detail: str = "as submitted base64",
+) -> None:
+    """Refuse a request whose encoded bytes exceed what the provider accepts.
+
+    `detail` names what the encoded total covers, so a refusal never claims a
+    prompt it did not count.
+    """
     if max_bytes is not None and wire_bytes > max_bytes:
         raise DeadeyeError(
-            f"submission is {total_bytes} bytes ({wire_bytes} as submitted base64); "
+            f"submission is {raw_bytes} bytes ({wire_bytes} {detail}); "
             f"provider {provider_name!r} accepts at most {max_bytes} per request. "
             "Sample fewer frames, shorten the clip, or drop reference media"
         )
+
+
+def _json_string_bytes(text: str) -> int:
+    """The bytes `text` occupies inside a JSON request body.
+
+    `json.dumps` escapes every non-ASCII character, so the request carries
+    the escaped length, not `len(text.encode("utf-8"))`: an intent written in
+    any non-Latin script would otherwise be undercounted by its own budget.
+    """
+    return len(json.dumps(text).encode("utf-8"))
 
 
 def _media_summary(

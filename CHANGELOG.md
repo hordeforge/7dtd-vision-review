@@ -55,6 +55,16 @@ left to be discovered by a failing parse downstream.
   An empty occupant older than 60 seconds is reclaimed, so a rerun converges
   on the same path; a placeholder a live writer still holds, and any
   published envelope however old, are refused as before.
+- The per-request byte budget now counts the reviewer prompt and the
+  reference media that ride the same request, not the candidate media alone.
+  A submission that only fits on the media's encoded size was accepted
+  locally and refused by the provider after the upload; a muxed video that
+  fits alone but not beside the references now falls back to the sampled
+  frame sequence instead of overrunning the request. No envelope, schema, or
+  CLI surface changes.
+- A raw provider response preserved with `--keep-raw-response` no longer
+  writes a bare `NaN`/`Infinity` token (RFC 8259 defines neither) into the
+  evidence document, so a strict reader can parse that document back.
 
 ### Changed
 

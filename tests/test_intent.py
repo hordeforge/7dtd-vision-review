@@ -264,3 +264,23 @@ def test_redact_json_text_leaves_prose_scalars_and_broken_json_byte_identical() 
 def test_redact_json_text_redacts_surrounding_whitespace_document() -> None:
     cleaned = json.loads(redact_json_text('  \n{"summary": "s", "secret": "v"}\n  '))
     assert cleaned == {"summary": "s"}
+
+
+def test_redact_json_text_writes_no_bare_non_finite_token() -> None:
+    # Re-serializing a document a provider answered with must not reintroduce
+    # the bare `NaN`/`Infinity` tokens RFC 8259 does not define: the evidence
+    # document carrying it would be unreadable by any strict parser.
+    cleaned = redact_json_text(
+        '{"summary": "s", "ratio": NaN, "burst": 1e999, "notes": [{"cost": -Infinity}]}'
+    )
+    assert "NaN" not in cleaned and "Infinity" not in cleaned
+    assert json.loads(cleaned, parse_constant=_refuse_constant) == {
+        "summary": "s",
+        "ratio": None,
+        "burst": None,
+        "notes": [{"cost": None}],
+    }
+
+
+def _refuse_constant(name: str) -> object:
+    raise AssertionError(f"non-finite token {name} reached the stored document")

@@ -229,6 +229,30 @@ def test_a_video_exactly_at_the_encoded_budget_is_submitted(tmp_path) -> None:
     assert record.submitted_files == ((str(media.video), "video"),)
 
 
+def test_reference_media_in_the_same_request_spends_the_video_budget(tmp_path) -> None:
+    """The budget bounds the whole request, and reference media rides it: a
+    video that fits alone but not beside the references must fall back to the
+    frame sequence, not be picked and then have the request refused."""
+    clip = tmp_path / "clip"
+    clip.mkdir()
+    (clip / "frame-0000.png").write_bytes(b"f")
+    (clip / "frame-0001.png").write_bytes(b"f")
+    (clip / "clip.mp4").write_bytes(b"123456789abc")  # 12 raw bytes -> 16 encoded
+    record = sample(
+        discover(clip),
+        max_frames=4,
+        video_capable=True,
+        max_video_bytes=16,
+        reserved_wire_bytes=4,  # one small reference image, base64-encoded
+    )
+    assert record.submitted_files == (
+        (str(clip / "frame-0000.png"), "frame"),
+        (str(clip / "frame-0001.png"), "frame"),
+    )
+    assert "plus 4 for the reference media in the same request" in record.note
+    assert "over the provider's 16-byte video budget" in record.note
+
+
 def test_an_over_encoded_budget_video_without_frames_refuses_before_submission(
     tmp_path,
 ) -> None:
