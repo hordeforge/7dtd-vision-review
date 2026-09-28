@@ -244,6 +244,32 @@ def test_a_truncated_generation_is_a_refusal_not_a_half_verdict(monkeypatch, htt
         GeminiProvider().review(_review_request())
 
 
+def test_a_refusal_on_an_answer_that_arrived_says_the_attempt_may_have_billed(
+    monkeypatch, http_opener
+) -> None:
+    """The generation ran, so the refusal is a spent submission, and says so.
+
+    A deduplicating transport (the MCP idempotency ledger) decides a key is
+    spent from the exception type alone, and an operator who retries needs to
+    know the media may already have been charged for. Both come from the same
+    one home the rest of the post-answer refusals use, so the type and the
+    warning cannot be had separately.
+    """
+    import json as json_module
+
+    from deadeye.errors import NoVerdictError
+
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    envelope = {
+        "candidates": [
+            {"finishReason": "SAFETY", "content": {"parts": [{"text": '{"confidence": 0.9'}]}}
+        ]
+    }
+    http_opener(lambda request, timeout: _FakeResponse(json_module.dumps(envelope).encode()))
+    with pytest.raises(NoVerdictError, match="not a retry of this one"):
+        GeminiProvider().review(_review_request())
+
+
 def test_a_complete_generation_reports_usage_and_the_model_it_came_from(
     monkeypatch, http_opener
 ) -> None:

@@ -366,6 +366,31 @@ def test_an_invalid_choice_list_is_a_refusal_not_an_attribute_error(
         NvidiaProvider().review(ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0))
 
 
+def test_a_refusal_on_an_answer_that_arrived_says_the_attempt_may_have_billed(
+    monkeypatch, http_opener
+) -> None:
+    """The generation ran, so the refusal is a spent submission, and says so.
+
+    A deduplicating transport (the MCP idempotency ledger) decides a key is
+    spent from the exception type alone, and an operator who retries needs to
+    know the media may already have been charged for. Both come from the same
+    one home the rest of the post-answer refusals use, so the type and the
+    warning cannot be had separately.
+    """
+    from deadeye.errors import NoVerdictError
+
+    _answer(
+        monkeypatch,
+        http_opener,
+        {
+            "model": "m",
+            "choices": [{"finish_reason": "content_filter", "message": {"content": "{"}}],
+        },
+    )
+    with pytest.raises(NoVerdictError, match="not a retry of this one"):
+        NvidiaProvider().review(ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0))
+
+
 @pytest.mark.skipif(
     os.environ.get("DEADEYE_NETWORK_TESTS") != "nvidia" or not NvidiaProvider().is_configured(),
     reason="opt-in live run: set DEADEYE_NETWORK_TESTS=nvidia and configure an "

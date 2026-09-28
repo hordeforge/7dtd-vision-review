@@ -146,6 +146,13 @@ review kinds reads one shape:
 `ADVISORY_NOTE` rides every result: a model critique cannot mark an asset
 accepted.
 
+`at_frame` counts the frames that were submitted, in attachment order, because
+that is what the model was shown and all it can count. The clip's own frame
+order is a different sequence, and the envelope maps one onto the other: read
+`sampling.submitted_frame_indices[at_frame]` for the clip position of the
+frame a critique names. A video submission carries no frame order and takes
+`at_seconds` instead.
+
 ## Evidence
 
 `--output` writes (and `--json` prints) one hash-addressed envelope: SHA-256
@@ -236,8 +243,9 @@ client that retries its own call with the same key and the same arguments
 gets the first attempt's answer back without submitting anything, for the
 life of the server process. That covers every submission that reached the
 provider, verdict or not, so a timeout, an answer the adapter cannot use (no
-candidate, no text, a body that does not parse), or one that failed result
-validation replays its refusal rather than billing the media twice. A status
+candidate, no text, a body that does not parse, an envelope no verdict can be
+read out of), or one that failed result validation replays its refusal
+rather than billing the media twice. A status
 the provider refused before running the review (a rejected credential, a
 quota, a bad request) spends nothing and leaves the key free. See
 [docs/mcp-server.md](mcp-server.md).

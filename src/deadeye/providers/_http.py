@@ -144,12 +144,12 @@ def _read_response_body(
             raise did_not_answer(provider, timeout_seconds)
         raw = _read_chunk(response, min(64 * 1024, remaining))
         if not isinstance(raw, bytes):
-            raise DeadeyeError(f"provider {provider!r} returned a non-bytes response body")
+            raise no_verdict(f"provider {provider!r} returned a non-bytes response body")
         if not raw:
             return b"".join(chunks)
         chunks.append(raw)
         remaining -= len(raw)
-    raise DeadeyeError(
+    raise no_verdict(
         f"provider {provider!r} returned more than {_MAX_RESPONSE_BYTES} response bytes; "
         "the review response is too large to retain safely"
     )
@@ -250,7 +250,7 @@ def post_json(
             # otherwise crash an adapter's key lookup with a raw traceback.
             # The request was answered, so the provider has it and may have
             # billed it: this is a spent submission, not a free retry.
-            raise no_verdict(provider, "returned a non-object JSON envelope")
+            raise no_verdict(f"provider {provider!r} returned a non-object JSON envelope")
         # A `NaN` or `1e999` leaf a provider emitted would survive into
         # evidence, stdout, and MCP payloads no strict reader can parse; it
         # becomes null rather than refusing the whole envelope, because the
@@ -291,17 +291,18 @@ def post_json(
             f"provider {provider!r} could not be reached: {exc.reason}; no verdict was produced"
         ) from exc
     except json.JSONDecodeError as exc:
-        # A body that does not parse is the same outcome as a truncated one:
-        # the request was delivered and the provider answered, so the review
-        # may have run and billed, and the key is spent.
-        raise no_verdict(provider, f"returned a non-JSON envelope: {exc}") from exc
+        # A 2xx body this tool cannot read is a completed generation, not a
+        # refused request, so it is spent: the same type a timeout carries.
+        raise no_verdict(f"provider {provider!r} returned a non-JSON envelope: {exc}") from exc
     except RecursionError as exc:
         # An envelope nested beyond the interpreter limit is a malformed
         # answer, not a fault here: refuse it like any other bad structure
         # (the same treatment parse_model_json and the MCP loop give theirs),
         # instead of letting the recursion escape as a raw traceback. The
         # provider answered, so it is a spent submission.
-        raise no_verdict(provider, "returned an envelope nested too deeply to parse") from exc
+        raise no_verdict(
+            f"provider {provider!r} returned an envelope nested too deeply to parse"
+        ) from exc
     except (http.client.HTTPException, OSError) as exc:
         # A connection that dies mid-body (reset, truncated chunked
         # response) surfaces here, not as a traceback: the request was

@@ -906,31 +906,35 @@ def test_a_billed_review_with_no_usable_verdict_leaves_no_envelope_to_replay(
     assert entry.fault is not None
 
 
-def test_an_answer_the_adapter_cannot_use_spends_its_key_too(
+def test_a_refusal_on_an_answer_the_provider_already_gave_spends_its_key(
     tmp_path, monkeypatch, http_opener
 ) -> None:
-    """A provider that answers and offers nothing usable has still been paid.
+    """The exception type is how a deduplicating transport knows a call is spent.
 
-    The refusal here is the adapter's own (an answer with no candidate, no
-    text, a body that does not parse), not the core's structural validation,
-    and it is raised after the request is on the wire. The ledger can only
-    tell a spent key from a free one by the exception type, so this one must
-    be the spent type: otherwise a client that retries a call whose answer
-    the adapter rejected is offered a second billable submission for the same
-    bytes, which is exactly what naming the key promised to prevent.
+    A hosted provider can answer 2xx with an envelope no verdict can be read
+    out of: an empty candidate list, a finish reason that cut the generation
+    short, a body that is not JSON. The media crossed the network and the
+    model ran, so the attempt may already be billed, and the ledger can only
+    tell a spent key from a free one by the exception type. A refusal an
+    adapter raised as an ordinary `DeadeyeError` would leave the key free, and
+    a client retrying a call whose answer the adapter could not use would pay
+    a second time for the same bytes, which is exactly what naming the key
+    promised to prevent. This drives the real Gemini adapter over a stubbed
+    transport, so the rule is pinned where it is decided rather than mocked
+    into being.
     """
     from deadeye import mcp
 
     submissions = 0
 
-    def counted(request, timeout):
+    def answered(request, timeout):
         nonlocal submissions
         submissions += 1
         return _UnusableGeminiAnswer()
 
     monkeypatch.setenv("GEMINI_API_KEY", "k")
-    http_opener(counted)
-    arguments = _review_arguments(tmp_path, idempotency_key="job-47", provider="gemini")
+    http_opener(answered)
+    arguments = _review_arguments(tmp_path, provider="gemini", idempotency_key="job-47")
 
     first = _call("tools/call", {"name": "review", "arguments": arguments})
     second = _call("tools/call", {"name": "review", "arguments": arguments})
@@ -939,6 +943,8 @@ def test_an_answer_the_adapter_cannot_use_spends_its_key_too(
     assert first["result"]["isError"] is True
     assert first["result"] == second["result"]
     assert "no candidate" in first["result"]["content"][0]["text"]
+    assert "not a retry of this one" in first["result"]["content"][0]["text"]
+    assert mcp._COMPLETED["job-47"].envelope is None
     assert mcp._COMPLETED["job-47"].fault is not None
 
 

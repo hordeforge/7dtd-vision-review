@@ -59,7 +59,8 @@ returns the first envelope without submitting the media again. A key reused
 with different arguments is refused, and every submission that reached the
 provider is recorded: a review that billed but could not persist its evidence
 replays the same fault and envelope, and a review the provider answered with
-nothing usable (a timeout, an answer the adapter cannot use, a response that
+nothing usable (a timeout, an answer the adapter cannot use, an envelope no
+verdict can be read out of, a response that
 failed result validation) replays the same refusal rather than paying for the
 same bytes twice. A refusal raised
 before anything is submitted leaves the key free, so a corrected retry is

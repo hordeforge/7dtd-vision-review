@@ -281,19 +281,23 @@ required (`CONTRIBUTING.md`, "Changing a contract").
   replace. The refusal after a reclaimed name also names the real occupant:
   a `--force` run that took the name in that window publishes an envelope,
   and the run was told a write was in progress.
-- A provider answer the adapter could not use did not spend its MCP
-  `idempotency_key`. The ledger records a key as spent by exception type, and
-  only the core's two post-submission refusals carried that type: an answer
-  with no candidate, no text, an unrecognised finish reason, a non-object
-  body, or a body that does not parse raised an ordinary `DeadeyeError`, so a
-  client that retried such a call under the same key was offered a second
-  billable submission for the same bytes, the outcome naming the key promises
-  to prevent. Every refusal raised once the request is on the wire is now a
-  `NoVerdictError` (the one home: `errors.no_verdict`, shared by both hosted
-  adapters and the HTTP reader), carrying the same warning a timeout does. A
-  status the provider refused before running the review (a rejected
-  credential, a quota, a bad request) stays a plain `DeadeyeError`, so the key
-  stays free for a corrected retry.
+- A review the provider answered with an envelope no verdict could be read out
+  of spent nothing. Every fault an adapter raised *after* a response arrived
+  (an empty candidate list, a finish reason that cut the generation short, a
+  choice list that is not a list, an answer with no text, a 2xx body that is
+  not JSON, is not an object, is nested too deeply, or is too large to retain)
+  was an ordinary `DeadeyeError`, and the MCP idempotency ledger records a key
+  as spent from the exception type alone. A client that retried such a call
+  under the same key, for instance after a lost connection, was therefore
+  offered a second billable submission for the same bytes, the outcome naming
+  the key promises to prevent, and the media was sent and billed twice. Those
+  refusals are now `NoVerdictError` through one home (`errors.no_verdict`,
+  shared by both hosted adapters and the HTTP reader), which also tells the
+  operator the attempt may already have billed, carrying the same warning a
+  timeout does. A refusal raised before the request is sent (a missing
+  credential, an unusable endpoint override, a status the provider refused
+  before running the review: a rejected credential, a quota, a bad request)
+  keeps the plain type, so a corrected retry still costs nothing.
 - The MCP stdio loop dropped a frame that held nothing but Unicode whitespace,
   so a client whose line was a no-break space, or any other code point
   `str.strip()` calls whitespace, got no answer at all and waited on it. A

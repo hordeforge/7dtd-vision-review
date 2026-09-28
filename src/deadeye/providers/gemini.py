@@ -191,21 +191,21 @@ class GeminiProvider(CredentialedProvider):
             feedback = envelope.get("promptFeedback")
             reason = feedback.get("blockReason") if isinstance(feedback, dict) else None
             raise no_verdict(
-                self.name,
-                "returned no candidate" + (f" (blocked: {reason})" if reason else ""),
+                f"provider {self.name!r} returned no candidate"
+                + (f" (blocked: {reason})" if reason else "")
             )
         candidate = candidates[0]
         if not isinstance(candidate, dict):
             # The provider answered, so the submission is spent: this is a
             # spent submission with no verdict, not a preflight refusal, and
             # the type is what tells a deduplicating caller the difference.
-            raise no_verdict(self.name, "returned an invalid candidate")
+            raise no_verdict(f"provider {self.name!r} returned an invalid candidate")
         content = response_object(
             candidate, key="content", item_name="candidate", provider_name=self.name
         )
         raw_parts = content.get("parts", [])
         if not isinstance(raw_parts, list):
-            raise no_verdict(self.name, "returned invalid candidate parts")
+            raise no_verdict(f"provider {self.name!r} returned invalid candidate parts")
         text = "".join(
             part["text"]
             for part in raw_parts
@@ -213,7 +213,9 @@ class GeminiProvider(CredentialedProvider):
         )
         finish = candidate.get("finishReason")
         if finish and finish not in ("STOP", "MAX_TOKENS"):
-            raise no_verdict(self.name, f"ended the response early (finishReason {finish})")
+            raise no_verdict(
+                f"provider {self.name!r} ended the response early (finishReason {finish})"
+            )
         if not text:
             # Named here rather than left to the result parser: an empty
             # candidate reaches `parse_model_json` as `""`, whose JSONDecodeError
@@ -222,7 +224,7 @@ class GeminiProvider(CredentialedProvider):
             # text at all. A generation stopped at the output cap is the usual
             # cause, and it is a setting the operator can change.
             raise NoVerdictError(
-                "provider 'gemini' returned no text content"
+                f"provider {self.name!r} returned no text content"
                 + (f" (finishReason {finish})" if finish else "")
                 + "; no verdict was produced"
                 + (

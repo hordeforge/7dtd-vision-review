@@ -142,8 +142,9 @@ def test_frames_are_sampled_evenly_keeping_first_and_last(clip_dir) -> None:
     assert record.frames_submitted == 4
     assert record.sampled
     assert "even spacing, first and last kept" in record.note
-    # The clip-frame position of what was sent, so an `at_frame` in a result
-    # resolves to a frame of the clip rather than to an attachment slot.
+    # The clip-frame position of each submitted frame, in submission order:
+    # `at_frame` counts submitted attachments, so this is what maps one onto
+    # the other (`frame_indices[at_frame]` is the clip's own frame).
     assert record.frame_indices == (0, 3, 6, 9)
     assert [media.frames[i].name for i in record.frame_indices] == names
 

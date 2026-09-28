@@ -111,9 +111,11 @@ def build_envelope(
             "frames_available": sampling.frames_available,
             "frames_submitted": sampling.frames_submitted,
             "sampled": sampling.sampled,
-            # Where each submitted frame sits in the clip's own frame order, so
-            # an issue's `at_frame` names a frame of the clip and not merely a
-            # position in the attachment list. Empty for a video submission.
+            # The map between the two index spaces an `at_frame` has to cross:
+            # the model counts the attachments it was shown, this names each of
+            # them in the clip's own frame order, so a consumer reads
+            # `submitted_frame_indices[at_frame]` for the frame a critique
+            # points at. Empty for a video submission.
             "submitted_frame_indices": list(sampling.frame_indices),
             "note": sampling.note,
         },

@@ -144,10 +144,12 @@ class NvidiaProvider(CredentialedProvider):
         )
         text = message.get("content")
         if not isinstance(text, str) or not text.strip():
-            raise no_verdict(self.name, "returned no text content")
+            raise no_verdict(f"provider {self.name!r} returned no text content")
         finish = choice.get("finish_reason")
         if finish and finish not in ("stop", "length"):
-            raise no_verdict(self.name, f"ended the response early (finish_reason {finish})")
+            raise no_verdict(
+                f"provider {self.name!r} ended the response early (finish_reason {finish})"
+            )
         usage = envelope.get("usage")
         return ReviewResponse(
             raw_text=text,

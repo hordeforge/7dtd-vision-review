@@ -28,7 +28,8 @@ class UsageError(DeadeyeError):
 class NoVerdictError(DeadeyeError):
     """A submission that reached the provider and produced no usable verdict.
 
-    Either the provider answered with text the result schema rejects, or it
+    Either the provider answered with text the result schema rejects, it
+    answered with an envelope this tool cannot read a verdict out of, or it
     never answered at all. The difference matters for a second execution: the
     media crossed the network and the attempt may already be billed, so a
     caller that resubmits under the same idempotency key pays twice for the
@@ -39,26 +40,33 @@ class NoVerdictError(DeadeyeError):
     Every refusal raised once the request is on the wire is this type, not
     only the two in `review.py`: an adapter that got an answer with no
     candidate, no text, or a body that does not parse has just as little to
-    offer a retry as a timeout does, and a deduplicating caller can only tell
-    a spent key from a free one by the exception type. A status the provider
+    offer a retry as a timeout does, and a deduplicating transport can tell
+    a submitted call from one the provider never saw by the exception type
+    alone. `no_verdict` is how the adapters say so. A status the provider
     refused before running the review (a rejected credential, a quota, a bad
     request) is a plain `DeadeyeError` instead: nothing billed, so the key
     stays free for a corrected retry.
     """
 
 
-def no_verdict(provider: str, detail: str) -> NoVerdictError:
-    """The one refusal for an answer that carries no usable verdict.
+def no_verdict(reason: str) -> NoVerdictError:
+    """The one refusal for a submission the provider answered with nothing usable.
 
-    The provider returned, so the submission reached it and may already be
-    billed; `detail` names what the answer lacked. The billing warning is
-    this refusal's own, so an operator reading only the message knows a
-    resubmission is a second charge rather than a retry.
+    `reason` names what the answer was, in the wording the adapter already
+    used; the tail is the same for every one of them, because the consequence
+    is the same for every one of them: the provider read the media and ran the
+    model, so the attempt may already be billed, and submitting again is a
+    second charge for the same bytes.
+
+    What decides the type is whether the provider answered, not how the
+    adapter reads the answer. A refusal raised *before* the request is sent
+    (a missing credential, an unusable endpoint override, a status the
+    provider refused outright) keeps the plain `DeadeyeError` type and its key
+    stays free for a corrected retry.
     """
     return NoVerdictError(
-        f"provider {provider!r} {detail}; no verdict was produced, and the "
-        "submission reached the provider and may already have billed: "
-        "submitting again is a new billable review, not a retry of this one"
+        f"{reason}; the provider answered, so this attempt may already have "
+        "billed: submitting again is a new billable review, not a retry of this one"
     )
 
 

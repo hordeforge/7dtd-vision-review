@@ -78,10 +78,14 @@ class SamplingRecord:
     """Position in the clip's own frame order of each submitted frame, in
     submission order. Empty when a video went instead.
 
-    An issue's `at_frame` names one of these positions, so without them the
-    index is unresolvable once sampling dropped frames: a consumer would have
-    to re-derive the spacing arithmetic to learn which file a critique points
-    at, and a re-derivation that rounds differently points at a different
+    Two index spaces meet at `at_frame`, and this field is the map between
+    them. The reviewer is told that an issue's `at_frame` counts the
+    submitted attachments (`prompt.FRAME_TIMING_NOTE`), because a model can
+    only count what it was shown; this field is clip order, because only the
+    clip knows what a frame is. A consumer reads them as: the n-th submitted
+    frame is clip frame `frame_indices[n]`. Without the field the index would
+    be unresolvable once sampling dropped frames, and a consumer re-deriving
+    the spacing arithmetic could round differently and point at a different
     frame."""
     submitted_files: tuple[tuple[str, MediaKind], ...]
     """(path, kind) for every file sent, in submission order."""
