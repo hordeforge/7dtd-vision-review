@@ -163,7 +163,8 @@ builds the same tree a second time under a different clock, locale, timezone,
 and hash seed and diffs the bytes, which is the same check the release job
 runs before it uploads. `make clean` removes the build outputs.
 
-CI runs that suite on Ubuntu with Python 3.11–3.13. The CLI itself is pure
+CI runs that suite on Ubuntu with Python 3.11–3.13 and on macOS with 3.13.
+The CLI itself is pure
 Python (the published wheel is `py3-none-any`) and runs on macOS and Linux;
 its user config lands in `~/Library/Application Support/deadeye/` on macOS
 and `~/.config/deadeye/` elsewhere, with `$XDG_CONFIG_HOME` overriding both

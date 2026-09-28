@@ -17,12 +17,21 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest]
         python-version: ["3.11", "3.12", "3.13"]
+        include:
+          # macOS is a claimed platform for the published wheel, so it is
+          # tested rather than asserted. One interpreter is enough to catch a
+          # case-sensitive path, a locale-encoding, or a filesystem-behavior
+          # assumption that Linux hides; the version matrix stays on Ubuntu,
+          # where the three interpreters matter most.
+          - os: macos-latest
+            python-version: "3.13"
     steps:
       # The shared composite action owns the environment build and the gate
       # invocations, so the release workflow runs the identical suite.

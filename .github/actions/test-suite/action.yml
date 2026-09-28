@@ -51,6 +51,17 @@ runs:
       shell: bash
     - run: echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
       shell: bash
+    # `make check` requires shellcheck and fails without it under CI, so every
+    # runner image the matrix names has to provide it. The Ubuntu image ships
+    # it; the macOS image may not, and `make` has no way to install it.
+    - name: shellcheck on macOS
+      if: runner.os == 'macOS'
+      shell: bash
+      run: |
+        set -euo pipefail
+        if ! command -v shellcheck >/dev/null 2>&1; then
+          brew install shellcheck
+        fi
     # Exercise the installed console script, not only the source tree, so a
     # broken entry point fails here rather than in a consumer's checkout.
     # The Makefile owns these two invocations; CI and locals share them.
