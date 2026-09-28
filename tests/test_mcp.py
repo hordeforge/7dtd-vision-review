@@ -1351,3 +1351,18 @@ def test_the_frame_cap_counts_bytes_on_a_text_transport(monkeypatch) -> None:
     lines = [json.loads(line) for line in stdout.getvalue().splitlines()]
     assert lines[0]["error"]["code"] == -32700
     assert lines[1]["id"] == 3 and lines[1]["result"] == {}
+
+
+def test_a_non_renderable_envelope_still_records_the_billed_submission() -> None:
+    """The ledger is the record that a submission under a key may already have
+    been billed. A leaf json cannot render is a bug the frame loop reports, and
+    it must not cost that record: `_remember_result` falls back to the key's own
+    size instead of raising, because a raise here would drop the entry and leave
+    a retry under the same key free to bill a second review of the same media."""
+    from deadeye import mcp
+
+    mcp._remember_result("job-50", {"clip": "c"}, envelope={"raw_response": object()})
+
+    entry = mcp._COMPLETED["job-50"]
+    assert entry.retained_bytes == len(b"job-50")
+    assert entry.fingerprint == mcp._call_fingerprint({"clip": "c"})

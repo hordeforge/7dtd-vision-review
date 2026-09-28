@@ -532,3 +532,24 @@ def test_an_unencodable_character_never_dies_in_print(tmp_path: Path) -> None:
     bound.write("lone: \ud800\n")
     bound.flush()
     assert b"lone: \\ud800" in bound.buffer.getvalue()
+
+
+def test_the_mcp_subcommand_serves_the_stdio_transport(tmp_path: Path) -> None:
+    """`deadeye mcp` is the documented MCP entry point, and the dispatch line
+    that reaches it is the only thing the CLI owns. In-process `serve()` reads
+    the real `sys.stdin`, so the wiring is proven the way a client runs it: a
+    frame in on stdin, a JSON-RPC answer out, exit 0."""
+    served = subprocess.run(
+        [sys.executable, "-m", "deadeye", "mcp"],
+        input='{"jsonrpc":"2.0","id":1,"method":"ping","params":{}}\n',
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+    assert served.returncode == 0, served.stderr
+    # A traceback on stderr would leave stdout empty and the call answered by
+    # nothing; both are the failure this pins.
+    assert served.stderr == ""
+    response = json.loads(served.stdout.splitlines()[0])
+    assert response == {"jsonrpc": "2.0", "id": 1, "result": {}}

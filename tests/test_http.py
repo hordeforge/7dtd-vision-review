@@ -759,3 +759,32 @@ def test_a_submission_that_never_opened_a_socket_is_not_marked_sent(http_opener)
     with pytest.raises(DeadeyeError, match="could not be reached"):
         _post()
     assert _http._SUBMITTED.get() is False
+
+
+@pytest.mark.parametrize("body", [b"[]", b'"just a string"', b"null", b"42"])
+def test_a_non_object_json_envelope_is_a_spent_submission(http_opener, body: bytes) -> None:
+    """Valid JSON that is not an object must refuse here, not escape into an
+    adapter's key lookup as a raw traceback. The provider answered, so the
+    type has to be the spent one: a caller reading a plain refusal would take
+    it as a safe retry and bill a second review of the same media."""
+    http_opener(lambda request, timeout: io.BytesIO(body))
+    with pytest.raises(NoVerdictError, match="non-object JSON envelope"):
+        _post()
+
+
+def test_a_non_json_success_body_is_a_spent_submission(http_opener) -> None:
+    """A 2xx that is not JSON at all (a proxy's HTML error page, a truncated
+    stream) is a completed generation the tool cannot read, so it carries the
+    same spent type rather than the free-retry refusal."""
+    http_opener(lambda request, timeout: io.BytesIO(b"<html>gateway timeout</html>"))
+    with pytest.raises(NoVerdictError, match="non-JSON envelope"):
+        _post()
+
+
+def test_a_response_body_that_is_not_bytes_is_a_spent_submission(http_opener) -> None:
+    """A transport that hands back text instead of bytes has already answered
+    the request, so the refusal is the spent one; a raw `TypeError` from the
+    join would reach the caller as an untyped crash instead."""
+    http_opener(lambda request, timeout: io.StringIO('{"candidates": []}'))
+    with pytest.raises(NoVerdictError, match="non-bytes response body"):
+        _post()

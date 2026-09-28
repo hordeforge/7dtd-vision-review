@@ -52,6 +52,41 @@ def test_summary_must_be_non_empty() -> None:
         validate_result({**VALID, "summary": "  "})
 
 
+@pytest.mark.parametrize("issues", [{"description": "clips"}, "clips", 7, None], ids=str)
+def test_issues_must_be_an_array_of_issue_objects(issues: object) -> None:
+    """The issue list is the only place a model names a defect, so a payload
+    that is not a list of objects has no reading: it is refused, never coerced
+    into an empty list that would report a clean clip."""
+    with pytest.raises(DeadeyeError, match="issues must be an array"):
+        validate_result({**VALID, "issues": issues})
+
+
+@pytest.mark.parametrize(
+    "entry", ["clips at the shoulder", 7, None, {"at_seconds": [1.0]}], ids=str
+)
+def test_an_issue_without_a_description_is_refused(entry: object) -> None:
+    """A bare string, a number, or a moment with no description is a shape the
+    validator does not repair: the entry is dropped and the whole answer fails,
+    because a verdict missing the defect text is worse than no verdict."""
+    with pytest.raises(DeadeyeError, match=r"issue #1 must be an object with 'description'"):
+        validate_result({**VALID, "issues": [entry]})
+
+
+@pytest.mark.parametrize("description", ["", "   ", 7, None], ids=str)
+def test_an_issue_description_must_be_a_non_empty_string(description: object) -> None:
+    with pytest.raises(DeadeyeError, match="issue #1 needs a non-empty description"):
+        validate_result({**VALID, "issues": [{"description": description}]})
+
+
+@pytest.mark.parametrize("rubric_scores", ["high", [4, 5], None], ids=str)
+def test_rubric_scores_must_be_an_object(rubric_scores: object) -> None:
+    """A rubric that is not an object cannot be read dimension by dimension,
+    and defaulting it to empty would report every dimension unmeasured on an
+    answer that did carry scores."""
+    with pytest.raises(DeadeyeError, match="rubric_scores must be an object"):
+        validate_result({**VALID, "rubric_scores": rubric_scores})
+
+
 @pytest.mark.parametrize("key", ["strengths", "recommended_changes", "limitations"], ids=str)
 def test_string_list_fields_are_refused_not_silently_emptied(key: str) -> None:
     with pytest.raises(DeadeyeError, match=f"{key} must be an array of strings"):
