@@ -759,9 +759,9 @@ def test_an_oversized_frame_is_a_parse_error_and_keeps_serving(monkeypatch) -> N
     rather than tearing the session down."""
     import io
 
-    from deadeye import mcp
+    from deadeye import _jsonrpc_frames
 
-    monkeypatch.setattr(mcp, "_MAX_FRAME_BYTES", 64)
+    monkeypatch.setattr(_jsonrpc_frames, "MAX_FRAME_BYTES", 64)
     stdin = io.BytesIO(
         b'{"jsonrpc":"2.0","id":1,"method":"ping","params":{}}\n'
         + b"x" * 200
@@ -1330,16 +1330,16 @@ def test_an_unusable_idempotency_key_is_refused_before_any_submission(tmp_path) 
 
 
 def test_the_frame_cap_counts_bytes_on_a_text_transport(monkeypatch) -> None:
-    """`_MAX_FRAME_BYTES` is named in bytes and the stdio transport is bytes,
+    """`MAX_FRAME_BYTES` is named in bytes and the stdio transport is bytes,
     so a text frame reaching the same cap through a test double or an
     already-split iterable must be measured in bytes too. Counting code
     points there admitted a frame of four-byte characters at four times the
     intended size."""
     import io
 
-    from deadeye import mcp
+    from deadeye import _jsonrpc_frames
 
-    monkeypatch.setattr(mcp, "_MAX_FRAME_BYTES", 64)
+    monkeypatch.setattr(_jsonrpc_frames, "MAX_FRAME_BYTES", 64)
     # 22 characters, 66 UTF-8 bytes: over the cap as bytes, under it as
     # characters. The next frame must still be served.
     oversized_text = "\U0001f600" * 22

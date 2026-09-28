@@ -5,7 +5,9 @@ Context Protocol server on stdio — newline-delimited JSON-RPC 2.0, no third-
 party SDK — so the same review capability is reachable from any MCP client
 (an agent, a dashboard, a homegrown control script) without a subprocess.
 `tests/test_mcp.py` pins the protocol offline: handshake, tool listing, tool
-calls, spec error codes, and the review consent boundary.
+calls, spec error codes, and the review consent boundary;
+`tests/test_jsonrpc_frames.py` pins the stdio framing those tests read through
+(the chunked split, the 1 MiB cap, the write).
 
 ## Design intent
 

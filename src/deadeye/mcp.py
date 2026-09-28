@@ -20,7 +20,9 @@ The boundaries from the CLI do not weaken:
 
 Transport: newline-delimited JSON-RPC 2.0 on stdio, per the MCP spec. No
 third-party SDK; the protocol surface is small enough to keep in the standard
-library. Session handling is deliberately minimal: initialize/ping/tools, and
+library. The framing itself (chunked splitting, the frame cap, the write) is
+`_jsonrpc_frames`; this module owns the tools and the dispatch over them.
+Session handling is deliberately minimal: initialize/ping/tools, and
 the one piece of session state a client can ask for, the bounded
 `idempotency_key` ledger below.
 """
@@ -32,13 +34,12 @@ import sys
 import traceback
 import unicodedata
 from collections import OrderedDict
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from itertools import chain
 from pathlib import Path
-from typing import Any, Literal, TextIO, TypeVar, overload
+from typing import Any, Literal, TextIO, overload
 
-from . import __version__
+from . import __version__, _jsonrpc_frames
 from ._streams import bind_process_output
 from .errors import DeadeyeError, EvidenceWriteError, NoVerdictError, UsageError
 from .evidence import sha256_bytes
@@ -55,14 +56,6 @@ from .surface import (
 
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_NAME = "deadeye"
-# One JSON-RPC frame is a path plus a small intent document, never media.
-# Without a cap the long-lived stdio loop retains whatever a client writes
-# until the next newline, so a missing delimiter (or a multi-megabyte
-# `intent_text`) becomes an unbounded allocation. One MiB is far above any
-# honest tools/call and still small enough to refuse before the process
-# grows with the input.
-_MAX_FRAME_BYTES = 1 * 1024 * 1024
-_READ_CHUNK_BYTES = 8192
 # The only characters that make an incoming line blank: the four RFC 8259
 # section 2 calls insignificant whitespace, and the only ones a frame may
 # carry around its JSON without changing it. Blank-line detection must not
@@ -757,157 +750,6 @@ def _error(request_id: Any, code: int, message: str) -> dict[str, Any]:
     return {"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}}
 
 
-_Line = TypeVar("_Line", bytes, str)
-
-
-def _read_chunks(read: Callable[[int], Any]) -> Iterator[_Line]:
-    """Every subsequent non-empty chunk, stopping at end of stream."""
-    while True:
-        chunk = read(_READ_CHUNK_BYTES)
-        if not chunk:
-            return
-        yield chunk
-
-
-def _chunk_reader(source: Any, read: Callable[[int], Any]) -> Callable[[int], Any]:
-    """The read that returns what has arrived, rather than waiting for a full buffer.
-
-    `BufferedReader.read(n)` is specified to keep reading until it has `n`
-    bytes or the stream ends, and a pipe ends only when the client closes its
-    end. A request/response client that writes one frame and blocks for the
-    answer therefore got no answer at all: the server sat in `read` until the
-    next 8192-byte window filled, or until the client gave up and disconnected.
-    `read1` returns after one underlying read, so a frame is answered as soon
-    as it lands. A source without `read1` (an unbuffered `FileIO`, a test
-    double) already returns short counts and needs no wrapper.
-    """
-    read1 = getattr(source, "read1", None)
-    return read1 if callable(read1) else read
-
-
-def _split_stdio_frames(
-    read: Callable[[int], Any],
-    first: _Line,
-    newline: _Line,
-    max_bytes: int,
-) -> Iterator[_Line | None]:
-    """Chunked newline split that never retains more than `max_bytes` of a frame.
-
-    `None` means the current frame exceeded the cap and was discarded through
-    its terminating newline (or EOF), so the next yield is still aligned.
-
-    The segments of one frame accumulate in a list and join once, at the
-    frame's boundary. Holding the pending frame as a single string made every
-    read and every delimiter search walk all of it, so a frame arriving in
-    `_READ_CHUNK_BYTES` pieces cost time quadratic in its size: a client
-    sending a near-cap `intent_text` copied megabytes per read to find a
-    newline it could have located in the chunk that held it. Each read now
-    contributes one slice of its own chunk and nothing else. Only the last
-    `len(newline) - 1` characters can hold a delimiter split across two reads,
-    and those are the one piece carried into the next window.
-    """
-    empty: _Line = newline[:0]
-    edge = len(newline) - 1
-    segments: list[_Line] = []
-    carried: _Line = empty
-    # Bytes banked in `segments`, and whether the frame in hand has already
-    # been refused for running past the cap with no newline in sight.
-    banked = 0
-    oversize = False
-    for chunk in chain((first,), _read_chunks(read)):
-        if not isinstance(chunk, type(carried)):
-            return
-        window = carried + chunk
-        start = 0
-        index = window.find(newline)
-        while index >= 0:
-            line = window[start:index]
-            # The frame is every segment banked from earlier reads plus what
-            # this window contributes, not this window's slice alone.
-            frame_bytes = banked + len(line)
-            if oversize:
-                # The newline ends the frame already refused for exceeding
-                # the cap; the next line opens a fresh one.
-                oversize = False
-                banked = 0
-                segments = []
-            elif frame_bytes > max_bytes:
-                banked = 0
-                segments = []
-                yield None
-            else:
-                segments.append(line)
-                yield empty.join(segments)
-                segments = []
-                banked = 0
-            start = index + len(newline)
-            index = window.find(newline, start)
-        tail = window[start:]
-        carried = tail[len(tail) - edge :] if edge else empty
-        if len(tail) > edge:
-            banked += len(tail) - edge
-            segments.append(tail[: len(tail) - edge])
-        if not oversize and banked + len(carried) > max_bytes:
-            # Over the cap with no newline in this window, so the frame runs
-            # into the next read: answer once for it and keep none of it.
-            oversize = True
-            segments = []
-            banked = 0
-            yield None
-    if oversize:
-        # Already answered for the frame that was still unterminated at EOF.
-        return
-    if segments or carried:
-        segments.append(carried)
-        yield empty.join(segments)
-
-
-def _frame_size(payload: bytes | str) -> int:
-    """A frame's size in the bytes `_MAX_FRAME_BYTES` is named in.
-
-    The stdio transport is bytes, so bytes is the unit the cap counts there.
-    A text frame reaches the same cap through a different door, and measuring
-    it in code points would admit a frame of four-byte characters at four
-    times the intended size. `surrogatepass` keeps the measure total over
-    every `str`, so a lone surrogate in a text source cannot raise here
-    either; the bytes transport cannot carry one, and refusing the frame it
-    belongs to is the transport's business, not the counter's.
-    """
-    if isinstance(payload, bytes):
-        return len(payload)
-    return len(payload.encode("utf-8", "surrogatepass"))
-
-
-def _iter_pre_split_frames(source: Iterable[Any], max_bytes: int) -> Iterator[bytes | str | None]:
-    """Bound frames that already arrive one line at a time (a list, a test double)."""
-    for raw_line in source:
-        if isinstance(raw_line, bytes):
-            payload: bytes | str = raw_line.removesuffix(b"\n")
-        else:
-            payload = raw_line.removesuffix("\n")
-        yield None if _frame_size(payload) > max_bytes else payload
-
-
-def _iter_stdio_frames(source: Any, max_bytes: int) -> Iterator[bytes | str | None]:
-    """One raw newline-delimited frame at a time, or None when a frame is oversized."""
-    read = getattr(source, "read", None)
-    if not callable(read):
-        yield from _iter_pre_split_frames(source, max_bytes)
-        return
-    read = _chunk_reader(source, read)
-    first = read(_READ_CHUNK_BYTES)
-    if not first:
-        return
-    newline: bytes | str = b"\n" if isinstance(first, bytes) else "\n"
-    yield from _split_stdio_frames(read, first, newline, max_bytes)
-
-
-def _write_frame(stdout: TextIO, frame: dict[str, Any]) -> None:
-    """Write one response frame and flush it; the transport is unbuffered."""
-    print(json.dumps(frame), file=stdout)
-    stdout.flush()
-
-
 def serve(
     stdin: Iterable[str | bytes] | None = None,
     stdout: TextIO | None = None,
@@ -929,15 +771,16 @@ def serve(
     # a frame with an invalid byte must get the spec's parse error like any
     # other malformed frame, not kill the loop inside the text iterator.
     source = getattr(stdin, "buffer", stdin)
-    for raw_line in _iter_stdio_frames(source, _MAX_FRAME_BYTES):
+    frames = _jsonrpc_frames.iter_stdio_frames(source, _jsonrpc_frames.MAX_FRAME_BYTES)
+    for raw_line in frames:
         if raw_line is None:
-            _write_frame(stdout, _error(None, -32700, "Parse error"))
+            _jsonrpc_frames.write_frame(stdout, _error(None, -32700, "Parse error"))
             continue
         if isinstance(raw_line, bytes):
             try:
                 line = raw_line.decode("utf-8").strip(_JSON_WHITESPACE)
             except UnicodeDecodeError:
-                _write_frame(stdout, _error(None, -32700, "Parse error"))
+                _jsonrpc_frames.write_frame(stdout, _error(None, -32700, "Parse error"))
                 continue
         else:
             line = raw_line.strip(_JSON_WHITESPACE)
@@ -950,7 +793,7 @@ def serve(
             # not a fault in this loop: it gets the spec's parse error like
             # any other malformed frame instead of killing the transport
             # (the same treatment intent.py gives such documents).
-            _write_frame(stdout, _error(None, -32700, "Parse error"))
+            _jsonrpc_frames.write_frame(stdout, _error(None, -32700, "Parse error"))
             continue
         if not isinstance(frame, dict):
             # A batch is an array of requests, and this transport takes one
@@ -962,7 +805,7 @@ def serve(
                 if isinstance(frame, list)
                 else "Invalid Request"
             )
-            _write_frame(stdout, _error(None, -32600, message))
+            _jsonrpc_frames.write_frame(stdout, _error(None, -32600, message))
             continue
         try:
             response = handle_frame(frame)
@@ -974,5 +817,5 @@ def serve(
             traceback.print_exc(file=sys.stderr)
             response = _error(frame.get("id"), -32603, "Internal error")
         if response is not None:
-            _write_frame(stdout, response)
+            _jsonrpc_frames.write_frame(stdout, response)
     return 0
