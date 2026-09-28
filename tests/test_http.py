@@ -676,3 +676,22 @@ def test_a_submission_that_never_opened_a_socket_is_not_marked_sent(http_opener)
     with pytest.raises(DeadeyeError, match="could not be reached"):
         _post()
     assert _http._SUBMITTED.get() is False
+
+
+def test_an_oversized_integer_literal_is_a_mapped_refusal(http_opener) -> None:
+    """An envelope past CPython's integer digit limit is a spent submission.
+
+    `json.loads` refuses such a literal with a bare `ValueError`, not a
+    `JSONDecodeError`, so the guard below it never caught it: the provider
+    had answered and billed, and the refusal left as an unmapped `ValueError`
+    instead of the `NoVerdictError` that tells a deduplicating caller the key
+    is spent. It is the same fault as a truncated body, and must read the
+    same way."""
+    body = ('{"usageMetadata": {"n": ' + "9" * 5000 + "}}").encode()
+
+    def answering_open(request, timeout):
+        return io.BytesIO(body)
+
+    http_opener(answering_open)
+    with pytest.raises(NoVerdictError, match="non-JSON envelope"):
+        _post()

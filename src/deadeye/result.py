@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .errors import DeadeyeError
-from .json_safe import finite_float
+from .json_safe import finite_float, loads
 
 RUBRIC_VERSION = "1"
 
@@ -115,7 +115,7 @@ def parse_model_json(raw_text: str) -> dict[str, Any]:
         if start != -1 and end > start:
             text = text[start : end + 1]
     try:
-        parsed = json.loads(text)
+        parsed = loads(text)
     except json.JSONDecodeError as exc:
         raise DeadeyeError(
             f"model returned invalid structure (not JSON): {exc}; rerun with "

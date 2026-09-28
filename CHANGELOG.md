@@ -306,6 +306,24 @@ required (`CONTRIBUTING.md`, "Changing a contract").
 
 ### Fixed
 
+- A JSON document carrying an integer literal longer than CPython's digit
+  limit is now refused by name at every parse boundary, instead of escaping as
+  a bare `ValueError`. Before: `json.loads` refuses such a literal from the
+  `int()` the parser calls, with a plain `ValueError` rather than a
+  `JSONDecodeError`, because the limit guards string-to-int conversion and not
+  JSON syntax; every parse boundary here guards with `JSONDecodeError`, so the
+  case reached none of them. A provider envelope carrying one left the fault
+  path unmapped on a submission already billed, a preserved raw response
+  carrying one raised out of the redaction backstop, an intent document
+  carrying one refused with a message about digit limits instead of naming the
+  file, and a single MCP stdio frame carrying one ended the long-lived server
+  and every request behind it. After: `json_safe.loads` is the one door all
+  five answer through, and a document it cannot parse arrives at the caller as
+  the refusal type that caller already handles. The MCP frame is answered with
+  the spec's parse error and the server keeps serving; the provider envelope
+  is refused as the spent submission it is, so a deduplicating caller records
+  the key as spent rather than retrying into a second charge. Nothing else
+  changes what a parser accepts, and `RecursionError` keeps its own type.
 - The e2e's fixture modlet is no longer left half-built by a run that dies
   partway. Before: `.suite`, the marker the next run tests to decide whether
   to reuse the fixture, was written before the intent file it names, so a run

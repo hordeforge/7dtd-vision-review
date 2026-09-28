@@ -42,6 +42,7 @@ from . import __version__
 from ._streams import bind_process_output
 from .errors import DeadeyeError, EvidenceWriteError, NoVerdictError, UsageError
 from .evidence import sha256_bytes
+from .json_safe import loads
 from .review import run_review as run_review_core
 from .surface import (
     PROVIDERS,
@@ -874,7 +875,7 @@ def serve(
         if not line:
             continue
         try:
-            frame = json.loads(line)
+            frame = loads(line)
         except (json.JSONDecodeError, RecursionError):
             # A frame nested beyond the interpreter limit is malformed input,
             # not a fault in this loop: it gets the spec's parse error like

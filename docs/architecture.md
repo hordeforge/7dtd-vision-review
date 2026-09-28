@@ -106,6 +106,19 @@ forge a label-shaped line. Both presentation streams are bound to UTF-8 with
 otherwise bind stdout to ASCII and raise `UnicodeEncodeError` inside `print`
 after a billable submission, losing the verdict the caller paid for.
 
+**A parse refusal is one type, whatever refused it.** `json.JSONDecodeError` is
+a `ValueError`, but not every `ValueError` `json.loads` raises is one: an
+integer literal past CPython's digit limit fails in the `int()` the parser
+calls, and the limit guards string-to-int conversion rather than JSON syntax.
+Every parse boundary here guards with `JSONDecodeError`, so that case reached
+none of them and escaped as a raw `ValueError`: past the provider boundary, on
+a submission already billed, and out of the MCP stdio loop as a single frame
+that ended the server. `json_safe.loads` is the one door all five answer
+through (adapter envelope, model text, intent document, redaction backstop,
+MCP frame), and it reports what it refuses as the type the callers already
+handle. It widens nothing: `RecursionError` keeps its own type, because a
+caller that distinguishes "nested too deeply" from "not JSON" still can.
+
 **Advisory only.** `ADVISORY_NOTE` rides every result and every evidence
 envelope: a model critique cannot mark an asset accepted. Human sign-off in
 the real context decides that, in the consuming repository's gates.
