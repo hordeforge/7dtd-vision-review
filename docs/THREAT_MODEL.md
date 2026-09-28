@@ -96,8 +96,8 @@ not a network one.
 | `scripts/playtest_detect.py` | `playtest_detect.py:59-62` | puts `$PLAYTEST_ROOT/scripts` on `sys.path` and imports the sibling's module: a fourth environment-named code-execution path (T9) |
 | `scripts/bootstrap` | `bootstrap:16` | `uv sync --locked` from the committed lockfile (T9) |
 | `Makefile` build and verify targets | `Makefile:174-178,195,234,236,254,264` | `DIST`, `VERIFY_DIST`, and `VERIFY_PATH` are overridable from the environment and two targets `rm -rf` them (T9) |
-| CI badge job | `.github/workflows/ci.yml:47-81` | a write-scoped `GITHUB_TOKEN`; publishes a generated SVG to a served branch (T9) |
-| Release workflow | `.github/workflows/release.yml:35-36,99,121-128` | the pipeline's other write-scoped token; `gh release upload --clobber` overwrites published assets (T9, T10) |
+| CI badge job | `.github/workflows/ci.yml:42-103` | a write-scoped `GITHUB_TOKEN`; publishes a generated SVG to a served branch (T9) |
+| Release workflow | `.github/workflows/release.yml:35-36,104,133-159` | the pipeline's other write-scoped token; `gh release upload --clobber` overwrites published assets, now behind a byte comparison (T9, T10) |
 
 Note: `sampling.discover()` finds `client.log` beside the frames
 (`sampling.py:135-182`, `_scan_directory`; `ClipMedia.log` at
@@ -484,19 +484,22 @@ carry their own entry points and had no entry here.
   delete.
 - **The `coverage-badge` CI job** holds a write-scoped token
   (`ci.yml:51-52`, the secret introduced at `ci.yml:64`) and pushes a
-  generated `coverage.svg` to the `badges` branch (`ci.yml:81`), which the
-  README serves to browsers through raw.githubusercontent. The token is
-  interpolated into a git remote URL (`ci.yml:67`) and that URL is persisted
-  into `badge-repo/.git/config` (`ci.yml:76`), so it is argv-visible and
-  on-disk for the length of the job, not merely scoped. The job is confined to
-  pushes on `main` and needs the `test` job, and every action in it is
-  SHA-pinned, so the surface is one generated SVG from a coverage run
-  reaching a served branch. Worth naming because it is the one place deadeye
-  produces content other humans load.
+  generated `coverage.svg` to the `badges` branch (`ci.yml:103`), which the
+  README serves to browsers through raw.githubusercontent. The token reaches
+  git through a `GIT_ASKPASS` helper written to `RUNNER_TEMP` and removed on
+  exit (`ci.yml:73-88`), so it is never interpolated into a remote URL, never
+  persisted into `badge-repo/.git/config`, and never appears in argv; the
+  remote both clone paths use is the credential-free
+  `https://github.com/<repo>.git` (`ci.yml:86`). What remains is a
+  write-scoped token in one job's environment, confined to pushes on `main`,
+  gated on the `test` job, with every action SHA-pinned, so the surface is
+  one generated SVG from a coverage run reaching a served branch. Worth
+  naming because it is the one place deadeye produces content other humans
+  load.
 - **The `release` workflow** holds the pipeline's other write-scoped token
-  (`release.yml:35-36`, used as `GH_TOKEN` at `release.yml:99`) and publishes
+  (`release.yml:35-36`, used as `GH_TOKEN` at `release.yml:104`) and publishes
   the wheel, sdist, and SBOM with `gh release upload --clobber`
-  (`release.yml:121-128`). The overwrite itself is T10.
+  (`release.yml:159`). The overwrite itself is T10.
 
 The remaining `scripts/` helpers (`doctor_query.py`, `e2e_report.py`,
 `release_notes.py`, `reproducible_artifacts.py`) read local files and format
@@ -504,27 +507,34 @@ output; `coverage_badge.py` is the only one that
 spawns a process (`coverage_badge.py:27`, the coverage tool behind `make
 badge`).
 
-### T10: release upload overwrites published assets (Low)
+### T10: release upload overwrites published assets (Low, mitigated in the workflow)
 
 The release job creates the release if it is absent and then always uploads
-with `--clobber` (`release.yml:121-128`), so a second `v*` tag push replaces
-the wheel, sdist, and SBOM that people, caches, and downstream consumers have
-already downloaded, with no warning and no record on the tag of what changed.
-The job holds `contents: write` for the whole run (`release.yml:35-36`), so
-the overwrite is a live capability rather than a formatting choice, and every
-action it runs is SHA-pinned, which bounds the code but not the tag push that
-triggers it. The workflow states its own intent, and the first half of it is
-reasonable: a failed attempt that already created the release must not wedge
-the next run (`release.yml:117-120`). The gap is the second half, the same flag
-also replacing assets a completed release already published, with no
-comparison of the bytes. There is no local control between "a tag was pushed"
-and "the published bytes were replaced"; the version string and the lockfile
-hash in the wheel are the only things a consumer can check. Enabling path: a
-`v*` tag is pushed from a checkout whose build output differs from what the
-previous tag published → every download of that version returns the new bytes
-under the old URL. Candidate directions for sec-review: refuse to clobber an
-asset whose hash differs from the one recorded in the release, or publish to
-immutable per-build URLs and let the tag move.
+with `--clobber` (`release.yml:133-159`), so in principle a second `v*` tag
+push replaces the wheel, sdist, and SBOM that people, caches, and downstream
+consumers have already downloaded, with no warning and no record on the tag of
+what changed. The job holds `contents: write` for the whole run
+(`release.yml:35-36`), so the overwrite is a live capability rather than a
+formatting choice, and every action it runs is SHA-pinned, which bounds the
+code but not the tag push that triggers it.
+
+The workflow already gets half of this right: a failed attempt that created
+the release must not wedge the next run on "already exists"
+(`release.yml:120-126`), so the upload is convergent by design. The gap was
+that the same flag also replaced assets a completed release had already
+published, with no comparison of the bytes, and nothing local stood between "a
+tag was pushed" and "the published bytes were replaced".
+
+The upload path now closes that. Before `--clobber`, each asset the release
+already carries is downloaded and compared against the file that would replace
+it (`release.yml:133-152`); a difference exits non-zero with the asset named,
+and only a byte-identical set (the re-run after a partial failure) or an asset
+that was never published (the incomplete-release case) proceeds. Because
+`make dist-verify` runs in the same job and proves the build reproducible, the
+same tag and tree can only disagree for a real reason, so the guard does not
+block a legitimate re-run. What remains is that a maintainer holding a tag
+push can still force a replacement by deleting the release first; that is a
+deliberate act, not the default path.
 
 ## Abuse cases
 
@@ -588,9 +598,9 @@ immutable per-build URLs and let the tag move.
 - CI's test job holds no provider credentials and contacts no provider
   (offline suite); the only secret in `.github/workflows/ci.yml` is the
   workflow-scoped `GITHUB_TOKEN`, confined to the separate badge-push job on
-  main and scoped to `contents: write` there alone (`ci.yml:47-81`, see T9).
+  main and scoped to `contents: write` there alone (`ci.yml:42-103`, see T9).
   The release workflow holds the pipeline's other `contents: write` token
-  (`release.yml:35-36,99`, see T9 and T10).
+  (`release.yml:35-36,104`, see T9 and T10).
   Live-provider tests are opt-in via `DEADEYE_NETWORK_TESTS` and
   excluded from the default suite.
 - A `--force` overwrite leaves no record that the earlier envelope existed:

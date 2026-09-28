@@ -685,6 +685,25 @@ required (`CONTRIBUTING.md`, "Changing a contract").
 
 ### Security
 
+- The write-scoped token in the coverage-badge job no longer reaches a git
+  remote URL. Before: it was interpolated into `https://x-access-token:<token>
+  @github.com/...` and that URL was written into `badge-repo/.git/config`, so
+  the token sat on disk for the length of the job and in the argv of every git
+  process that read the remote. After: git authenticates through a
+  `GIT_ASKPASS` helper in `RUNNER_TEMP` that prints the token from the
+  environment and is removed on exit, and the remote both the clone and the
+  fresh-init path register is the credential-free
+  `https://github.com/<repo>.git`. Same published badge, same `badges` branch,
+  same job scope.
+- Re-running a release can no longer replace published assets with different
+  bytes. Before: the job always uploaded with `--clobber`, so a re-pushed
+  `v*` tag swapped the wheel, sdist, and SBOM people had already downloaded
+  under the same URL, silently. After: each asset the release already carries
+  is downloaded and compared against the file that would replace it, and a
+  difference fails the run naming the asset. A re-run after a partial failure
+  and an asset that was never published both still converge, because
+  `make dist-verify` has already proved the build reproducible for that tag.
+
 - A provider credential echoed back in an error body no longer reaches a
   refusal line. Before: a 4xx/5xx body was sliced straight into the `ERROR:`
   line on stderr, so a proxy that answered a refused request by echoing the
