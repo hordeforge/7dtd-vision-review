@@ -28,14 +28,17 @@ partial verdict as a completed review.
 reviewer instruction from the intent (`purpose`, `subject`, `camera_path`,
 `desired_qualities`, `avoid`, `questions`) plus the versioned rubric and the
 exact JSON result shape, and announces what media actually reached the model.
-The intent block is authored free text, so it rides fenced between BEGIN/END
-markers declared as data, never instructions: an intent may steer what the
-model looks at, never how it answers. Intent text or a reference filename
-carrying a fence marker of its own is refused locally, so the fence cannot be
-closed early and spoken around, and filenames rendered into prompt text have
-control characters flattened so no line can be forged inside them. A caller
-never writes or passes a prompt; `deadeye prompt` renders the assembled
-instruction for inspection before submission. The prompt and rubric versions ride in the evidence so a
+The instruction and the intent travel in separate roles: the instruction is
+the provider's system instruction, and the intent is the only thing in the
+user turn, fenced between BEGIN/END markers the instruction has already
+declared as data. An intent may steer what the model looks at, never how it
+answers, and it cannot occupy the slot the contract and rubric sit in.
+Intent text or a reference filename carrying a fence marker of its own is
+refused locally, so the fence cannot be closed early and spoken around, and
+filenames rendered into prompt text have control characters flattened so no
+line can be forged inside them. A caller never writes or passes a prompt;
+`deadeye prompt` renders the assembled instruction for inspection before
+submission. The prompt and rubric versions ride in the evidence so a
 review is traceable to the instruction it answered.
 
 **Consent comes before everything.** Submitting media is networked, billable,

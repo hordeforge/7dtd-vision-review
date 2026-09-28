@@ -26,6 +26,21 @@ left to be discovered by a failing parse downstream.
   local: a restarted server is back to one call, one submission. Calls
   without a key behave exactly as before.
 
+### Changed
+
+- The reviewer instruction and the author's statement now travel in separate
+  roles. The instruction (role, JSON output contract, rubric, and the
+  declaration that the user turn is data) is the provider's system
+  instruction, and the statement is the only authored text in the user turn.
+  Previously both were concatenated into one user turn, so an intent file sat
+  in the same text as the contract it was supposed not to override. `prompt`
+  in the evidence envelope, `deadeye prompt`, and the MCP `prompt` tool all
+  still print one block with both halves in order, and the result shape is
+  unchanged; `prompt_version` is now `3`. Consumers that read only the
+  evidence envelope need no edit. `ReviewRequest` in `providers/base.py`
+  gains a `system_prompt` field (empty by default) and a `rendered` property,
+  which matters to anyone writing an adapter.
+
 ### Fixed
 
 - `scripts/e2e.sh --help` printed the usage text one line short, dropping the
@@ -42,6 +57,13 @@ left to be discovered by a failing parse downstream.
   `ffmpeg`, and `uv`. On a host with `uv` but no system `python3` the run died
   naming an unconfigured provider, a diagnosis unrelated to the fault. The
   preflight now requires `python3` and says so.
+- A reference's `path` and `purpose` are bounded by the same budgets as the
+  rest of the intent (2,000 and 500 characters), instead of by the 64 KiB
+  document cap alone, so eight references cannot fill a whole intent document
+  with prose billed on every review.
+- A non-positive `providers.gemini.max_output_tokens` or
+  `providers.nvidia.max_tokens` is now refused with the key named, instead of
+  being sent as the request's generation cap.
 - `deadeye doctor --json` no longer hides a malformed config. A config that
   fails to parse makes every provider report `unavailable`, so the array on
   stdout was byte-identical to a missing API key; the fault now rides stderr

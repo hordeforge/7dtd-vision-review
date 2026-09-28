@@ -191,8 +191,10 @@ def _references_field(data: dict[str, Any], origin: str) -> tuple[ReferenceMedia
         reference_purpose = entry["purpose"]
         if not isinstance(reference_path, str) or not reference_path:
             raise DeadeyeError(f"{label}: 'path' must be a non-empty string")
-        # The name renders inside the fence beside the purpose, so a path is
-        # billed prompt text like any other field and takes the field budget.
+        # A path reaches the prompt as the attachment's filename, and a purpose
+        # is authored prose, so both are billed on every review. The document
+        # cap is 64 KiB; these keep a single reference from claiming all of it
+        # at eight times over.
         if len(reference_path) > MAX_FIELD_CHARS:
             raise DeadeyeError(
                 f"{label}: 'path' is {len(reference_path)} characters; the limit "

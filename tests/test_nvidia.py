@@ -138,6 +138,48 @@ def test_a_non_media_payload_is_refused_at_body_build_time() -> None:
         build_body(ReviewRequest(prompt="p", media=(audio,), model="m", timeout_seconds=1.0))
 
 
+def test_a_non_positive_output_cap_is_refused_before_submission(monkeypatch, tmp_path) -> None:
+    """A cap is the only thing between a looping generation and unbounded
+    spend, and a provider that reads zero or a negative cap as 'no limit'
+    turns a botched key into exactly that. The refusal names the key."""
+    from pathlib import Path
+
+    directory = Path(str(tmp_path / "cfg"))
+    (directory / "config.local.toml").write_text(
+        "[providers.nvidia]\nmax_tokens = -1\n", encoding="utf-8"
+    )
+    config.reset()
+    with pytest.raises(DeadeyeError, match="at least 1"):
+        build_body(ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0))
+
+
+def test_the_instruction_travels_in_its_own_system_message() -> None:
+    # The instruction the model must obey is pipeline-owned; the authored
+    # intent is not. Keeping them in separate messages is what stops intent
+    # text from occupying the instruction's slot.
+    frame = MediaPayload(name="f.png", mime_type="image/png", kind="frame", data=b"png")
+    body = build_body(
+        ReviewRequest(
+            prompt="the author's statement, fenced",
+            system_prompt="You are reviewing a game-asset candidate on screen.",
+            media=(frame,),
+            model="m",
+            timeout_seconds=1.0,
+        )
+    )
+    messages = body["messages"]
+    assert [message["role"] for message in messages] == ["system", "user"]
+    assert messages[0]["content"] == "You are reviewing a game-asset candidate on screen."
+    user_text = [part["text"] for part in messages[1]["content"] if part.get("type") == "text"]
+    assert "the author's statement, fenced" in user_text
+    assert not any("game-asset candidate" in text for text in user_text)
+
+
+def test_a_caller_with_no_system_instruction_sends_one_message() -> None:
+    body = build_body(ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0))
+    assert [message["role"] for message in body["messages"]] == ["user"]
+
+
 def test_a_connection_fault_mid_response_is_a_refusal_not_a_crash(monkeypatch, http_opener) -> None:
     """A reset or truncated body after the request was billed must surface
     as one DeadeyeError, never as a raw ConnectionResetError traceback."""

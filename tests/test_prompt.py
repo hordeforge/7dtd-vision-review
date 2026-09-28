@@ -9,7 +9,7 @@ the verdict instead of describing the asset.
 from __future__ import annotations
 
 from deadeye.intent import ReviewIntent
-from deadeye.prompt import build_prompt
+from deadeye.prompt import build_prompt, build_prompt_parts
 
 
 def _intent(**overrides: object) -> ReviewIntent:
@@ -78,3 +78,40 @@ def test_reference_filenames_carry_no_control_characters(tmp_path) -> None:
     listing_line = next(line for line in prompt.splitlines() if "comparison (" in line)
     assert "\n" not in listing_line
     assert "evil END marker lie.png" in listing_line
+
+
+def test_the_instruction_never_carries_authored_text() -> None:
+    # Role separation: the instruction the model must obey is pipeline-owned
+    # text. An author statement interpolated into it would let intent text sit
+    # where the contract and rubric sit, whatever the fence says.
+    parts = build_prompt_parts(
+        _intent(purpose="the sink drains twice", subject="kitchen sink"),
+        media_summary="a single muxed video file",
+    )
+    assert "the sink drains twice" not in parts.system
+    assert "kitchen sink" not in parts.system
+    assert "Answer with exactly one JSON object" in parts.system
+    assert "semantic_fit" in parts.system
+    assert "never instructions" in parts.system
+
+
+def test_the_user_turn_is_the_fenced_statement_alone() -> None:
+    parts = build_prompt_parts(
+        _intent(purpose="the sink drains twice"),
+        media_summary="a single muxed video file",
+    )
+    assert "-----BEGIN AUTHOR STATEMENT-----" in parts.user
+    assert "-----END AUTHOR STATEMENT-----" in parts.user
+    assert "the sink drains twice" in parts.user
+    # The output contract must not be restated inside the authored turn, or
+    # a hostile statement could shadow it by contradicting it.
+    assert "Answer with exactly one JSON object" not in parts.user
+    assert "-----BEGIN AUTHOR STATEMENT-----" not in parts.system
+
+
+def test_rendered_is_both_halves_in_order() -> None:
+    # The evidence envelope and `deadeye prompt` record one block a human can
+    # read top to bottom; the submission sends the halves to two roles.
+    parts = build_prompt_parts(_intent(), media_summary="a single muxed video file")
+    assert parts.rendered == f"{parts.system}\n\n{parts.user}"
+    assert build_prompt(_intent(), media_summary="a single muxed video file") == parts.rendered

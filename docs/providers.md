@@ -10,6 +10,13 @@ An adapter is a narrow protocol in `src/deadeye/providers/base.py`:
 - `review(request)` — submit media plus prompt, return raw text plus usage
   metadata, raising `DeadeyeError` on refusal or fault.
 
+A `ReviewRequest` carries the two halves of the instruction separately:
+`system_prompt` is the pipeline-owned reviewer instruction, `prompt` is the
+authored intent, and `rendered` is both as one string (what the evidence
+envelope records). An adapter whose endpoint has a system role sends the
+instruction there, so intent text cannot occupy the slot the output contract
+and rubric sit in.
+
 Adapters speak HTTP with the standard library. A build tool that already
 carries no SDK has no reason to grow one, and every dependency avoided is a
 supply-chain surface a consuming mod author never has to audit. Generation
@@ -18,7 +25,10 @@ absent key falls back to the adapter's built-in default, while a value that
 is present but unusable (a string where a number belongs, a boolean, a
 non-finite float) is refused with the key named before any submission — a
 silently substituted parameter would make the evidence untraceable to its
-configuration.
+configuration. The output caps (`max_output_tokens`, `max_tokens`) additionally
+require a value of at least 1: a provider that reads zero or a negative cap as
+"no limit" would turn a botched key into an unbounded billable generation,
+which is the one outcome those knobs exist to prevent.
 
 The shared HTTP layer decodes the response envelope explicitly: the charset
 declared in `Content-Type` when it decodes, UTF-8 (JSON's default) otherwise,
@@ -61,6 +71,8 @@ Generation always carries a `maxOutputTokens` cap (module constant
 runaway generation cannot bill without end; override it per setup with
 `providers.gemini.max_output_tokens`. The cap exists to stop runaway spend,
 not to shape answers, so it sits at the ceiling rather than a tight budget.
+The reviewer instruction rides `systemInstruction` and the authored intent the
+`user` turn, which is where Gemini gives an instruction its standing.
 
 The live path is covered by an opt-in test
 (`DEADEYE_NETWORK_TESTS=gemini` + `GEMINI_API_KEY`); the offline suite pins
@@ -83,7 +95,8 @@ deployment may override under `[providers.nvidia]`.
 
 The key arrives from `NVIDIA_API_KEY`, travels in an `Authorization` header
 (never a query string), and is never printed, logged, or written into
-evidence.
+evidence. The reviewer instruction is its own `system` message ahead of the
+`user` message carrying the authored intent and the media.
 
 The live path is covered by an opt-in test
 (`DEADEYE_NETWORK_TESTS=nvidia` + `NVIDIA_API_KEY`); the offline suite pins

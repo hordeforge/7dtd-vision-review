@@ -155,6 +155,10 @@ def build_body(request: ReviewRequest) -> dict[str, object]:
     muxed video in a single `video_url` part (NVIDIA's documented form for
     video in chat completions), addressed from the text side by the same fixed
     attachment labels the prompt announces.
+
+    The reviewer instruction goes in its own `system` message and the authored
+    intent stays in the `user` message, so intent text cannot occupy or
+    restate the instruction's slot.
     """
     parts: list[dict[str, object]] = [{"type": "text", "text": request.prompt}]
     for payload in request.media:
@@ -171,10 +175,14 @@ def build_body(request: ReviewRequest) -> dict[str, object]:
                 f"provider 'nvidia' cannot ingest {payload.mime_type}; it is a "
                 "vision-chat endpoint that takes images and video only"
             )
+    messages: list[dict[str, object]] = []
+    if request.system_prompt:
+        messages.append({"role": "system", "content": request.system_prompt})
+    messages.append({"role": "user", "content": parts})
     return {
-        "messages": [{"role": "user", "content": parts}],
+        "messages": messages,
         "model": request.model,
-        "max_tokens": int_setting("nvidia", "max_tokens", DEFAULT_MAX_TOKENS),
+        "max_tokens": int_setting("nvidia", "max_tokens", DEFAULT_MAX_TOKENS, minimum=1),
         "reasoning_budget": int_setting("nvidia", "reasoning_budget", DEFAULT_REASONING_BUDGET),
         "temperature": float_setting("nvidia", "temperature", DEFAULT_TEMPERATURE),
         "top_p": float_setting("nvidia", "top_p", DEFAULT_TOP_P),

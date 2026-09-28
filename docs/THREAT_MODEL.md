@@ -102,11 +102,13 @@ prompt (intent + filenames + pixels) ──B6 model interpretation──> verdic
 - **B5 outputs**: credentials must never reach stdout, JSON output, logs, or
   evidence; enforced by construction plus the `redact()` backstop
   (`intent.py:300-327`).
-- **B6 model interpretation**: the reviewer instruction, the author's
-  statement, and reference filenames are assembled into one prompt
-  (`prompt.py:31-121`) and the pixels are attached. Everything in that prompt
-  except the rubric scaffolding is authored or local-file text, so it is
-  input to a system that decides the verdict — T6.
+- **B6 model interpretation**: the reviewer instruction and the author's
+  statement are assembled in separate roles (`prompt.py`
+  `build_prompt_parts`; `ReviewRequest.system_prompt` vs `ReviewRequest.prompt`)
+  and the pixels are attached to the user turn. The instruction half is
+  pipeline-owned; the statement half and the reference filenames are authored
+  or local-file text, so they are input to a system that decides the verdict
+  — T6.
 
 Privilege transitions: none in code (no privilege drop, spawn, or exec). Two
 input-driven authority expansions exist and are modeled as threats: intent
@@ -180,10 +182,11 @@ the verdict rather than over the process.
 | Endpoint override validated: https only, plain http loopback-only, refused before submission | cleartext credential egress via config (part of T1) | `config.py` `endpoint()`; pinned by `tests/test_config.py` endpoint tests |
 | Config values validated at resolution: unknown `default_provider` and unusable timeout refused with named errors | silent wrong-provider / wrong-timeout operation (misconfiguration) | `surface.py` `_resolve_provider`/`_resolve_timeout`; pinned by `tests/test_config.py`, `tests/test_mcp.py` |
 | Doctor reports presence only, never contacts a provider | capability probing used as an oracle (I) | `base.py:89-95`; `cli.py:302-344` |
-| Author statement fenced, declared data-only, and any field carrying a fence marker refused | intent text escaping the author-statement block and posing as instruction (part of T6) | `prompt.py:74-109`; `intent.py:70-71` (`_carries_fence_marker`), applied at `intent.py:133,155,184,189` |
-| Filenames flattened to printable characters before they enter prompt text | a crafted filename forging extra label or instruction lines (part of T6) | `sampling.py:264-274` (`flat_label_text`); used at `prompt.py:26,106` |
+| Author statement in the user turn, fenced, declared data-only by the system instruction, and any field carrying a fence marker refused | intent text escaping the author-statement block and posing as instruction (part of T6) | `prompt.py` `build_prompt_parts`; `intent.py:70-71` (`_carries_fence_marker`), applied at `intent.py:133,155,192,203` |
+| Reviewer instruction sent as the provider's system instruction, never concatenated into the authored turn | intent text occupying or restating the instruction's slot (part of T6) | `gemini.py` `build_body` (`systemInstruction`); `nvidia.py` `build_body` (`role: system`) |
+| Filenames flattened to printable characters before they enter prompt text | a crafted filename forging extra label or instruction lines (part of T6) | `sampling.py:264-274` (`flat_label_text`); used at `prompt.py:52,158` |
 | MCP control flags must be literal JSON booleans | a client string `"false"` becoming `force` or `keep_raw_response` (T/R/I) | `mcp.py:120-135` (`_optional_boolean`) |
-| Prompt version and rubric version recorded on every submission | an answer attributed to an instruction the model never received (R) | `prompt.py:26-27`; evidence records the versions |
+| Prompt version and rubric version recorded on every submission | an answer attributed to an instruction the model never received (R) | `result.py` `PROMPT_VERSION`; evidence records the versions |
 | Zero runtime dependencies, bandit (S) lint rules armed | supply-chain surface | `pyproject.toml` |
 
 Single point of failure: T3 — the redact backstop is the *only* control
@@ -240,21 +243,24 @@ there on purpose. One control, three high-impact output channels.
 
 ### T4: cost amplification via intent (Low)
 
-`build_prompt` interpolates every intent field verbatim
-(`prompt.py:88-109`), so oversized input inflates billable tokens. Bounded in
+The prompt interpolates every intent field verbatim, so oversized input
+inflates billable tokens. Bounded in
 the same pass that wrote this note: `intent.py` refuses a document above
 64 KiB at the read, then caps each free-text field at
-2,000 characters, `avoid`/`questions` at 32 entries of 500 characters each,
+2,000 characters (a reference's `path` and `purpose` included),
+`avoid`/`questions` at 32 entries of 500 characters each,
 and `references` at 8 files (pinned by `tests/test_intent.py`), and the gemini
 adapter caps output with `maxOutputTokens`. A multi-megabyte `--intent-text`
 is now refused locally instead of being priced at the provider.
 
 ### T6: prompt injection moves the verdict (Medium)
 
-`build_prompt` interpolates every authored field verbatim inside the
-data-only fence (`prompt.py:88-109`), attaches the candidate clip and the
-reference media, and asks the model for a verdict on both. The fence and its
-"never instructions" preamble (`prompt.py:79-86`) plus the refusal of any
+`build_prompt_parts` interpolates every authored field verbatim into the user
+turn, inside the data-only fence the system instruction declares, attaches the
+candidate clip and the reference media, and asks the model for a verdict on
+both. The role split (the instruction is the provider's `systemInstruction` /
+`system` message, the statement is the only authored text in the `user` turn),
+the fence, and the refusal of any
 field containing a fence marker (`intent.py:70-71`) close the textual escape,
 but the injection surface is wider than text: rendered text inside a frame is
 attached as an image, where no local check sees it at all, and a
@@ -287,7 +293,7 @@ on external integrity controls.
   `review.py:296-298`.
 - **A2 — spend gaming.** Inline `--intent-text` of arbitrary size or hundreds
   of questions would inflate the billed prompt (`cli.py:86` →
-  `intent.py:252-281` → `prompt.py:88-109`); the local caps added with T4
+  `intent.py` `load_intent` → `prompt.py` `build_prompt_parts`); the local caps added with T4
   (field, list, and reference limits in `intent.py`) refuse it before
   submission.
 - **A3 — credential capture via cloned config.** The T1 scenario: malicious
@@ -297,7 +303,7 @@ on external integrity controls.
 - **A4 — verdict gaming by injection.** A hostile `intent.json` (or a
   reference file whose rendered content tells the model to score the
   candidate highly) reaches the model as data. Code path:
-  `intent.py:160-192` → `prompt.py:88-109` → provider submission; the answer
+  `intent.py` `_references_field` → `prompt.py` `build_prompt_parts` → provider submission; the answer
   comes back and passes every structural check in
   `result.py:137-287`. See T6.
 - **Client-side enforcement trust.** Consumers gate on exit code and the

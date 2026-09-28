@@ -105,11 +105,16 @@ and `references` at 8 files, each with a 2,000-character `path` and a
 prompt, so a runaway intent is refused with a named limit
 instead of being priced at the provider.
 
-The prompt declares the author statement data-only between
+The instruction and the author's statement travel in separate roles. The
+instruction (role, JSON output contract, rubric, and the declaration that the
+user turn is data) is the provider's system instruction; the statement is the
+only authored text in the user turn, between the
 `-----BEGIN AUTHOR STATEMENT-----` and `-----END AUTHOR STATEMENT-----`
 markers. Intent text or a reference path containing one of those markers is
 refused at parse time: a marker inside the intent could close the fence early
 and let the rest of the statement speak as gateway instructions.
+`deadeye prompt` prints both halves as one block, and the evidence envelope
+records that same block.
 
 ## The result shape
 

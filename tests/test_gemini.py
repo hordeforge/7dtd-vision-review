@@ -216,6 +216,61 @@ def test_max_output_tokens_can_be_overridden_by_config(
     assert seen["body"]["generationConfig"]["maxOutputTokens"] == 1024
 
 
+def test_a_non_positive_output_cap_is_refused_before_submission(monkeypatch, tmp_path) -> None:
+    """A cap is the only thing between a looping generation and unbounded
+    spend, and a provider that reads zero or a negative cap as 'no limit'
+    turns a botched key into exactly that. The refusal names the key."""
+    from deadeye import config
+
+    (tmp_path / "config.local.toml").write_text(
+        "[providers.gemini]\nmax_output_tokens = 0\n", encoding="utf-8"
+    )
+    monkeypatch.setenv("DEADEYE_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    config.reset()
+    try:
+        with pytest.raises(DeadeyeError, match="at least 1"):
+            GeminiProvider().review(_review_request())
+    finally:
+        config.reset()
+
+
+def test_the_instruction_travels_as_the_system_instruction() -> None:
+    # The instruction the model must obey is pipeline-owned; the authored
+    # intent is not. `systemInstruction` is Gemini's own role, so intent text
+    # cannot occupy the slot the contract and rubric sit in.
+    from deadeye.providers.base import ReviewRequest
+    from deadeye.providers.gemini import build_body
+
+    body = build_body(
+        ReviewRequest(
+            prompt="the author's statement, fenced",
+            system_prompt="You are reviewing a game-asset candidate on screen.",
+            media=(),
+            model="m",
+            timeout_seconds=1.0,
+        )
+    )
+    system = body["systemInstruction"]["parts"]
+    assert [part["text"] for part in system] == [
+        "You are reviewing a game-asset candidate on screen."
+    ]
+    user_text = [part["text"] for part in body["contents"][0]["parts"] if "text" in part]
+    assert "the author's statement, fenced" in user_text
+    assert not any("game-asset candidate" in text for text in user_text)
+
+
+def test_a_caller_with_no_system_instruction_sends_none(monkeypatch, http_opener) -> None:
+    from deadeye.providers.base import ReviewRequest
+    from deadeye.providers.gemini import build_body
+
+    body = build_body(ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0))
+    assert "systemInstruction" not in body
+    sent = _capture_body(monkeypatch, http_opener, _ENVELOPE)
+    GeminiProvider().review(ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0))
+    assert "systemInstruction" not in sent["body"]
+
+
 @pytest.mark.skipif(
     os.environ.get("DEADEYE_NETWORK_TESTS") != "gemini" or not os.environ.get("GEMINI_API_KEY"),
     reason="opt-in live run: set DEADEYE_NETWORK_TESTS=gemini and GEMINI_API_KEY",

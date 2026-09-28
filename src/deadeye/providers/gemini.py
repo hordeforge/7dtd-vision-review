@@ -19,6 +19,10 @@ budget; otherwise (or when the clip has no muxed video) the sampled frame
 sequence goes as multi-image input. The `video/mp4` inline path is the
 documented route for video understanding; multi-image input is the broadly
 supported fallback every vision-chat API shares.
+
+The reviewer instruction travels as `systemInstruction` and the authored
+intent as the user turn, never concatenated: the roles keep intent text out
+of the slot the instruction occupies.
 """
 
 from __future__ import annotations
@@ -94,30 +98,7 @@ class GeminiProvider:
         credential = self.credential()
         if credential is None:
             raise DeadeyeError(f"provider 'gemini' has no credential; {self.configuration_hint()}")
-        parts: list[dict[str, object]] = [{"text": request.prompt}]
-        for payload in request.media:
-            label = attachment_label(payload)
-            parts.append({"text": label})
-            parts.append(
-                {
-                    "inline_data": {
-                        "mime_type": payload.mime_type,
-                        "data": base64.b64encode(payload.data).decode("ascii"),
-                    }
-                }
-            )
-        body = {
-            "contents": [{"role": "user", "parts": parts}],
-            "generationConfig": {
-                "response_mime_type": "application/json",
-                # A cap, not a tuning knob: an uncapped generation is unbounded
-                # spend when the model loops. Override with
-                # providers.gemini.max_output_tokens.
-                "maxOutputTokens": int_setting(
-                    self.name, "max_output_tokens", DEFAULT_MAX_OUTPUT_TOKENS
-                ),
-            },
-        }
+        body = build_body(request, provider_name=self.name)
         # The override is validated in config.endpoint: https only, except a
         # loopback proxy over plain http.
         api_root = config.endpoint(("providers", "gemini", "endpoint"), API_ROOT)
@@ -176,3 +157,41 @@ class GeminiProvider:
                 envelope["modelVersion"] if isinstance(envelope.get("modelVersion"), str) else None
             ),
         )
+
+
+def build_body(request: ReviewRequest, *, provider_name: str = "gemini") -> dict[str, object]:
+    """The `generateContent` payload, as a plain dict (offline-testable).
+
+    The reviewer instruction rides `systemInstruction`, its own role in the
+    API, and only the authored intent and the attachments occupy the user
+    turn. Gemini gives a `systemInstruction` the standing the OpenAI-shaped
+    `system` message does elsewhere; keeping them apart is what stops intent
+    text from being read as instruction.
+    """
+    parts: list[dict[str, object]] = [{"text": request.prompt}]
+    for payload in request.media:
+        label = attachment_label(payload)
+        parts.append({"text": label})
+        parts.append(
+            {
+                "inline_data": {
+                    "mime_type": payload.mime_type,
+                    "data": base64.b64encode(payload.data).decode("ascii"),
+                }
+            }
+        )
+    body: dict[str, object] = {
+        "contents": [{"role": "user", "parts": parts}],
+        "generationConfig": {
+            "response_mime_type": "application/json",
+            # A cap, not a tuning knob: an uncapped generation is unbounded
+            # spend when the model loops. Override with
+            # providers.gemini.max_output_tokens.
+            "maxOutputTokens": int_setting(
+                provider_name, "max_output_tokens", DEFAULT_MAX_OUTPUT_TOKENS, minimum=1
+            ),
+        },
+    }
+    if request.system_prompt:
+        body["systemInstruction"] = {"parts": [{"text": request.system_prompt}]}
+    return body

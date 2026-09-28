@@ -31,7 +31,7 @@ from . import config, sampling
 from .errors import DeadeyeError, EvidenceWriteError, did_not_answer
 from .evidence import build_envelope, ensure_writable, sha256_file, write_evidence
 from .intent import ReviewIntent, load_intent, redact_json_text
-from .prompt import FRAME_TIMING_NOTE, build_prompt
+from .prompt import FRAME_TIMING_NOTE, build_prompt_parts
 from .providers import MediaPayload, ProviderLimits, ReviewRequest
 from .result import parse_model_json, validate_result
 from .sampling import base64_wire_bytes, mime_for_suffix
@@ -111,14 +111,14 @@ def run_review(
 
     media_summary = _media_summary(submission.record, submission.total_bytes)
     frame_note = _frame_timing_note(submission.record)
-    prompt = build_prompt(intent, media_summary=media_summary, frame_timing_note=frame_note)
-    # The budget names the whole request, and the prompt rides the same
-    # request as the media: count its encoded bytes too. A media-only total
+    parts = build_prompt_parts(intent, media_summary=media_summary, frame_timing_note=frame_note)
+    # The budget names the whole request, and both prompt halves ride the same
+    # request as the media: count their encoded bytes too. A media-only total
     # waves through a submission the provider refuses with 400 after the full
     # upload has already crossed the network.
     _enforce_wire_budget(
         submission.total_bytes,
-        submission.wire_bytes + _json_string_bytes(prompt),
+        submission.wire_bytes + _json_string_bytes(parts.system) + _json_string_bytes(parts.user),
         provider.limits.max_bytes,
         provider.name,
         detail="as submitted base64, prompt included",
@@ -129,7 +129,8 @@ def run_review(
         for (path, kind), data in zip(submission.files, submission.file_bytes, strict=True)
     )
     request = ReviewRequest(
-        prompt=prompt,
+        prompt=parts.user,
+        system_prompt=parts.system,
         media=payloads,
         model=resolved_model,
         timeout_seconds=timeout_seconds,
@@ -164,7 +165,7 @@ def run_review(
             endpoint_mode=provider.endpoint_mode,
             model_requested=resolved_model,
             model_reported=response.model_reported,
-            prompt=prompt,
+            prompt=request.rendered,
             usage=response.usage,
             total_bytes=submission.total_bytes,
             elapsed_seconds=elapsed_seconds,

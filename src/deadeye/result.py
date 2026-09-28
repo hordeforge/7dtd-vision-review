@@ -26,7 +26,10 @@ from .errors import DeadeyeError
 
 RUBRIC_VERSION = "1"
 # 2: the author statement became a fenced, data-only block (prompt.py).
-PROMPT_VERSION = "2"
+# 3: the instruction and the author statement moved to separate roles
+# (prompt.py `build_prompt_parts`); a submission carries `system_prompt`
+# alongside `prompt` instead of one concatenated turn.
+PROMPT_VERSION = "3"
 
 RESULT_KEYS = (
     "summary",

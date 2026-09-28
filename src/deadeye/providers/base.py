@@ -55,9 +55,23 @@ class ReviewRequest:
     """Everything a submission needs, assembled by the deadeye core."""
 
     prompt: str
+    """The user turn: the authored intent, already fenced and declared data-only."""
     media: tuple[MediaPayload, ...]
     model: str
     timeout_seconds: float
+    system_prompt: str = ""
+    """The reviewer instruction: role, output contract, rubric, and the
+    declaration that the user turn is data.
+
+    Sent as the provider's system instruction, never concatenated into
+    `prompt`. Keeping the two in separate roles is what stops authored text
+    from occupying the slot the instruction lives in; an adapter whose
+    endpoint has no system role sends `rendered` as a single turn instead."""
+
+    @property
+    def rendered(self) -> str:
+        """Both halves as one string: the evidence text, and the single-turn form."""
+        return f"{self.system_prompt}\n\n{self.prompt}" if self.system_prompt else self.prompt
 
 
 @dataclass(frozen=True)
@@ -177,7 +191,7 @@ def _unusable(provider: str, key: str, value: Any, expected: str) -> DeadeyeErro
     )
 
 
-def int_setting(provider: str, key: str, fallback: int) -> int:
+def int_setting(provider: str, key: str, fallback: int, *, minimum: int = 0) -> int:
     """A provider's integer tuning knob (`providers.<name>.<key>`), or fallback.
 
     The one home every adapter reads its generation knobs through, so the
@@ -188,12 +202,19 @@ def int_setting(provider: str, key: str, fallback: int) -> int:
     default would send a request whose parameters differ from the ones the
     operator wrote down: exactly the misconfiguration a traceable review
     must not hide.
+
+    `minimum` is the floor a present value must clear. A generation cap
+    passes `minimum=1`: a provider that reads zero as "no limit", or treats a
+    negative cap as absent, would turn a botched key into an unbounded
+    billable generation, which is the one outcome these knobs exist to stop.
     """
     value = config.value(("providers", provider, key))
     if value is None:
         return fallback
     if isinstance(value, bool) or not isinstance(value, int):
         raise _unusable(provider, key, value, "an integer")
+    if value < minimum:
+        raise _unusable(provider, key, value, f"an integer of at least {minimum}")
     return value
 
 
