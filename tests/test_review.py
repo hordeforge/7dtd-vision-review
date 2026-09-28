@@ -183,6 +183,31 @@ def test_a_failed_evidence_write_still_delivers_the_billed_verdict(
     assert document["kind"] == "deadeye-review"
     assert document["result"]["summary"]
     assert document["provider"]["name"] == "fake"
+    # The key a successful run carries, on the path that hands back a billed
+    # verdict to be recovered: a consumer reading it must not have to know
+    # which of two envelope shapes it got.
+    assert document["evidence"] == {"path": str(output), "sha256": None}
+
+
+def test_every_envelope_carries_the_evidence_key(clip_dir, intent_path, tmp_path) -> None:
+    """The persisted document and the returned envelope are the same shape:
+    `evidence` is present in both, so a consumer parsing either one reads the
+    same keys. The digest stays out of the file, which cannot contain its own
+    hash, and rides the returned envelope."""
+    output = tmp_path / "evidence.json"
+    envelope = run_review(
+        clip_dir,
+        provider=FakeProvider(),
+        intent_path=intent_path,
+        allow_network=True,
+        output=output,
+    )
+    document = json.loads(output.read_text())
+    assert set(document) == set(envelope)
+    assert document["evidence"]["path"] == str(output)
+    assert document["evidence"]["sha256"] is None
+    assert envelope["evidence"]["path"] == str(output)
+    assert envelope["evidence"]["sha256"]
 
 
 def test_evidence_is_written_and_hashes_address_it(clip_dir, intent_path, tmp_path) -> None:

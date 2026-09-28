@@ -143,6 +143,14 @@ validated result, the disclosure confirmation, usage metadata when reported,
 and tool/parameter information with credentials removed. A later review never
 overwrites an earlier envelope by default.
 
+Every envelope carries an `evidence` key, the written document and the one
+printed on stdout alike: `{"path": ..., "sha256": ...}`. The written document
+names its own path with a null `sha256` (a file cannot contain its own digest);
+the digest rides the envelope `deadeye review --json` prints and that a failed
+evidence write carries, so a caller can hash the file and compare. Without
+`--output` both fields are null, and the envelope a failed write hands back
+names the path that could not be written.
+
 The envelope is written through a unique private temporary file in its
 destination directory, flushed and `fsync`'d, then atomically replaced into
 place. Without `--force` the destination name is occupied with

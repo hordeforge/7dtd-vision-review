@@ -225,6 +225,9 @@ def run_review(
                 raw_response=redact_json_text(response.raw_text),
                 params={},
             )
+            # The same key every other envelope carries, naming the file this
+            # one is about to become.
+            document["evidence"] = {"path": str(output), "sha256": None}
             try:
                 write_evidence(output, document, force=force)
             except DeadeyeError as write_exc:
@@ -252,7 +255,14 @@ def run_review(
         params=params,
     )
 
-    evidence: dict[str, str | None] = {"path": None, "sha256": None}
+    # Every envelope carries the `evidence` key, on every path that produces
+    # one. A key that a successful run carries and the recovery path does not
+    # is a KeyError for exactly the caller that can least afford it: the one
+    # rebuilding a billed verdict out of the envelope a write fault left
+    # undelivered. The persisted document names its own path but not its own
+    # digest, which cannot contain its own hash; the digest rides the envelope
+    # returned here.
+    document["evidence"] = {"path": str(output) if output is not None else None, "sha256": None}
     if output is not None:
         try:
             evidence_path, evidence_sha256 = write_evidence(output, document, force=force)
@@ -262,8 +272,7 @@ def run_review(
             # review of the same bytes. The refusal carries the full document
             # so every transport can still deliver the verdict.
             raise _evidence_write_fault(exc, document) from exc
-        evidence = {"path": str(evidence_path), "sha256": evidence_sha256}
-    document["evidence"] = evidence
+        document["evidence"] = {"path": str(evidence_path), "sha256": evidence_sha256}
     return document
 
 
