@@ -52,6 +52,13 @@ BASE_NAME = "config.toml"
 LOCAL_NAME = "config.local.toml"
 DEFAULT_TIMEOUT_SECONDS = 120.0
 
+# How many times `load` re-reads a source file that moved under the read. The
+# write that moves it is an editor or a secret manager, so one retry settles
+# almost every case; the bound is what stops a file rewritten continuously
+# from spinning this loop, and past it the read that did complete is returned
+# uncached rather than none at all.
+_LOAD_SIGNATURE_ATTEMPTS = 3
+
 # The template ships inside the package, so it is on disk for an install from
 # a wheel as well as from a checkout, and `deadeye doctor` can name a file the
 # reader can actually open.
@@ -306,6 +313,14 @@ def _source_signature(directory: Path | None) -> tuple[Any, ...]:
     secret that just landed), so the cache is only valid while this signature
     is unchanged. A signature is a stat per file, never a parse: an unchanged
     file costs nothing to keep serving.
+
+    `st_ctime_ns` rides with the modification time because a write that
+    restores the mtime it found (a `cp -p`, a checkout that preserves it, a
+    tool that sets it deliberately) still moves the inode's change time. On a
+    filesystem whose timestamps are coarse enough for two writes of the same
+    length to land in the same tick, mtime and size alone cannot tell the
+    second write from the first, and a credential written over another would
+    then be served from the cache until the file changed again.
     """
     entries: list[Any] = [
         os.environ.get(CONFIG_ENV, "").strip(),
@@ -319,8 +334,23 @@ def _source_signature(directory: Path | None) -> tuple[Any, ...]:
             status = path.stat()
         except OSError:
             continue
-        entries.append((name, status.st_ino, status.st_size, status.st_mtime_ns))
+        entries.append(
+            (name, status.st_ino, status.st_size, status.st_mtime_ns, status.st_ctime_ns)
+        )
     return tuple(entries)
+
+
+def _discovery_note(directory: Path | None) -> str | None:
+    """Why the built-in defaults apply, when an explicit directory held nothing."""
+    if directory is not None:
+        return None
+    explicit = os.environ.get(CONFIG_ENV, "").strip()
+    if not explicit:
+        return None
+    return (
+        f"{CONFIG_ENV}={explicit} names a directory holding "
+        f"neither {BASE_NAME} nor {LOCAL_NAME}; built-in defaults apply"
+    )
 
 
 def load() -> Config:
@@ -346,26 +376,39 @@ def load() -> Config:
         if _Cache.loaded is None:
             raise ValueError(_Cache.failed or "config failed to load")
         return _Cache.loaded
-    try:
-        note: str | None = None
-        if directory is None:
-            explicit = os.environ.get(CONFIG_ENV, "").strip()
-            if explicit:
-                note = (
-                    f"{CONFIG_ENV}={explicit} names a directory holding "
-                    f"neither {BASE_NAME} nor {LOCAL_NAME}; built-in defaults apply"
-                )
-        loaded = Config(directory)
-    except ValueError as exc:
-        _Cache.loaded = None
-        _Cache.failed = str(exc)
-        _Cache.note = None
-        _Cache.signature = _source_signature(directory)
-        raise
-    _Cache.loaded = loaded
+    # The signature is taken before the read, not after it. Stat-ing last would
+    # describe a file that may have been rewritten between the parse and the
+    # stat, and a cache keyed on that description holds parsed content from
+    # the older write for as long as the newer one stands still: the long-lived
+    # MCP server would then serve a superseded credential indefinitely. So the
+    # read is bracketed instead, and a file that moved under it is re-read
+    # rather than pinned.
+    for _ in range(_LOAD_SIGNATURE_ATTEMPTS):
+        signature = _source_signature(directory)
+        try:
+            loaded = Config(directory)
+        except ValueError as exc:
+            _Cache.loaded = None
+            _Cache.failed = str(exc)
+            _Cache.note = None
+            _Cache.signature = signature
+            raise
+        if _source_signature(directory) == signature:
+            _Cache.loaded = loaded
+            _Cache.failed = None
+            _Cache.note = _discovery_note(directory)
+            _Cache.signature = signature
+            return loaded
+        directory = _discover()
+    # A file rewritten faster than it can be read, past the retry bound. The
+    # read that finishes is returned, and the cache is left empty rather than
+    # keyed on a signature this process never confirmed: the next call reads
+    # again instead of serving content of unknown vintage.
+    loaded = Config(directory)
+    _Cache.loaded = None
     _Cache.failed = None
-    _Cache.note = note
-    _Cache.signature = _source_signature(directory)
+    _Cache.note = _discovery_note(directory)
+    _Cache.signature = None
     return loaded
 
 

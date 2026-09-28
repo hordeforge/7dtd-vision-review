@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 from importlib import import_module
 from pathlib import Path
 
@@ -591,3 +592,68 @@ def test_unchanged_config_is_not_reparsed(isolated_config) -> None:
     fresh `Config` and a fresh identity every call."""
     _write(isolated_config, "config.toml", 'default_provider = "nvidia"\n')
     assert config.load() is config.load()
+
+
+def _rewriting_config(monkeypatch, target: Path, body: str, *, every: bool) -> None:
+    """Make `config.Config` rewrite `target` to `body` right after it parses.
+
+    That is an editor or a secret manager landing between the read and the
+    stat that keys the cache. The signature taken before the read and the one
+    taken after it disagree, which is exactly the window in which a cache keyed
+    on the later stat pins the earlier content.
+    """
+    written = {"count": 0}
+    real_config = config.Config
+
+    class RewritingConfig(real_config):  # type: ignore[misc, valid-type]
+        def __init__(self, directory: Path | None) -> None:
+            super().__init__(directory)
+            if every or not written["count"]:
+                written["count"] += 1
+                _write(target.parent, target.name, body)
+
+    monkeypatch.setattr(config, "Config", RewritingConfig)
+
+
+def test_a_source_rewritten_mid_read_is_re_read_not_pinned(isolated_config, monkeypatch) -> None:
+    """The read is bracketed by two signatures, so a file that moved under it
+    is read again. Caching the first parse under the second signature would
+    serve a superseded credential to the long-lived MCP server until the file
+    happened to change again."""
+    local = isolated_config / "config.local.toml"
+    _write(isolated_config, "config.toml", 'default_provider = "nvidia"\n')
+    _write(isolated_config, "config.local.toml", 'api_key = "nvapi-first"\n')
+    _rewriting_config(monkeypatch, local, 'api_key = "nvapi-second"\n', every=False)
+    # The retry's read is what the caller gets, and it is what is cached.
+    assert config.value(("api_key",)) == "nvapi-second"
+    assert config.value(("api_key",)) == "nvapi-second"
+    assert config.load() is config.load()
+
+
+def test_a_continuously_rewritten_file_is_never_cached(isolated_config, monkeypatch) -> None:
+    """Past the retry bound the read that finished is still returned, but
+    nothing of it is cached: the signature left behind is the one from before
+    that read, so the next call re-reads rather than serving content no
+    signature was ever confirmed against."""
+    local = isolated_config / "config.local.toml"
+    _write(isolated_config, "config.toml", 'default_provider = "nvidia"\n')
+    _write(isolated_config, "config.local.toml", 'api_key = "nvapi-first"\n')
+    _rewriting_config(monkeypatch, local, 'api_key = "nvapi-second"\n', every=True)
+    assert config.value(("api_key",)) == "nvapi-second"
+    assert config.load() is not config.load()
+
+
+def test_a_write_that_restores_the_mtime_is_still_an_invalidation(isolated_config) -> None:
+    """A writer that puts back the mtime it found (`cp -p`, a checkout, a tool
+    setting it deliberately) leaves size and mtime where they were. The
+    inode's change time still moves, and the cache reads it."""
+    local = isolated_config / "config.local.toml"
+    _write(isolated_config, "config.local.toml", 'api_key = "nvapi-aaaa"\n')
+    assert config.value(("api_key",)) == "nvapi-aaaa"
+    before = local.stat().st_mtime_ns
+    _write(isolated_config, "config.local.toml", 'api_key = "nvapi-bbbb"\n')
+    restored = local.stat()
+    os.utime(local, ns=(restored.st_atime_ns, before))
+    assert local.stat().st_mtime_ns == before
+    assert len(local.read_text(encoding="utf-8")) == len('api_key = "nvapi-aaaa"\n')
+    assert config.value(("api_key",)) == "nvapi-bbbb"

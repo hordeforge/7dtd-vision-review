@@ -203,6 +203,23 @@ required (`CONTRIBUTING.md`, "Changing a contract").
 
 ### Fixed
 
+- The process-wide config cache could be keyed on a file it had not read. The
+  signature that decides whether the cached `Config` is still good was taken
+  after the parse, so a `config.local.toml` rewritten between the parse and the
+  stat was recorded under its newer stat while the cache held the older write's
+  content: a long-lived MCP server then served a superseded credential until
+  that file changed again. The read is now bracketed by a signature taken
+  before and after it, a file that moved under the read is re-read (up to
+  three attempts), and past that bound the read is returned with the cache left
+  empty rather than keyed on a signature nothing confirmed. The signature also
+  reads the inode's change time, so a write that restores the mtime it found
+  (`cp -p`, a checkout, a tool setting it deliberately) is an invalidation
+  rather than an invisible one. An unchanged config is still served from the
+  cache without a re-parse.
+- `build_body` in the gemini adapter passed an undefined `provider_name` where
+  the provider's name belongs, so every gemini submission raised `NameError`
+  while assembling its generation config.
+
 - `FakeProvider.requests` grew for the life of the instance, keeping every
   submitted request whole, media bytes included, so a long-running caller that
   reused one adapter (the offline dry-run lane in a server or a test session)

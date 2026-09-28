@@ -11,6 +11,7 @@ from deadeye.evidence import build_envelope
 from deadeye.intent import ReviewIntent
 from deadeye.redaction import (
     MAX_REDACT_DEPTH,
+    SENSITIVE_KEY_PARTS,
     _is_sensitive_key,
     redact,
     redact_json_text,
@@ -29,6 +30,39 @@ def test_redact_matches_case_fold_only_spellings() -> None:
     # folds to ASCII 's') must not slip through as an ASCII-only blind spot.
     value = {"paſsword": "hunter2", "SECRET": "x", "keep": 1}  # noqa: RUF001
     assert redact(value) == {"keep": 1}
+
+
+def test_redact_matches_keys_hiding_behind_invisible_format_characters() -> None:
+    # Category Cf characters render as nothing, so `api<ZWSP>_key` holds no
+    # `api_key` substring yet every reader, log, and re-serialization shows
+    # `api_key`. A key that differs only by a Cf character names the same
+    # thing, and a key that carries a visible glyph is a different key.
+    value = {"api_key": "x", "pass\u200dword": "y", "keyz": 1, "keep": 2}
+    assert redact(value) == {"keyz": 1, "keep": 2}
+    assert _is_sensitive_key("api_key", SENSITIVE_KEY_PARTS) is True
+    assert _is_sensitive_key("pass\u200dword", SENSITIVE_KEY_PARTS) is True
+    # A key that reads differently once the invisible characters are gone is a
+    # different key, so it is kept.
+    assert _is_sensitive_key("keyz", SENSITIVE_KEY_PARTS) is False
+
+
+def test_redact_stops_descending_at_the_depth_bound() -> None:
+    # `json.loads` accepts nesting a recursive walk cannot survive, so the
+    # bound is what keeps a hostile document from turning a billed submission
+    # into a RecursionError. A container past the limit is replaced by null: a
+    # walk that cannot finish cannot prove the subtree carries no credential.
+    deep: dict[str, Any] = {"api_key": "secret"}
+    for _ in range(MAX_REDACT_DEPTH + 4):
+        deep = {"nested": deep}
+    cleaned = redact(deep)
+    levels = 0
+    node = cleaned
+    while isinstance(node, dict) and "nested" in node:
+        node = node["nested"]
+        levels += 1
+    assert levels == MAX_REDACT_DEPTH
+    assert node is None
+    assert "secret" not in json.dumps(cleaned)
 
 
 def test_redact_passes_nan_leaves_through_untouched() -> None:

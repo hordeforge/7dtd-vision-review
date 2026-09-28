@@ -269,10 +269,13 @@ alone is indistinguishable from a missing credential.
 
 The merged config is held in memory for the life of the process, and re-read
 when its sources change: the directory discovery chose, the
-`DEADEYE_CONFIG_DIR` value, and each file's identity, size, and mtime. A
-long-lived `deadeye mcp` server therefore picks up an edited
+`DEADEYE_CONFIG_DIR` value, and each file's identity, size, modification time,
+and change time. A long-lived `deadeye mcp` server therefore picks up an edited
 `config.local.toml` (a key that just landed) or a corrected parse error on the
-next call, with no restart.
+next call, with no restart. The identity is taken before the read and again
+after it, so a file rewritten while it is being read is read again instead of
+being cached under the newer file's identity; the change time is part of the
+identity so a write that restores the modification time it found still counts.
 
 Values are validated before use, not deep inside a submission: a file that
 sets a key deadeye does not read (`default_provder`, `providers.geminie`, a
