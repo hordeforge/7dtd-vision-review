@@ -120,6 +120,47 @@ def test_the_envelope_records_the_generation_settings_the_submission_carried(
     assert envelope["provider"]["generation"] == FakeProvider().generation_settings()
 
 
+def test_the_prompt_tells_the_model_what_was_actually_submitted(clip_dir, intent_path) -> None:
+    """The instruction states the media that is attached, so the model judges
+    what reached it.
+
+    Ten frames sampled down to eight is the case that matters: a summary
+    naming the clip's ten would put the model's `at_frame` index space one
+    clip out of step with the eight attachments in front of it, and every
+    issue it reported would point at the wrong moment. The frame timing note
+    rides the same turn and is the other half of that contract.
+    """
+    from deadeye.prompt import FRAME_TIMING_NOTE
+
+    provider = FakeProvider()
+    run_review(clip_dir, provider=provider, intent_path=intent_path, allow_network=True)
+    system = provider.requests[-1].system_prompt
+    assert "8 frame image(s) of the clip's 10 frames" in system
+    assert FRAME_TIMING_NOTE in system
+
+
+def test_a_video_submission_is_named_as_a_video_and_carries_no_frame_timing_note(
+    clip_dir_with_video, intent_path
+) -> None:
+    """`at_frame` indexes submitted frame attachments, and a video submission
+    has none. The summary must say the video is what is attached, and the
+    timing note must not ride along telling the model to read an index space
+    its request does not contain.
+    """
+    from deadeye.prompt import FRAME_TIMING_NOTE
+
+    provider = FakeProvider()
+    envelope = run_review(
+        clip_dir_with_video, provider=provider, intent_path=intent_path, allow_network=True
+    )
+    system = provider.requests[-1].system_prompt
+    assert "a single muxed video file" in system
+    assert FRAME_TIMING_NOTE not in system
+    # The envelope's own summary agrees with what was sent.
+    assert envelope["sampling"]["frames_submitted"] == 0
+    assert envelope["media"][0]["kind"] == "video"
+
+
 def test_a_rerun_into_an_occupied_output_refuses_before_any_submission(
     clip_dir, intent_path, tmp_path, monkeypatch
 ) -> None:
@@ -988,6 +1029,61 @@ def test_rerunning_a_review_preserves_both_envelopes_as_independent_evidence(
     assert first["review_id"] != second["review_id"]
     assert json.loads(first_output.read_text())["review_id"] == first["review_id"]
     assert json.loads(second_output.read_text())["review_id"] == second["review_id"]
+
+
+def test_a_missing_reference_is_refused_before_any_submission(clip_dir, tmp_path) -> None:
+    """A reference the author named but never shipped must cost nothing.
+
+    The check runs in the planning phase, before a single byte is read or
+    sent, so a mistyped path is a local refusal rather than a billed upload
+    that ends in a provider-side error nobody reads.
+    """
+    intent = tmp_path / "i.json"
+    intent.write_text(
+        json.dumps(
+            {
+                "purpose": "compare against the accepted asset",
+                "references": [{"path": str(tmp_path / "nope.png"), "purpose": "known good"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    provider = FakeProvider()
+    with pytest.raises(DeadeyeError, match=r"no such reference file: .*nope\.png"):
+        run_review(clip_dir, provider=provider, intent_path=intent, allow_network=True)
+    assert provider.requests == []
+
+
+def test_a_reference_in_a_format_the_provider_refuses_is_named_before_submission(
+    clip_dir, tmp_path
+) -> None:
+    """The refusal names the file, its suffix, and the accepted formats.
+
+    A reference in a format this provider cannot ingest has to be refused
+    locally like any other; the operator's fix is to convert the asset or
+    point at another, and the message has to name all three for them to know
+    which.
+    """
+    reference = tmp_path / "notes.txt"
+    reference.write_bytes(b"plain text, not an image")
+    intent = tmp_path / "i.json"
+    intent.write_text(
+        json.dumps(
+            {
+                "purpose": "compare",
+                "references": [{"path": str(reference), "purpose": "known good"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    provider = FakeProvider()
+    with pytest.raises(DeadeyeError) as exc_info:
+        run_review(clip_dir, provider=provider, intent_path=intent, allow_network=True)
+    message = str(exc_info.value)
+    assert "notes.txt" in message and ".txt" in message
+    assert "not a format provider 'fake' accepts" in message
+    assert ".png" in message, "the refusal must name what would have been accepted"
+    assert provider.requests == []
 
 
 def test_disclosure_counts_every_submitted_copy_of_a_file(clip_dir, tmp_path) -> None:

@@ -106,6 +106,19 @@ def test_attachment_labels_address_the_prompt_order() -> None:
     assert attachment_label(reference) == "reference image: r.png"
 
 
+def test_a_reference_that_is_itself_a_video_is_labelled_as_one() -> None:
+    """A comparison asset may be a muxed video: the accepted-suffix table
+    carries the video formats for references too, and `run_review` submits a
+    reference whatever its own kind says. The label is the only place the
+    model learns which it is looking at, so calling it an image would
+    misdescribe the attachment next to it.
+    """
+    reference_video = MediaPayload(name="r.mp4", mime_type="video/mp4", kind="reference", data=b"")
+    assert attachment_label(reference_video) == "reference video: r.mp4"
+    reference_image = MediaPayload(name="r.png", mime_type="image/png", kind="reference", data=b"")
+    assert attachment_label(reference_image) == "reference image: r.png"
+
+
 def test_attachment_labels_flatten_control_characters_in_names() -> None:
     # A filename is authored-local untrusted text interpolated outside the
     # author statement's data-only fence; a newline must not forge extra

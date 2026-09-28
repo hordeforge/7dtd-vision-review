@@ -744,7 +744,7 @@ def test_a_line_of_non_json_whitespace_is_a_parse_error_not_silence() -> None:
         b"\xc2\x85\n"  # U+0085 NEL
         b"\xe2\x80\xa8\n"  # U+2028 LINE SEPARATOR
         b" \t\r\n"  # JSON whitespace alone: the one silent line
-        + b'{"jsonrpc":"2.0","id":1,"method":"ping","params":{}}\n'
+        b'{"jsonrpc":"2.0","id":1,"method":"ping","params":{}}\n'
     )
     stdout = io.StringIO()
     assert serve(stdin, stdout) == 0
