@@ -256,7 +256,7 @@ def _decide_submission(
     plan = _plan(
         media, intent, limits, provider_name=provider_name, video_capable=limits.accepts_video
     )
-    if _took_video(plan) and media.frames:
+    if plan.record.primary_kind == "video" and media.frames:
         planned_parts = _prompt_parts(plan.record, plan.total_bytes, intent)
         if _over_budget(_request_wire_bytes(plan, planned_parts), limits):
             # `sampling.sample` already falls back to the frame sequence when
@@ -304,10 +304,6 @@ def _prompt_parts(
         media_summary=_media_summary(record, total_bytes),
         frame_timing_note=_frame_timing_note(record),
     )
-
-
-def _took_video(plan: _Plan) -> bool:
-    return bool(plan.files) and plan.files[0][1] == "video"
 
 
 def _request_wire_bytes(sized: _Plan | _Submission, parts: PromptParts) -> int:
@@ -517,7 +513,7 @@ def _media_summary(
     record: sampling.SamplingRecord,
     total_bytes: int,
 ) -> str:
-    if record.submitted_files and record.submitted_files[0][1] == "video":
+    if record.primary_kind == "video":
         return f"a single muxed video file ({total_bytes} bytes). " + record.note
     if record.frames_submitted == 0:
         return "nothing (the provider could not ingest any of the media)"
@@ -528,6 +524,6 @@ def _media_summary(
 
 
 def _frame_timing_note(record: sampling.SamplingRecord) -> str:
-    if not record.submitted_files or record.submitted_files[0][1] != "frame":
+    if record.primary_kind != "frame":
         return ""
     return FRAME_TIMING_NOTE

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Literal
 
@@ -86,6 +86,16 @@ class SamplingRecord:
     """(path, kind) for every file sent, in submission order."""
     note: str
 
+    @property
+    def primary_kind(self) -> MediaKind | None:
+        """The role of the first submitted file, or None when none was sent.
+
+        The clip media always leads the submission, so this one answer tells
+        the media summary, the frame timing note, and the video-versus-frames
+        budget decision what the provider is being shown.
+        """
+        return self.submitted_files[0][1] if self.submitted_files else None
+
 
 def discover(source: Path) -> ClipMedia:
     """Resolve a clip file or directory into its frames, video, and log."""
@@ -124,10 +134,10 @@ def _scan_directory(directory: Path) -> tuple[list[Path], Path | None, Path | No
     scan per role would walk the directory three times, which matters for a
     clip with many frames. `os.scandir` answers "is this a file?" from the
     directory entry the OS already read, where `Path.is_file()` spends a stat
-    syscall per entry. Nothing is sorted until it has to be: numbered frames
-    are ordered by index (name breaking a tie, so the order never depends on
-    how the filesystem happened to hand the entries over), and the other two
-    lists hold the rare video and log, sorted only when they are ambiguous.
+    syscall per entry. Frames are ordered by index (name breaking a tie, so
+    the order never depends on how the filesystem happened to hand the entries
+    over), and the rare video and log lists are sorted by name so the refusal
+    naming a duplicate lists them the same way every run.
     """
     numbered: list[tuple[int, str, Path]] = []
     fallback_images: list[Path] = []
@@ -229,41 +239,72 @@ def sample(
     have fit.
     """
     messages: list[str] = []
-    if media.video is not None and video_capable:
-        size = file_size(media.video)
-        # The budget names what the request carries, and the request carries
-        # the video base64-encoded: compare the encoded size, never the raw.
-        wire = base64_wire_bytes(size)
-        figures = f"{wire} as submitted base64"
-        if reserved_wire_bytes:
-            figures += f" plus {reserved_wire_bytes} for the reference media in the same request"
-        if max_video_bytes is not None and wire + reserved_wire_bytes > max_video_bytes:
-            if not media.frames:
-                # The provider ingests video fine; the file is simply over its
-                # byte budget and there is nothing to fall back to. Naming the
-                # capability instead would send the operator hunting for a
-                # different provider when the clip is what must change.
-                raise DeadeyeError(
-                    f"{media.video} is {size} bytes ({figures}), "
-                    f"over the provider's "
-                    f"{max_video_bytes}-byte video budget, and there are no "
-                    "frames to sample instead; shorten or recompress the clip"
-                )
-            messages.append(
-                f"muxed video {flat_label_text(media.video.name)} is {size} bytes "
-                f"({figures}), over "
-                f"the provider's {max_video_bytes}-byte video budget; sampled frames instead"
-            )
-        else:
-            return SamplingRecord(
-                frames_available=len(media.frames),
-                frames_submitted=0,
-                sampled=False,
-                frame_indices=(),
-                submitted_files=((str(media.video), "video"),),
-                note=f"submitted muxed video {flat_label_text(media.video.name)} ({size} bytes)",
-            )
+    record = _video_record(
+        media,
+        video_capable=video_capable,
+        max_video_bytes=max_video_bytes,
+        reserved_wire_bytes=reserved_wire_bytes,
+        notes=messages,
+    )
+    if record is not None:
+        return record
+    record = _frame_record(media, max_frames=max_frames)
+    return replace(record, note="; ".join([*messages, record.note])) if messages else record
 
+
+def _video_record(
+    media: ClipMedia,
+    *,
+    video_capable: bool,
+    max_video_bytes: int | None,
+    reserved_wire_bytes: int,
+    notes: list[str],
+) -> SamplingRecord | None:
+    """The muxed-video submission, or None when the frame sequence goes instead.
+
+    A budget overrun with no frames to fall back to is a refusal here, not a
+    silent downshift. Any note explaining a drop is appended to `notes`, which
+    the caller joins into the record it settles on.
+    """
+    if media.video is None or not video_capable:
+        return None
+    size = file_size(media.video)
+    # The budget names what the request carries, and the request carries
+    # the video base64-encoded: compare the encoded size, never the raw.
+    wire = base64_wire_bytes(size)
+    figures = f"{wire} as submitted base64"
+    if reserved_wire_bytes:
+        figures += f" plus {reserved_wire_bytes} for the reference media in the same request"
+    if max_video_bytes is None or wire + reserved_wire_bytes <= max_video_bytes:
+        return SamplingRecord(
+            frames_available=len(media.frames),
+            frames_submitted=0,
+            sampled=False,
+            frame_indices=(),
+            submitted_files=((str(media.video), "video"),),
+            note=f"submitted muxed video {flat_label_text(media.video.name)} ({size} bytes)",
+        )
+    if not media.frames:
+        # The provider ingests video fine; the file is simply over its
+        # byte budget and there is nothing to fall back to. Naming the
+        # capability instead would send the operator hunting for a
+        # different provider when the clip is what must change.
+        raise DeadeyeError(
+            f"{media.video} is {size} bytes ({figures}), "
+            f"over the provider's "
+            f"{max_video_bytes}-byte video budget, and there are no "
+            "frames to sample instead; shorten or recompress the clip"
+        )
+    notes.append(
+        f"muxed video {flat_label_text(media.video.name)} is {size} bytes "
+        f"({figures}), over "
+        f"the provider's {max_video_bytes}-byte video budget; sampled frames instead"
+    )
+    return None
+
+
+def _frame_record(media: ClipMedia, *, max_frames: int | None) -> SamplingRecord:
+    """The sampled frame sequence, or a refusal when there is nothing to sample."""
     frames = list(media.frames)
     available = len(frames)
     if not frames:
@@ -277,16 +318,17 @@ def sample(
             "no frames are available to sample; the provider does not meet this "
             "capability"
         )
+    notes: list[str] = []
     if max_frames is not None and available > max_frames:
         frame_indices = _evenly_spaced_indices(available, max_frames)
-        messages.append(
+        notes.append(
             f"sampled {available} frames down to {max_frames} (even spacing, first and last kept)"
         )
         sampled = True
     else:
         frame_indices = tuple(range(available))
         sampled = False
-        messages.append("submitted the full frame sequence")
+        notes.append("submitted the full frame sequence")
     selected = [frames[index] for index in frame_indices]
     return SamplingRecord(
         frames_available=available,
@@ -294,7 +336,7 @@ def sample(
         sampled=sampled,
         frame_indices=frame_indices,
         submitted_files=tuple((str(path), "frame") for path in selected),
-        note="; ".join(messages),
+        note="; ".join(notes),
     )
 
 

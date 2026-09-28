@@ -367,3 +367,16 @@ def test_deeply_nested_json_is_refused_not_crashed() -> None:
     # not escape as RecursionError.
     with pytest.raises(DeadeyeError):
         load_intent(None, '{"purpose": ' + "[" * 20000 + "]" * 20000 + "}")
+
+
+def test_control_only_list_entries_are_dropped_after_folding() -> None:
+    """An entry holding nothing but a control character folds to nothing.
+
+    `avoid` and `questions` are tested for emptiness on the folded text, not
+    the raw one: a raw strip sees `"\x1b"` as non-blank, folds it to a space,
+    and would keep an entry that renders as an empty line inside the fenced
+    author statement while the list still reads as non-empty.
+    """
+    intent = parse_intent({"purpose": "x", "avoid": ["\x1b", "  ", "clipping"]}, "intent")
+    assert intent.avoid == ("clipping",)
+    assert intent.as_dict()["avoid"] == ["clipping"]

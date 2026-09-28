@@ -44,6 +44,9 @@ def resolve_provider(name: str | None) -> str:
     """
     if name:
         return name
+    # `config.value`, not `config.text`: a `default_provider` that is present
+    # but not a string is a misconfiguration to refuse, and `text` would read
+    # it as unset and submit billable media to the built-in default instead.
     configured = config.value(("default_provider",))
     if configured is None or configured == "":
         return "gemini"

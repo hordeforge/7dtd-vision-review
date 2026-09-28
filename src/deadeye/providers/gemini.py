@@ -39,7 +39,6 @@ from .base import (
     ReviewRequest,
     ReviewResponse,
     attachment_label,
-    first_response_object,
     float_setting,
     int_setting,
     response_object,
@@ -160,9 +159,11 @@ class GeminiProvider(CredentialedProvider):
                 + (f" (blocked: {reason})" if reason else "")
                 + "; no verdict was produced"
             )
-        candidate = first_response_object(
-            envelope, key="candidates", item_name="candidate", provider_name=self.name
-        )
+        candidate = candidates[0]
+        if not isinstance(candidate, dict):
+            raise DeadeyeError(
+                "provider 'gemini' returned an invalid candidate; no verdict was produced"
+            )
         content = response_object(
             candidate, key="content", item_name="candidate", provider_name=self.name
         )

@@ -220,7 +220,11 @@ def _string_list(data: dict[str, Any], key: str, origin: str) -> tuple[str, ...]
         return ()
     if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
         raise DeadeyeError(f"{origin}: field {key!r} must be a list of strings")
-    items = tuple(_line_safe(item).strip() for item in value if item.strip())
+    # Fold before the emptiness test, for the reason `_line_safe` gives: an
+    # entry that is nothing but a control character folds to a space and then
+    # to nothing, and keeping it would render as a blank entry in the fenced
+    # author statement while `intent.avoid` still reads as non-empty.
+    items = tuple(item for item in (_line_safe(raw).strip() for raw in value) if item)
     if len(items) > MAX_LIST_ITEMS:
         raise DeadeyeError(
             f"{origin}: field {key!r} lists {len(items)} entries; the limit is {MAX_LIST_ITEMS}"
