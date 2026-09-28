@@ -62,13 +62,22 @@ calls, spec error codes, and the review consent boundary.
   core.
 - **Fail closed.** Malformed frames get spec JSON-RPC errors; unknown tools
   error; a review that would need the network refuses without consent, exactly
-  like the CLI. An unexpected fault inside one frame answers `-32603` (with the
-  trace on stderr) instead of tearing down the session, and a tool call that
-  fails outside `DeadeyeError` names the tool and the exception type rather
-  than a bare message. A JSON-RPC line larger than 1 MiB is the same parse
-  error (`-32700`): the extra bytes are discarded through the next newline so
-  the following frame stays aligned, and the process cannot grow with one
-  unbounded stdin line.
+  like the CLI. Every argument is read and typed at the boundary, before
+  anything is submitted: `allow_network`, `force`, and `keep_raw_response` must
+  be literal JSON booleans, `clip`, `intent`, `intent_text`, `output`, and
+  `model` must be strings, and `provider` must name a registered provider (the
+  same list `--provider` draws from, also published as the tool's `enum`). A
+  JSON `null` reads as an absent argument, the same as leaving the key out, so
+  the optional routes behave one way. Each refusal names the tool and the
+  argument, which is what `--provider` does through argparse and what the
+  timeout already did; an argument of the wrong type is no longer a fault
+  report about `TypeError` or `KeyError`. An unexpected fault inside one frame
+  answers `-32603` (with the trace on stderr) instead of tearing down the
+  session, and a tool call that fails outside `DeadeyeError` names the tool
+  and the exception type rather than a bare message. A JSON-RPC line larger
+  than 1 MiB is the same parse error (`-32700`): the extra bytes are discarded
+  through the next newline so the following frame stays aligned, and the
+  process cannot grow with one unbounded stdin line.
 
 ## Result shapes
 
@@ -91,6 +100,27 @@ submission: the text part is `{"error": ..., "envelope": ...}` and
 core's exactly-one rule applies verbatim, and passing both is the refusal
 "takes exactly one of --intent PATH or --intent-text JSON, never both" despite
 the JSON-RPC parameter names.
+
+## A session
+
+Frames in, one response per line out, newline-delimited. This is a real
+transcript against the offline `fake` provider, with the review envelope
+trimmed to its keys:
+
+```
+$ deadeye mcp
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}
+{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"deadeye","version":"0.1.1"}}}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"review","arguments":{"clip":"clip/","intent":"intent.json","provider":"fake","allow_network":true}}}
+{"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"{\n  \"kind\": \"deadeye-review\",\n ... }"}]}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"review","arguments":{"clip":"clip/","provider":"genimi","allow_network":true}}}
+{"jsonrpc":"2.0","id":3,"result":{"content":[{"type":"text","text":"ERROR: review parameter 'provider' 'genimi' is not one of fake, gemini, nvidia"}],"isError":true}}
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"review","arguments":{"clip":7,"allow_network":true}}}
+{"jsonrpc":"2.0","id":4,"result":{"content":[{"type":"text","text":"ERROR: review parameter 'clip' must be a string"}],"isError":true}}
+{"jsonrpc":"2.0","method":"notifications/initialized"}
+```
+
+A notification (no `id` member) gets no response, as the spec requires.
 
 ## Out of scope for now
 

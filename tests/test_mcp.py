@@ -270,6 +270,69 @@ def test_review_refuses_a_non_positive_timeout_instead_of_failing_late(tmp_path)
     assert "positive number of seconds" in response["result"]["content"][0]["text"]
 
 
+def test_review_refuses_an_unknown_provider_by_name(tmp_path) -> None:
+    """`--provider` is bounded by argparse choices; the JSON-RPC argument is
+    bounded by the same list, so a typo is a refusal rather than a KeyError
+    dressed up as an internal fault."""
+    clip = tmp_path / "clip"
+    clip.mkdir()
+    (clip / "frame-0000.png").write_bytes(b"x")
+    response = _call(
+        "tools/call",
+        {
+            "name": "review",
+            "arguments": {
+                "clip": str(clip),
+                "provider": "genimi",
+                "allow_network": True,
+            },
+        },
+    )
+    assert response["result"]["isError"] is True
+    text = response["result"]["content"][0]["text"]
+    assert "'provider'" in text and "genimi" in text and "fake" in text
+    assert "KeyError" not in text
+
+
+def test_the_published_provider_enum_matches_the_registry() -> None:
+    from deadeye.mcp import PROVIDERS, TOOLS
+
+    review = next(tool for tool in TOOLS if tool["name"] == "review")
+    assert review["inputSchema"]["properties"]["provider"]["enum"] == sorted(PROVIDERS)
+
+
+def test_review_refuses_a_non_string_path_argument(tmp_path) -> None:
+    """A number or a boolean would reach Path() as a TypeError naming no
+    argument; the boundary names it instead."""
+    clip = tmp_path / "clip"
+    clip.mkdir()
+    (clip / "frame-0000.png").write_bytes(b"x")
+    for name, value in (("clip", 7), ("intent", True), ("output", []), ("model", 3)):
+        arguments = {"clip": str(clip), "provider": "fake", "allow_network": True}
+        arguments[name] = value
+        response = _call("tools/call", {"name": "review", "arguments": arguments})
+        assert response["result"]["isError"] is True, name
+        assert f"{name!r} must be a string" in response["result"]["content"][0]["text"], name
+        assert "TypeError" not in response["result"]["content"][0]["text"], name
+
+
+def test_review_names_a_missing_required_clip(tmp_path) -> None:
+    response = _call(
+        "tools/call",
+        {"name": "review", "arguments": {"allow_network": True, "intent_text": "{}"}},
+    )
+    assert response["result"]["isError"] is True
+    text = response["result"]["content"][0]["text"]
+    assert "'clip' is required" in text
+    assert "KeyError" not in text
+
+
+def test_prompt_refuses_a_non_string_argument(tmp_path) -> None:
+    response = _call("tools/call", {"name": "prompt", "arguments": {"intent": 5}})
+    assert response["result"]["isError"] is True
+    assert "'intent' must be a string" in response["result"]["content"][0]["text"]
+
+
 def test_unknown_method_and_tool_get_spec_errors() -> None:
     error = _call("bogus", {})["error"]
     assert error["code"] == -32601
@@ -328,6 +391,14 @@ def test_an_internal_fault_answers_32603_and_keeps_the_session_alive(monkeypatch
 
 def test_notifications_are_ignored() -> None:
     assert handle_frame({"jsonrpc": "2.0", "method": "notifications/initialized"}) is None
+
+
+def test_a_null_id_is_a_request_not_a_notification() -> None:
+    """JSON-RPC separates the two by the presence of the member: a frame
+    carrying `"id": null` still gets an answer, and dropping it would leave
+    the client waiting forever."""
+    response = handle_frame({"jsonrpc": "2.0", "id": None, "method": "ping"})
+    assert response == {"jsonrpc": "2.0", "id": None, "result": {}}
 
 
 def test_schema_and_doctor_tools_return_json() -> None:

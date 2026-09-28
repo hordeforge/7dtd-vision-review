@@ -79,6 +79,23 @@ required (`CONTRIBUTING.md`, "Changing a contract").
 
 ### Changed
 
+- The MCP tools read and type every argument at the boundary, so a
+  malformed `tools/call` is refused by name instead of surfacing as a fault
+  report. `clip`, `intent`, `intent_text`, `output`, and `model` must be
+  JSON strings, `provider` must name a registered provider (the same list
+  `--provider` draws from, also published as the tool's `enum`), and
+  `allow_network`, `force`, and `keep_raw_response` must be JSON booleans as
+  before. Before: an unknown `provider` answered "tool 'review' failed:
+  KeyError: 'genimi'" and a numeric `clip` answered with a `TypeError` about
+  no argument at all. After: each refusal names the tool and the argument,
+  the way `--provider` does through argparse and the timeout already did. A
+  JSON `null` still reads as an absent argument. Refusal text only; no
+  envelope, schema, result, or exit-code change.
+- The MCP server answers a frame carrying `"id": null` instead of dropping it
+  as a notification. JSON-RPC separates a notification from a request by the
+  presence of the member, not by its value, so a client that sent a null id
+  was left waiting for a reply that never came.
+
 - The reviewer instruction and the author's statement now travel in separate
   roles. The instruction (role, JSON output contract, rubric, and the
   declaration that the user turn is data) is the provider's system

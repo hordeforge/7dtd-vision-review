@@ -32,7 +32,7 @@ import traceback
 from collections import OrderedDict
 from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
-from typing import Any, TextIO, TypeVar
+from typing import Any, Literal, TextIO, TypeVar, overload
 
 from . import __version__
 from ._streams import bind_process_output
@@ -112,15 +112,32 @@ TOOLS: list[dict[str, Any]] = [
                 "clip": {"type": "string", "description": "clip directory or video file"},
                 "intent": {"type": "string", "description": "intent JSON file path"},
                 "intent_text": {"type": "string", "description": "inline intent JSON"},
-                "provider": {"type": "string", "description": "provider name (default per config)"},
-                "model": {"type": "string"},
+                "provider": {
+                    "type": "string",
+                    "enum": sorted(PROVIDERS),
+                    "description": "provider name (default per config)",
+                },
+                "model": {
+                    "type": "string",
+                    "description": "provider model id (default per provider)",
+                },
                 "allow_network": {"type": "boolean", "description": "explicit upload consent"},
-                "timeout_seconds": {"type": "number"},
-                "keep_raw_response": {"type": "boolean"},
+                "timeout_seconds": {
+                    "type": "number",
+                    "description": "positive seconds to wait for the provider",
+                },
+                "keep_raw_response": {
+                    "type": "boolean",
+                    "description": "retain a redacted raw response in evidence",
+                },
                 "output": {"type": "string", "description": "evidence path"},
-                "force": {"type": "boolean"},
+                "force": {
+                    "type": "boolean",
+                    "description": "overwrite an earlier envelope at output",
+                },
                 "idempotency_key": {
                     "type": "string",
+                    "maxLength": _MAX_IDEMPOTENCY_KEY_CHARS,
                     "description": "client-chosen name for this logical operation; a "
                     "repeat of the same key with the same arguments returns the first "
                     "result instead of submitting again, including a review that "
@@ -166,7 +183,7 @@ def _tool_error(message: str) -> dict[str, Any]:
     return {"content": [{"type": "text", "text": f"ERROR: {message}"}], "isError": True}
 
 
-def _optional_boolean(params: dict[str, Any], name: str) -> bool:
+def _boolean(tool: str, params: dict[str, Any], name: str) -> bool:
     """An optional MCP control flag, defaulting to false when absent.
 
     JSON strings are truthy in Python, so `bool(params[name])` would turn a
@@ -178,8 +195,63 @@ def _optional_boolean(params: dict[str, Any], name: str) -> bool:
         return False
     value = params[name]
     if not isinstance(value, bool):
-        raise DeadeyeError(f"review parameter {name!r} must be a boolean")
+        raise DeadeyeError(f"{tool} parameter {name!r} must be a boolean")
     return value
+
+
+def _text(tool: str, params: dict[str, Any], name: str, *, required: bool = False) -> str | None:
+    """A path, an inline JSON document, or a model name as the client sent it.
+
+    A JSON null is an absent argument, the same as leaving the key out: the
+    optional routes read that way throughout. Anything else must be a string.
+    A number or a boolean would otherwise reach `Path()` and fail there as a
+    TypeError naming no argument, and a missing required one would surface as
+    a bare KeyError; both are the caller's mistake, so both are named here.
+    """
+    value = params.get(name)
+    if value is None:
+        if required:
+            raise DeadeyeError(f"{tool} parameter {name!r} is required")
+        return None
+    if not isinstance(value, str):
+        raise DeadeyeError(f"{tool} parameter {name!r} must be a string")
+    return value
+
+
+@overload
+def _path_arg(tool: str, params: dict[str, Any], name: str, *, required: Literal[True]) -> Path: ...
+
+
+@overload
+def _path_arg(
+    tool: str, params: dict[str, Any], name: str, *, required: bool = False
+) -> Path | None: ...
+
+
+def _path_arg(
+    tool: str, params: dict[str, Any], name: str, *, required: bool = False
+) -> Path | None:
+    value = _text(tool, params, name, required=required)
+    return Path(value) if value is not None else None
+
+
+def _provider_arg(name: Any) -> str:
+    """The provider to submit to: the tool argument, else the configured default.
+
+    `review --provider` is bounded by argparse's `choices`, so an unknown
+    name is a usage error there. A JSON-RPC argument carries no such bound,
+    and an unvalidated one reaches the provider registry as a `KeyError`,
+    which reaches the client as an internal fault rather than the refusal a
+    typo deserves.
+    """
+    if name is not None and not isinstance(name, str):
+        raise DeadeyeError("review parameter 'provider' must be a string")
+    provider = _resolve_provider(name)
+    if provider not in PROVIDERS:
+        raise DeadeyeError(
+            f"review parameter 'provider' {provider!r} is not one of {', '.join(sorted(PROVIDERS))}"
+        )
+    return provider
 
 
 def _call_review(params: dict[str, Any]) -> dict[str, Any]:
@@ -188,14 +260,21 @@ def _call_review(params: dict[str, Any]) -> dict[str, Any]:
             "review uploads the clip to a third party; pass allow_network=true "
             "as a JSON boolean to consent"
         )
-    keep_raw_response = _optional_boolean(params, "keep_raw_response")
-    force = _optional_boolean(params, "force")
+    keep_raw_response = _boolean("review", params, "keep_raw_response")
+    force = _boolean("review", params, "force")
     key = _idempotency_key(params)
-    provider_name = _resolve_provider(params.get("provider"))
+    # Every argument is read and typed before anything is submitted, so a
+    # malformed call is refused by the same envelope whether or not the
+    # provider would have taken the request.
+    clip = _path_arg("review", params, "clip", required=True)
+    intent_path = _path_arg("review", params, "intent")
+    intent_text = _text("review", params, "intent_text")
+    model = _text("review", params, "model")
+    output = _path_arg("review", params, "output")
+    provider_name = _provider_arg(params.get("provider"))
     # Same resolution and validation as the CLI flag: the tool argument, else
     # config's timeout_seconds, else the built-in default.
     timeout = _resolve_timeout(params.get("timeout_seconds"))
-    output = Path(params["output"]) if params.get("output") else None
 
     if key is not None:
         replayed = _replayed_result(key, params)
@@ -221,11 +300,11 @@ def _call_review(params: dict[str, Any]) -> dict[str, Any]:
 
     try:
         envelope = run_review_core(
-            Path(params["clip"]),
+            clip,
             provider=PROVIDERS[provider_name](),
-            intent_path=Path(params["intent"]) if params.get("intent") else None,
-            intent_text=params.get("intent_text"),
-            model=params.get("model"),
+            intent_path=intent_path,
+            intent_text=intent_text,
+            model=model,
             allow_network=True,
             timeout_seconds=timeout,
             keep_raw_response=keep_raw_response,
@@ -326,9 +405,9 @@ def _call_schema(params: dict[str, Any]) -> dict[str, Any]:
 def _call_prompt(params: dict[str, Any]) -> dict[str, Any]:
     return {
         "prompt": build_preview_prompt(
-            Path(params["intent"]) if params.get("intent") else None,
-            params.get("intent_text"),
-            Path(params["clip"]) if params.get("clip") else None,
+            _path_arg("prompt", params, "intent"),
+            _text("prompt", params, "intent_text"),
+            _path_arg("prompt", params, "clip"),
         )
     }
 
@@ -343,9 +422,13 @@ _CALLS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
 
 def handle_frame(frame: dict[str, Any]) -> dict[str, Any] | None:
     """One JSON-RPC request/notification; None for a notification."""
-    request_id = frame.get("id")
-    if request_id is None:
+    # The spec separates the two by the presence of the member, not by its
+    # value: a frame carrying `"id": null` is a request whose id is null and
+    # gets an answer, and dropping it silently would leave the client waiting
+    # on a reply that never comes.
+    if "id" not in frame:
         return None  # notification (e.g. notifications/initialized)
+    request_id = frame["id"]
     method = frame.get("method")
     if not isinstance(method, str):
         return _error(request_id, -32600, "Invalid Request")

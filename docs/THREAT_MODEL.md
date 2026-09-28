@@ -186,7 +186,8 @@ the verdict rather than over the process.
 | Author statement in the user turn, fenced, declared data-only by the system instruction, and any field carrying a fence marker refused | intent text escaping the author-statement block and posing as instruction (part of T6) | `prompt.py:69` (`build_prompt_parts`); `intent.py:82` (`_carries_fence_marker`), applied at `intent.py:145,167,205,215` |
 | Reviewer instruction sent as the provider's system instruction, never concatenated into the authored turn | intent text occupying or restating the instruction's slot (part of T6) | `gemini.py:196` (`build_body`, `systemInstruction`); `nvidia.py:180` (`build_body`, `role: system`) |
 | Filenames flattened to printable characters before they enter prompt text | a crafted filename forging extra label or instruction lines (part of T6) | `sampling.py:287-297` (`flat_label_text`); used at `prompt.py:26,62,106,164` |
-| MCP control flags must be literal JSON booleans | a client string `"false"` becoming `force` or `keep_raw_response` (T/R/I) | `mcp.py:120-135` (`_optional_boolean`) |
+| MCP control flags must be literal JSON booleans | a client string `"false"` becoming `force` or `keep_raw_response` (T/R/I) | `mcp.py` (`_boolean`) |
+| MCP path, intent, model, and provider arguments must be strings, and `provider` must name a registered provider | a client argument of the wrong type or a mistyped provider name surfacing as an internal fault (I) | `mcp.py` (`_text` / `_path_arg` / `_provider_arg`) |
 | Prompt version and rubric version recorded on every submission | an answer attributed to an instruction the model never received (R) | `result.py` `PROMPT_VERSION`; evidence records the versions |
 | Zero runtime dependencies, bandit (S) lint rules armed | supply-chain surface | `pyproject.toml` |
 
