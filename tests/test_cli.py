@@ -238,6 +238,42 @@ def test_doctor_prints_the_effective_settings_without_crashing(capsys) -> None:
     assert "timeout_seconds:" in out
 
 
+def test_doctor_prints_the_model_each_provider_would_submit(isolated_config, capsys) -> None:
+    """A model identifier that is set but wrong reads exactly like a right
+    one; doctor must name what a review would bill before the run."""
+    from deadeye import config
+
+    (isolated_config / "config.toml").write_text(
+        'default_model = "shared-model"\n[providers.gemini]\nmodel = "gemini-2.5-flash"\n',
+        encoding="utf-8",
+    )
+    config.reset()
+    code, out, _ = _run(["doctor"], capsys)
+    assert code == 0
+    # The same precedence the review uses: a top-level default_model wins over
+    # every provider's own model.
+    assert "model[gemini]: shared-model" in out
+    assert "model[nvidia]: shared-model" in out
+    assert "model[fake]:" in out
+
+
+def test_doctor_names_the_per_provider_model_when_no_default_model_is_set(
+    isolated_config, capsys
+) -> None:
+    """With no top-level `default_model`, the per-provider model is what a
+    review would submit, and it is what doctor prints."""
+    from deadeye import config
+
+    (isolated_config / "config.toml").write_text(
+        '[providers.gemini]\nmodel = "gemini-2.5-pro"\n', encoding="utf-8"
+    )
+    config.reset()
+    code, out, _ = _run(["doctor"], capsys)
+    assert code == 0
+    assert "model[gemini]: gemini-2.5-pro" in out
+    assert "model[nvidia]: nvidia/nemotron-3-nano-omni-30b-a3b-reasoning" in out
+
+
 def test_doctor_names_a_config_template_the_reader_can_open(isolated_config, capsys) -> None:
     """With no config found, doctor must point at a file that exists on disk.
 

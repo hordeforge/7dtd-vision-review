@@ -64,6 +64,13 @@ DEFAULT_MAX_TOKENS = 65536
 DEFAULT_REASONING_BUDGET = 16384
 DEFAULT_TEMPERATURE = 0.6
 DEFAULT_TOP_P = 0.95
+# The ranges the chat-completions API documents for these two knobs. A
+# configured value outside them is refused before submission rather than
+# billed and rejected by the endpoint.
+MIN_TEMPERATURE = 0.0
+MAX_TEMPERATURE = 2.0
+MIN_TOP_P = 0.0
+MAX_TOP_P = 1.0
 
 
 class NvidiaProvider(CredentialedProvider):
@@ -157,7 +164,15 @@ def build_body(request: ReviewRequest) -> dict[str, object]:
         "model": request.model,
         "max_tokens": int_setting("nvidia", "max_tokens", DEFAULT_MAX_TOKENS, minimum=1),
         "reasoning_budget": int_setting("nvidia", "reasoning_budget", DEFAULT_REASONING_BUDGET),
-        "temperature": float_setting("nvidia", "temperature", DEFAULT_TEMPERATURE),
-        "top_p": float_setting("nvidia", "top_p", DEFAULT_TOP_P),
+        "temperature": float_setting(
+            "nvidia",
+            "temperature",
+            DEFAULT_TEMPERATURE,
+            minimum=MIN_TEMPERATURE,
+            maximum=MAX_TEMPERATURE,
+        ),
+        "top_p": float_setting(
+            "nvidia", "top_p", DEFAULT_TOP_P, minimum=MIN_TOP_P, maximum=MAX_TOP_P
+        ),
         "stream": False,
     }

@@ -429,6 +429,53 @@ def test_wrong_typed_generation_knobs_are_refused_not_silently_defaulted(isolate
         GeminiProvider().review(request)
 
 
+def test_out_of_range_float_knobs_are_refused_with_the_range_named(isolated_config) -> None:
+    """A number is not usable because it is a number: `top_p = 5` and
+    `temperature = -1` pass every type check and are outside what the
+    endpoint accepts, so the submission would be billed before the API
+    rejected it. The refusal names the range, which is the fix."""
+    frame = MediaPayload(name="f.png", mime_type="image/png", kind="frame", data=b"x")
+    request = ReviewRequest(prompt="p", media=(frame,), model="m", timeout_seconds=1.0)
+
+    config.reset()
+    _write(isolated_config, "config.toml", "[providers.nvidia]\ntop_p = 1.5\n")
+    with pytest.raises(DeadeyeError, match=r"providers\.nvidia\.top_p.*from 0 to 1"):
+        build_body(request)
+
+    config.reset()
+    _write(isolated_config, "config.toml", "[providers.nvidia]\ntemperature = -0.5\n")
+    with pytest.raises(DeadeyeError, match=r"providers\.nvidia\.temperature.*from 0 to 2"):
+        build_body(request)
+
+    # Both ends of the documented range stay usable, and an unset key keeps
+    # the built-in default.
+    config.reset()
+    _write(
+        isolated_config,
+        "config.toml",
+        "[providers.nvidia]\ntemperature = 2.0\ntop_p = 1.0\n",
+    )
+    body = build_body(request)
+    assert body["temperature"] == 2.0
+    assert body["top_p"] == 1.0
+
+
+def test_gemini_temperature_range_is_enforced(isolated_config) -> None:
+    """The gemini adapter reads temperature through the same bounded
+    reader, so the same mistake cannot slip past one vendor's adapter."""
+    from deadeye.providers.gemini import GeminiProvider
+
+    frame = MediaPayload(name="f.png", mime_type="image/png", kind="frame", data=b"x")
+    request = ReviewRequest(prompt="p", media=(frame,), model="m", timeout_seconds=1.0)
+    _write(
+        isolated_config,
+        "config.local.toml",
+        '[providers.gemini]\napi_key = "test"\ntemperature = 3\n',
+    )
+    with pytest.raises(DeadeyeError, match=r"providers\.gemini\.temperature.*from 0 to 2"):
+        GeminiProvider().review(request)
+
+
 def test_doctor_reports_an_unusable_endpoint_override(isolated_config, capsys) -> None:
     """A bad endpoint override surfaces at diagnosis time, before any review;
     doctor stays offline and never crashes over it."""

@@ -78,6 +78,20 @@ def resolve_timeout(raw: Any) -> float:
     return seconds
 
 
+def resolve_model(provider: VideoReviewProvider, override: str | None) -> str:
+    """The model a review would submit: `--model`, else `default_model`, else
+    the provider's own default.
+
+    The one home for the documented precedence (`--model` > `default_model` >
+    `[providers.<name>] model` > the provider's built-in default), so a
+    review and a `doctor` report cannot disagree about which model a run
+    would bill.
+    """
+    if override is not None:
+        return override
+    return config.text(("default_model",)) or provider.default_model
+
+
 def _config_origin(keys: tuple[str, ...], qualifier: str = "") -> str:
     """`key from configuration`, naming the file that holds it when known.
 

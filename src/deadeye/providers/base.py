@@ -269,7 +269,14 @@ def int_setting(provider: str, key: str, fallback: int, *, minimum: int = 0) -> 
     return value
 
 
-def float_setting(provider: str, key: str, fallback: float) -> float:
+def float_setting(
+    provider: str,
+    key: str,
+    fallback: float,
+    *,
+    minimum: float | None = None,
+    maximum: float | None = None,
+) -> float:
     """A provider's float tuning knob (`providers.<name>.<key>`), or fallback.
 
     Same contract as `int_setting`: absent falls back, present-but-unusable
@@ -278,6 +285,14 @@ def float_setting(provider: str, key: str, fallback: float) -> float:
     request body as a bare `NaN`/`Infinity` token that no JSON reader on the
     provider side accepts, and refusing beats sending a silently different
     parameter than the one configured.
+
+    `minimum` and `maximum`, when given, are the inclusive range the
+    provider's own API documents for that knob (`temperature` 0 to 2,
+    `top_p` 0 to 1). A number is not refused for being a number alone: a
+    `top_p` of 5 or a `temperature` of -1 is inside every type check and
+    outside what the endpoint accepts, and the request is billed either way
+    before the API answers with a validation error nobody reads. The
+    refusal names the range, so the fix is a number rather than a search.
     """
     value = config.value(("providers", provider, key))
     if value is None:
@@ -288,4 +303,18 @@ def float_setting(provider: str, key: str, fallback: float) -> float:
         or not math.isfinite(float(value))
     ):
         raise _unusable(provider, key, value, "a finite number")
-    return float(value)
+    number = float(value)
+    if minimum is not None and number < minimum:
+        raise _unusable(provider, key, value, _range_text(minimum, maximum))
+    if maximum is not None and number > maximum:
+        raise _unusable(provider, key, value, _range_text(minimum, maximum))
+    return number
+
+
+def _range_text(minimum: float | None, maximum: float | None) -> str:
+    """The expected-value text for a bounded knob, with either end optional."""
+    if minimum is not None and maximum is not None:
+        return f"a number from {minimum:g} to {maximum:g}"
+    if minimum is not None:
+        return f"a number of at least {minimum:g}"
+    return f"a number of at most {maximum:g}"

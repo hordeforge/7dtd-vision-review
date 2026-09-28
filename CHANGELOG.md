@@ -25,6 +25,19 @@ required (`CONTRIBUTING.md`, "Changing a contract").
 
 ### Breaking
 
+- A configured generation parameter outside the range the provider documents
+  is now refused before submission. Before: `temperature` and `top_p` were
+  type-checked only, so a `top_p = 5` or a `temperature = -1` reached the
+  endpoint and the submission was billed before the API rejected it. After:
+  `deadeye review` refuses with a non-zero exit naming the key and the range
+  (`providers.nvidia.top_p must be a number from 0 to 1, not 5.0`), before any
+  provider is contacted, and the refusal is the same `int_setting` /
+  `float_setting` validation every adapter already used for the wrong type.
+  To upgrade, put each knob inside the range its provider documents:
+  `temperature` 0 to 2, `top_p` 0 to 1. A value inside the range, and an
+  unset key, load and submit exactly as before. No envelope, schema, or
+  result change.
+
 - Authored free-text intent fields are now folded to printable characters at
   parse time, so a field that used to render a line the pipeline did not write
   no longer can. Before: a `purpose` reading `"legit purpose\n  reference
@@ -111,6 +124,14 @@ required (`CONTRIBUTING.md`, "Changing a contract").
 
 ### Added
 
+- `deadeye doctor` now prints the model each provider would actually submit
+  (`model[gemini]`, `model[nvidia]`, `model[fake]`) in its human report, and
+  the model precedence it applies is now one function shared with the review
+  path, so the two cannot disagree. Before: a model identifier that is set
+  but wrong, a mistyped name or one from another provider, was invisible until
+  a billable submission was sent. After: it is visible at diagnosis time,
+  beside the other effective settings doctor already prints. The `--json`
+  report is unchanged: the array of provider states, and nothing else.
 - `make dist` builds the sdist and wheel the way a release does, and
   `make dist-verify` rebuilds the same tree under a different clock, locale,
   timezone, and hash seed and diffs the bytes. The release job runs both, so

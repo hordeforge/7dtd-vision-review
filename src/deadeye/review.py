@@ -37,6 +37,7 @@ from .providers import MediaPayload, ProviderLimits, ReviewRequest
 from .redaction import redact_json_text
 from .result import parse_model_json, validate_result
 from .sampling import base64_wire_bytes, mime_for_suffix
+from .surface import resolve_model
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -89,9 +90,7 @@ def run_review(
     intent, intent_raw = load_intent(intent_path, intent_text)
 
     media = sampling.discover(clip)
-    resolved_model = (
-        model if model is not None else config.text(("default_model",)) or provider.default_model
-    )
+    resolved_model = resolve_model(provider, model)
     if not provider.is_configured():
         raise DeadeyeError(
             f"provider {provider.name!r} is not configured: {provider.configuration_hint()}"

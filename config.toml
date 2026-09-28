@@ -22,7 +22,10 @@ timeout_seconds = 120
 # Per-provider settings. `model` overrides the built-in default model for
 # that provider; `endpoint` overrides the fixed API root (rare, for a
 # self-hosted proxy); the generation parameters are the NVIDIA omni-model
-# defaults. Each key here is a fallback: config.local.toml can override it.
+# defaults, and each is refused at review start when it falls outside the
+# range the provider documents: `temperature` 0 to 2, `top_p` 0 to 1,
+# `max_tokens` and `reasoning_budget` integers of at least 1 and 0. Each key
+# here is a fallback: config.local.toml can override it.
 [providers.gemini]
 model = "gemini-2.5-flash"
 # Output-token ceiling per review; the built-in default is the model's

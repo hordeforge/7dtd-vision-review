@@ -33,6 +33,7 @@ from .surface import (
     build_preview_prompt,
     config_diagnosis,
     provider_states,
+    resolve_model,
     resolve_provider,
     resolve_timeout,
     schema_document,
@@ -407,6 +408,11 @@ def _handle_doctor(args: argparse.Namespace) -> int:
         if diagnosis["default_model"]:
             print(f"default_model: {diagnosis['default_model']}")
         _print_setting("timeout_seconds", diagnosis["timeout_seconds"], fmt="g")
+        # The model each provider would actually submit, so a model
+        # identifier that is set but wrong (a mistyped name reads exactly like
+        # a right one) is visible here rather than after a billable run.
+        for name in sorted(PROVIDERS):
+            print(f"model[{name}]: {resolve_model(PROVIDERS[name](), None)}")
         # Per-provider endpoint overrides, validated here so a bad one is
         # visible at diagnosis time instead of at review start. Pure config
         # validation: nothing is contacted.

@@ -315,11 +315,17 @@ per-socket-operation timeout, and an NTP step or a manual clock change during
 a review cannot shorten or extend it. Per-provider generation parameters (`max_tokens`,
 `reasoning_budget`, `temperature`, `top_p`, `max_output_tokens`) follow the
 same rule: a value that is present but unusable for its role — a string
-where a number belongs, a boolean, a non-finite float such as `nan` — is
+where a number belongs, a boolean, a non-finite float such as `nan`, or a
+number outside the range the provider documents (`temperature` 0 to 2,
+`top_p` 0 to 1, `max_tokens` and `max_output_tokens` at least 1,
+`reasoning_budget` at least 0) — is
 refused when a submission starts, with the offending key named, instead of
 being quietly replaced by the built-in default. A review whose parameters
-differ from the configuration on record is not traceable evidence.
+differ from the configuration on record is not traceable evidence, and an
+out-of-range value would be billed before the endpoint rejected it.
 `deadeye doctor` prints the effective top-level settings
-(`default_provider`, `default_model`, `timeout_seconds`) and validates every
-per-provider `endpoint` override, so a misconfiguration is visible at
-diagnosis time without opening the files or starting a review.
+(`default_provider`, `default_model`, `timeout_seconds`), the model each
+provider would actually submit (`model[gemini]`, `model[nvidia]`,
+`model[fake]`), and validates every per-provider `endpoint` override, so a
+misconfiguration is visible at diagnosis time without opening the files or
+starting a review.

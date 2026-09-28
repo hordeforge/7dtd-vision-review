@@ -64,6 +64,11 @@ DEFAULT_MAX_OUTPUT_TOKENS = 65536
 # without a version bump. A deployment overrides it under
 # `providers.gemini.temperature`.
 DEFAULT_TEMPERATURE = 0.2
+# The range the generateContent API documents for `temperature`; a configured
+# value outside it is refused before submission rather than billed and
+# rejected by the endpoint.
+MIN_TEMPERATURE = 0.0
+MAX_TEMPERATURE = 2.0
 # A default, not a contract: a deployment overrides it with
 # `providers.gemini.model` or `--model`, exactly as for the other providers.
 DEFAULT_MODEL = "gemini-2.5-flash"
@@ -223,7 +228,13 @@ def build_body(request: ReviewRequest) -> dict[str, object]:
             "maxOutputTokens": int_setting(
                 "gemini", "max_output_tokens", DEFAULT_MAX_OUTPUT_TOKENS, minimum=1
             ),
-            "temperature": float_setting("gemini", "temperature", DEFAULT_TEMPERATURE),
+            "temperature": float_setting(
+                "gemini",
+                "temperature",
+                DEFAULT_TEMPERATURE,
+                minimum=MIN_TEMPERATURE,
+                maximum=MAX_TEMPERATURE,
+            ),
         },
     }
     if request.system_prompt:
