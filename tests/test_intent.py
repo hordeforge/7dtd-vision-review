@@ -98,6 +98,41 @@ def test_reference_and_list_counts_are_capped() -> None:
         )
 
 
+def test_reference_path_and_purpose_are_capped() -> None:
+    """A reference's path and purpose both render inside the prompt fence, so
+    they are billed text like every other field and take the same budgets."""
+    from deadeye.intent import MAX_FIELD_CHARS, MAX_ITEM_CHARS
+
+    with pytest.raises(DeadeyeError, match=f"'path' is .* the limit is {MAX_FIELD_CHARS}"):
+        parse_intent(
+            {
+                "purpose": "x",
+                "references": [{"path": "p" * (MAX_FIELD_CHARS + 1) + ".png", "purpose": "why"}],
+            },
+            "intent",
+        )
+    with pytest.raises(DeadeyeError, match=f"per-entry limit is {MAX_ITEM_CHARS}"):
+        parse_intent(
+            {
+                "purpose": "x",
+                "references": [{"path": "r.png", "purpose": "y" * (MAX_ITEM_CHARS + 1)}],
+            },
+            "intent",
+        )
+    assert (
+        parse_intent(
+            {
+                "purpose": "x",
+                "references": [{"path": "r.png", "purpose": "y" * MAX_ITEM_CHARS}],
+            },
+            "intent",
+        )
+        .references[0]
+        .purpose
+        == "y" * MAX_ITEM_CHARS
+    )
+
+
 def test_camera_paths_are_documented() -> None:
     assert "turntable" in CAMERA_PATHS
     assert "walk-cycle" in CAMERA_PATHS
@@ -203,6 +238,14 @@ def test_redact_drops_credential_keys_nested() -> None:
     assert redact(value) == {"ok": 1, "headers": {"meta": "y"}}
 
 
+def test_redact_drops_header_shaped_credential_keys() -> None:
+    # A preserved raw response can echo the request it answered, and the
+    # adapters send the key under a hyphenated header name. `api_key` alone
+    # would not match `x-goog-api-key`.
+    value = {"x-goog-api-key": "AIza-x", "x-api-key": "AIza-y", "keep": 1}
+    assert redact(value) == {"keep": 1}
+
+
 def test_redact_matches_case_fold_only_spellings() -> None:
     # The backstop folds case rather than lowering it: a key that differs from
     # a sensitive name only under case folding (the long s, U+017F, which
@@ -239,6 +282,30 @@ def test_redact_json_text_drops_credential_keys_from_a_document_string() -> None
         )
     )
     assert cleaned == {"summary": "verdict", "meta": {"keep": 1}}
+
+
+def test_redact_drops_container_past_the_depth_limit() -> None:
+    # `json.loads` accepts nesting far deeper than a recursive walk survives,
+    # so the walk stops descending instead of raising RecursionError out of a
+    # review that has already been billed. A subtree that cannot be examined
+    # is dropped, not carried through unredacted.
+    from deadeye.intent import MAX_REDACT_DEPTH
+
+    value: dict[str, object] = {"api_key": "secret"}
+    for _ in range(MAX_REDACT_DEPTH + 5):
+        value = {"nested": value}
+    cleaned = redact(value)
+    assert "secret" not in json.dumps(cleaned)
+    # A shallow document is untouched by the bound.
+    assert redact({"a": {"b": [1, 2]}}) == {"a": {"b": [1, 2]}}
+
+
+def test_redact_json_text_survives_a_deeply_nested_document() -> None:
+    depth = 4000
+    document = '{"a":' * depth + '{"api_key": "LEAK"}' + "}" * depth
+    json.loads(document)  # the parser accepts it, so redaction must too
+    cleaned = redact_json_text(document)
+    assert "LEAK" not in cleaned
 
 
 def test_redact_json_text_handles_an_array_document() -> None:

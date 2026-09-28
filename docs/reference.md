@@ -98,11 +98,11 @@ optional context. The intent's exact bytes are hashed into the evidence
 document.
 
 Every free-text field is bounded locally before anything is submitted: the
-document itself is refused above 64 KiB at the read, each free-text field is
-capped at 2,000 characters, `avoid`/`questions` at 32 entries of 500 characters
-each, and `references` at 8 files. A reference's own `purpose` is bounded by the
-64 KiB document cap rather than the per-field one. Every field lands verbatim in
-the billable prompt, so a runaway intent is refused with a named limit
+document itself is refused above 64 KiB at the read, each field is capped at
+2,000 characters, `avoid`/`questions` at 32 entries of 500 characters each,
+and `references` at 8 files, each with a 2,000-character `path` and a
+500-character `purpose`. Every field lands verbatim in the billable
+prompt, so a runaway intent is refused with a named limit
 instead of being priced at the provider.
 
 The prompt declares the author statement data-only between

@@ -34,9 +34,12 @@ CAMERA_PATHS = ("turntable", "walk-cycle", "fixed", "first-person")
 # Fields whose names look credential-bearing are dropped wherever they would
 # otherwise land in stored evidence. Credentials are never accepted as
 # arguments in the first place; this is the backstop for a caller that hands
-# the API a document directly.
+# the API a document directly. `api-key` is the hyphenated spelling, so the
+# header-shaped names the adapters actually send (`x-goog-api-key`,
+# `x-api-key`) match the same way `api_key` does.
 SENSITIVE_KEY_PARTS = (
     "api_key",
+    "api-key",
     "apikey",
     "authorization",
     "credential",
@@ -67,6 +70,12 @@ MAX_INTENT_BYTES = 64 * 1024
 # everything after it outside the data-only declaration, so the markers are
 # refused wherever intent text is accepted.
 FENCE_MARKERS = ("-----BEGIN AUTHOR STATEMENT", "-----END AUTHOR STATEMENT")
+
+# How deep `redact` walks a document before it stops descending. Real
+# provider payloads (usage metadata, a model verdict) are three or four levels
+# deep, so this is far above any honest structure and exists so the walk
+# terminates on a hostile one.
+MAX_REDACT_DEPTH = 64
 
 
 def _carries_fence_marker(value: str) -> bool:
@@ -181,6 +190,13 @@ def _references_field(data: dict[str, Any], origin: str) -> tuple[ReferenceMedia
         reference_purpose = entry["purpose"]
         if not isinstance(reference_path, str) or not reference_path:
             raise DeadeyeError(f"{label}: 'path' must be a non-empty string")
+        # The name renders inside the fence beside the purpose, so a path is
+        # billed prompt text like any other field and takes the field budget.
+        if len(reference_path) > MAX_FIELD_CHARS:
+            raise DeadeyeError(
+                f"{label}: 'path' is {len(reference_path)} characters; the limit "
+                f"is {MAX_FIELD_CHARS}"
+            )
         # The file's name renders inside the fence beside its purpose, so a
         # marker hidden in a filename would escape the same way.
         if _carries_fence_marker(reference_path):
@@ -188,6 +204,11 @@ def _references_field(data: dict[str, Any], origin: str) -> tuple[ReferenceMedia
         if not isinstance(reference_purpose, str) or not reference_purpose.strip():
             raise DeadeyeError(f"{label}: 'purpose' must state what the comparison is for")
         stripped_purpose = reference_purpose.strip()
+        if len(stripped_purpose) > MAX_ITEM_CHARS:
+            raise DeadeyeError(
+                f"{label}: 'purpose' is {len(stripped_purpose)} characters; the "
+                f"per-entry limit is {MAX_ITEM_CHARS}"
+            )
         if _carries_fence_marker(stripped_purpose):
             raise _refuse_fence_marker(f"{label}: 'purpose'", origin)
         references.append(ReferenceMedia(path=Path(reference_path), purpose=stripped_purpose))
@@ -297,16 +318,30 @@ def _decode_json(raw: bytes, origin: str) -> Any:
         raise DeadeyeError(f"{origin} is nested too deeply to parse") from exc
 
 
-def redact(value: Any, parts: tuple[str, ...] = SENSITIVE_KEY_PARTS) -> Any:
-    """Deep-copy a JSON-shaped value, dropping credential-bearing mapping keys."""
+def redact(value: Any, parts: tuple[str, ...] = SENSITIVE_KEY_PARTS, _depth: int = 0) -> Any:
+    """Deep-copy a JSON-shaped value, dropping credential-bearing mapping keys.
+
+    The walk is depth-bounded at `MAX_REDACT_DEPTH`. `json.loads` accepts
+    nesting far deeper than a recursive Python walk survives the stack, so an
+    unbounded walk turned a deeply nested document into a `RecursionError`
+    that escaped the refusal contract: on the CLI as a bare traceback, and on
+    the evidence path (`redact(usage)`, `redact(params)`) as a crash of a
+    submission that had already been billed. A container past the limit is
+    replaced by null, because a walk that cannot finish cannot prove the
+    subtree carries no credential.
+    """
     if isinstance(value, dict):
+        if _depth >= MAX_REDACT_DEPTH:
+            return None
         return {
-            key: redact(item, parts)
+            key: redact(item, parts, _depth + 1)
             for key, item in value.items()
             if isinstance(key, str) and not _is_sensitive_key(key, parts)
         }
     if isinstance(value, list):
-        return [redact(item, parts) for item in value]
+        if _depth >= MAX_REDACT_DEPTH:
+            return None
+        return [redact(item, parts, _depth + 1) for item in value]
     return value
 
 

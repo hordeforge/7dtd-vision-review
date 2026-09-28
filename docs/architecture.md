@@ -57,7 +57,9 @@ configured counterparts, credentials prefer the environment over the merged
 configuration, and every other setting comes from the merged configuration
 with a built-in default behind it), never as a command argument, and never in
 stdout, JSON output, logs, or evidence. The redaction backstop in `intent.py`
-drops credential-named keys wherever they would otherwise land.
+drops credential-named keys wherever they would otherwise land, and bounds its
+own walk depth so a deeply nested payload is dropped rather than escaping as an
+uncaught error from a submission that was already billed.
 
 **Advisory only.** `ADVISORY_NOTE` rides every result and every evidence
 envelope: a model critique cannot mark an asset accepted. Human sign-off in
