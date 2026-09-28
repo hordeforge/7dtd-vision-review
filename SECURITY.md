@@ -27,7 +27,13 @@ that tag.
   shadows your home configuration. Run a review from a directory you trust,
   and treat a per-provider `endpoint` override as a credential-egress
   decision: it is where the authenticated request, the key, and all the media
-  go. The disclosure lines name the provider but not the host.
+  go. The disclosure lines name the provider but not the host. The same file
+  also chooses `default_model`, the per-provider `model`, and the generation
+  knobs (`temperature`, `max_output_tokens`, `top_p`, `max_tokens`,
+  `reasoning_budget`; `src/deadeye/config.py:77-94`), so a shadowing config
+  changes which model a verdict is attributed to and how it samples, not just
+  where the bytes go. The resolved model and generation parameters are recorded
+  in the evidence envelope (`src/deadeye/evidence.py:133`).
 - **Uploading media requires explicit consent.** No real provider is contacted
   without `--allow-network`; the `fake` provider is offline by construction.
   Sampled frames, muxed clips, and intent-declared reference media leave the
@@ -59,8 +65,14 @@ that tag.
 - **An MCP client holds the process's authority.** The `review` tool takes the
   clip, the intent, the destination path, the overwrite flag, and the upload
   consent as arguments of one call, and there is no second identity or path
-  confinement behind them (`src/deadeye/mcp.py`). Treat the stdio server as
-  granting whatever its client already has, and do not point an
+  confinement behind them (`src/deadeye/mcp.py`). It also takes an
+  `idempotency_key`, which pins a full result envelope in the server's
+  process-local ledger until it is evicted, so a client chooses what stays
+  resident in memory. The other tools read, and write nothing: `doctor` and
+  `schema` read config and schemas, and `prompt` takes a client-named `clip`
+  path and describes whatever media discovery finds there, with no consent gate
+  because nothing is submitted (`src/deadeye/mcp.py:214-252`). Treat the stdio
+  server as granting whatever its client already has, and do not point an
   automatically-driven client at paths you would not delete by hand.
 - **A verdict is advisory, never an acceptance.** `ADVISORY_NOTE` rides every
   result. A consuming repository that gates on a deadeye verdict alone has
