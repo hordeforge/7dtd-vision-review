@@ -62,7 +62,9 @@ the caller. The gateway:
    charged as 4, and the reference media and reviewer prompt riding the same
    request count against it too; the disclosure's `total_bytes` stays the
    files' raw sizes. A video that fits its own budget but not the whole
-   request falls back to the frame sequence, and the evidence says so;
+   request falls back to the frame sequence, and a frame sequence that does
+   not fit is sampled down to the largest even-spaced run that does, so the
+   budget is spent rather than refused; the evidence says which was dropped;
 3. builds the full reviewer instruction from the intent: the rubric
    dimensions, the exact JSON result shape, the author's stated purpose and
    concerns, and what media actually reached the model (a muxed video, or the

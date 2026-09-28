@@ -44,6 +44,10 @@ EVIDENCE_SCHEMA_VERSION = 1
 # every output path runs through, into stored evidence, stdout, and MCP
 # payloads. These are the billing names that must survive; every other
 # token-shaped key is treated as the credential it usually is.
+#
+# Each entry is a complete key, matched whole by `redaction._is_sensitive_key`,
+# because the allowlist has to be a list of names rather than a list of
+# fragments: a fragment test would spare `access_token_total_tokens` too.
 USAGE_BILLING_KEY_PARTS = (
     "cachetokencount",
     "cachedcontenttokencount",

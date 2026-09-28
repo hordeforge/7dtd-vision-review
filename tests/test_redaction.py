@@ -183,6 +183,22 @@ def test_redact_drops_token_shaped_credentials_from_usage() -> None:
     }
 
 
+def test_the_usage_allowlist_matches_whole_names_only() -> None:
+    # The allowlist is a list of names, not fragments. A substring test spares
+    # every key that merely contains a billing name, which is how a
+    # credential-shaped `access_token_total_tokens` would walk straight out
+    # through the one backstop every output path runs through.
+    from deadeye.evidence import USAGE_BILLING_KEY_PARTS
+
+    value = {
+        "total_tokens": 12,
+        "access_token_total_tokens": "a",
+        "total_token_count": "b",
+        "prefixpromptTokenCount": "c",
+    }
+    assert redact(value, exceptions=USAGE_BILLING_KEY_PARTS) == {"total_tokens": 12}
+
+
 def test_the_evidence_envelope_drops_a_token_shaped_credential_from_usage() -> None:
     # The route `build_envelope` actually takes, not the helper in isolation:
     # a provider usage block is vendor payload, and nothing a provider sent

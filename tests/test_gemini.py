@@ -17,6 +17,7 @@ from deadeye.errors import DeadeyeError, NoVerdictError
 from deadeye.providers.base import MediaPayload
 from deadeye.providers.gemini import (
     GeminiProvider,
+    generation_settings,
 )
 
 
@@ -43,7 +44,13 @@ def test_review_without_credential_refuses_locally(monkeypatch) -> None:
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     from deadeye.providers.base import ReviewRequest
 
-    request = ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0)
+    request = ReviewRequest(
+        prompt="p",
+        media=(),
+        model="m",
+        timeout_seconds=1.0,
+        generation=generation_settings(),
+    )
     with pytest.raises(DeadeyeError, match="no credential"):
         GeminiProvider().review(request)
 
@@ -89,7 +96,13 @@ class _FakeResponse(io.BytesIO):
 def _review_request():
     from deadeye.providers.base import ReviewRequest
 
-    return ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0)
+    return ReviewRequest(
+        prompt="p",
+        media=(),
+        model="m",
+        timeout_seconds=1.0,
+        generation=generation_settings(),
+    )
 
 
 def test_a_connection_fault_mid_response_is_a_refusal_not_a_crash(monkeypatch, http_opener) -> None:
@@ -217,7 +230,13 @@ def test_a_non_ascii_model_name_is_percent_encoded_into_the_url(monkeypatch, htt
     http_opener(capture_urlopen)
     from deadeye.providers.base import ReviewRequest
 
-    request = ReviewRequest(prompt="p", media=(), model="gemín 2.5 flash", timeout_seconds=1.0)
+    request = ReviewRequest(
+        prompt="p",
+        media=(),
+        model="gemín 2.5 flash",
+        timeout_seconds=1.0,
+        generation=generation_settings(),
+    )
     response = GeminiProvider().review(request)
     assert response.raw_text == "ok"
     assert seen["url"].endswith("/gem%C3%ADn%202.5%20flash:generateContent")
@@ -407,7 +426,15 @@ def test_sampling_is_named_rather_than_left_to_the_provider_default() -> None:
     from deadeye.providers.base import ReviewRequest
     from deadeye.providers.gemini import DEFAULT_TEMPERATURE, build_body
 
-    body = build_body(ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0))
+    body = build_body(
+        ReviewRequest(
+            prompt="p",
+            media=(),
+            model="m",
+            timeout_seconds=1.0,
+            generation=generation_settings(),
+        )
+    )
     assert body["generationConfig"]["temperature"] == DEFAULT_TEMPERATURE
 
 
@@ -473,6 +500,7 @@ def test_the_instruction_travels_as_the_system_instruction() -> None:
             media=(),
             model="m",
             timeout_seconds=1.0,
+            generation=generation_settings(),
         )
     )
     system = body["systemInstruction"]["parts"]
@@ -488,10 +516,26 @@ def test_a_caller_with_no_system_instruction_sends_none(monkeypatch, http_opener
     from deadeye.providers.base import ReviewRequest
     from deadeye.providers.gemini import build_body
 
-    body = build_body(ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0))
+    body = build_body(
+        ReviewRequest(
+            prompt="p",
+            media=(),
+            model="m",
+            timeout_seconds=1.0,
+            generation=generation_settings(),
+        )
+    )
     assert "systemInstruction" not in body
     sent = _capture_body(monkeypatch, http_opener, _ENVELOPE)
-    GeminiProvider().review(ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0))
+    GeminiProvider().review(
+        ReviewRequest(
+            prompt="p",
+            media=(),
+            model="m",
+            timeout_seconds=1.0,
+            generation=generation_settings(),
+        )
+    )
     assert "systemInstruction" not in sent["body"]
 
 
@@ -524,15 +568,19 @@ def test_live_gemini_reviews_a_frame_sequence(tmp_path, solid_png) -> None:
     assert response.model_reported
 
 
-def test_the_recorded_generation_settings_are_the_ones_sent() -> None:
+def test_the_body_sends_the_settings_the_caller_resolved() -> None:
     # The envelope attributes a verdict to the parameters it was generated
-    # at. A second reading of the same configuration would be a second answer
-    # to the same question, and the two could differ from the request the
-    # adapter actually built.
+    # at, so the body must carry the mapping the core resolved rather than
+    # reading the configuration again. A second read is a second answer to
+    # one question, and the config cache reloads on a source-file change, so
+    # the envelope could otherwise name parameters the request never carried.
     from deadeye.providers.base import ReviewRequest
     from deadeye.providers.gemini import build_body
 
-    body = build_body(ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0))
-    recorded = GeminiProvider().generation_settings()
-    assert body["generationConfig"] == recorded
-    assert recorded["maxOutputTokens"] == 65536
+    sent = {"temperature": 0.9, "maxOutputTokens": 11}
+    body = build_body(
+        ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0, generation=sent)
+    )
+    assert body["generationConfig"] == sent
+    # The built-in defaults still resolve to the values a bare review sends.
+    assert generation_settings()["maxOutputTokens"] == 65536

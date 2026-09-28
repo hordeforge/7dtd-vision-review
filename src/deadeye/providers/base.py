@@ -60,6 +60,17 @@ class ReviewRequest:
     media: tuple[MediaPayload, ...]
     model: str
     timeout_seconds: float
+    generation: dict[str, Any]
+    """The generation parameters this submission carries, already resolved.
+
+    The core reads the provider's knobs once, before the request is built, and
+    hands the result here; the adapter builds its body from this same mapping
+    and the evidence envelope records it. Reading the knobs a second time,
+    inside `build_body`, made the two reads independent: the config cache
+    reloads when a source file changes, so an operator editing `temperature`
+    between the two would have the envelope record parameters the request never
+    carried, and a verdict attributed to settings it was not generated at.
+    Carrying the value is what makes that impossible rather than unlikely."""
     system_prompt: str = ""
     """The reviewer instruction: role, output contract, rubric, and the
     declaration that the user turn is data.

@@ -210,6 +210,29 @@ required (`CONTRIBUTING.md`, "Changing a contract").
 
 ### Changed
 
+- A frame sequence that will not fit the provider's whole-request budget is now
+  sampled down to the largest even-spaced run that does, instead of being
+  refused. Before: a video over the request budget fell back to the frames, but
+  frames over it refused outright, so a clip whose frames were a little too
+  large lost a review the smaller sample beside them would have carried. After:
+  the frame path spends the budget the way the video path always did, the
+  evidence's `sampling` block names the count it settled on and that the
+  sequence was reduced to fit, and only a clip no sample can bring under the
+  cap refuses (as before, before any attachment is read). No envelope, schema,
+  or result change; a review that used to be submitted whole now submits a
+  smaller even-spaced sample when the budget requires it, and says so in
+  `sampling.note`.
+
+- The generation parameters a review is attributed to are now read once and
+  carried on the request, instead of being read again while the adapter builds
+  the body. Before: the config was resolved once for the evidence envelope and
+  again for the request, and the cache reloads when a config file changes, so
+  an operator editing a knob between the two could have an envelope recording
+  parameters the request never carried. After: one resolution per submission,
+  shared by the request body and the envelope, which is the property the
+  adapters' own documentation already claimed. No envelope, schema, or result
+  change.
+
 - `make dist-verify` builds a third time, from a copy of the tree at a
   different absolute path, and compares the artifacts across all three runs.
   The clock, locale, timezone, and hash-seed rebuilds catch host state leaking
@@ -676,6 +699,14 @@ required (`CONTRIBUTING.md`, "Changing a contract").
   way.
 
 ### Security
+
+- The usage allowlist in the redaction backstop now matches whole key names
+  rather than fragments. Before: any key containing a billing name was spared,
+  so `access_token_total_tokens` passed the one backstop every output path
+  runs through. After: only `totalTokenCount` and its exact siblings survive a
+  usage block; every other token-shaped key, including one that merely
+  contains a billing name, is dropped as before. No envelope, schema, or result
+  change.
 
 - A provider credential echoed back in an error body no longer reaches a
   refusal line. Before: a 4xx/5xx body was sliced straight into the `ERROR:`

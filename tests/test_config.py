@@ -20,6 +20,7 @@ from deadeye.config import CONFIG_ENV
 from deadeye.errors import DeadeyeError
 from deadeye.providers.base import MediaPayload, ReviewRequest
 from deadeye.providers.nvidia import build_body
+from deadeye.providers.nvidia import generation_settings as nvidia_generation_settings
 from deadeye.surface import resolve_provider, resolve_timeout
 
 pytestmark = pytest.mark.usefixtures("isolated_config")
@@ -392,6 +393,23 @@ def test_explicit_config_dir_without_files_is_reported_not_silent(
     assert note is not None and "DEADEYE_CONFIG_DIR" in note
 
 
+def _nvidia_request(media=()):
+    """A request carrying the settings the core resolves, as `run_review` does.
+
+    The knobs are resolved once before the body is built, so a configured
+    value is asserted on the mapping the envelope records and the request
+    carries alike; `build_body` copies that mapping rather than reading the
+    configuration a second time.
+    """
+    return ReviewRequest(
+        prompt="p",
+        media=media,
+        model="m",
+        timeout_seconds=1.0,
+        generation=nvidia_generation_settings(),
+    )
+
+
 def test_nvidia_generation_params_flow_from_config(isolated_config) -> None:
     _write(
         isolated_config,
@@ -399,7 +417,7 @@ def test_nvidia_generation_params_flow_from_config(isolated_config) -> None:
         "[providers.nvidia]\nmax_tokens = 1234\nreasoning_budget = 567\ntemperature = 0.2\n",
     )
     frame = MediaPayload(name="f.png", mime_type="image/png", kind="frame", data=b"x")
-    body = build_body(ReviewRequest(prompt="p", media=(frame,), model="m", timeout_seconds=1.0))
+    body = build_body(_nvidia_request((frame,)))
     assert body["max_tokens"] == 1234
     assert body["reasoning_budget"] == 567
     assert body["temperature"] == 0.2
@@ -417,10 +435,8 @@ def test_non_finite_float_knobs_are_refused_not_silently_defaulted(isolated_conf
         "config.toml",
         "[providers.nvidia]\ntemperature = nan\ntop_p = inf\n",
     )
-    frame = MediaPayload(name="f.png", mime_type="image/png", kind="frame", data=b"x")
-    request = ReviewRequest(prompt="p", media=(frame,), model="m", timeout_seconds=1.0)
     with pytest.raises(DeadeyeError, match=r"providers\.nvidia\.temperature.*nan"):
-        build_body(request)
+        nvidia_generation_settings()
 
 
 def test_wrong_typed_generation_knobs_are_refused_not_silently_defaulted(isolated_config) -> None:
@@ -431,16 +447,14 @@ def test_wrong_typed_generation_knobs_are_refused_not_silently_defaulted(isolate
         "config.toml",
         '[providers.nvidia]\nmax_tokens = "65536"\nreasoning_budget = false\n',
     )
-    frame = MediaPayload(name="f.png", mime_type="image/png", kind="frame", data=b"x")
-    request = ReviewRequest(prompt="p", media=(frame,), model="m", timeout_seconds=1.0)
     with pytest.raises(DeadeyeError, match=r"providers\.nvidia\.max_tokens"):
-        build_body(request)
+        nvidia_generation_settings()
     config.reset()
     _write(isolated_config, "config.toml", "[providers.nvidia]\nreasoning_budget = false\n")
     with pytest.raises(DeadeyeError, match=r"providers\.nvidia\.reasoning_budget"):
-        build_body(request)
+        nvidia_generation_settings()
     # The gemini adapter reads through the same validated readers.
-    from deadeye.providers.gemini import GeminiProvider
+    from deadeye.providers.gemini import generation_settings as gemini_generation_settings
 
     config.reset()
     _write(
@@ -449,7 +463,7 @@ def test_wrong_typed_generation_knobs_are_refused_not_silently_defaulted(isolate
         "[providers.gemini]\napi_key = \"test\"\nmax_output_tokens = 'high'\n",
     )
     with pytest.raises(DeadeyeError, match=r"providers\.gemini\.max_output_tokens"):
-        GeminiProvider().review(request)
+        gemini_generation_settings()
 
 
 def test_out_of_range_float_knobs_are_refused_with_the_range_named(isolated_config) -> None:
@@ -457,18 +471,15 @@ def test_out_of_range_float_knobs_are_refused_with_the_range_named(isolated_conf
     `temperature = -1` pass every type check and are outside what the
     endpoint accepts, so the submission would be billed before the API
     rejected it. The refusal names the range, which is the fix."""
-    frame = MediaPayload(name="f.png", mime_type="image/png", kind="frame", data=b"x")
-    request = ReviewRequest(prompt="p", media=(frame,), model="m", timeout_seconds=1.0)
-
     config.reset()
     _write(isolated_config, "config.toml", "[providers.nvidia]\ntop_p = 1.5\n")
     with pytest.raises(DeadeyeError, match=r"providers\.nvidia\.top_p.*from 0 to 1"):
-        build_body(request)
+        nvidia_generation_settings()
 
     config.reset()
     _write(isolated_config, "config.toml", "[providers.nvidia]\ntemperature = -0.5\n")
     with pytest.raises(DeadeyeError, match=r"providers\.nvidia\.temperature.*from 0 to 2"):
-        build_body(request)
+        nvidia_generation_settings()
 
     # Both ends of the documented range stay usable, and an unset key keeps
     # the built-in default.
@@ -478,7 +489,7 @@ def test_out_of_range_float_knobs_are_refused_with_the_range_named(isolated_conf
         "config.toml",
         "[providers.nvidia]\ntemperature = 2.0\ntop_p = 1.0\n",
     )
-    body = build_body(request)
+    body = build_body(_nvidia_request())
     assert body["temperature"] == 2.0
     assert body["top_p"] == 1.0
 
@@ -486,17 +497,15 @@ def test_out_of_range_float_knobs_are_refused_with_the_range_named(isolated_conf
 def test_gemini_temperature_range_is_enforced(isolated_config) -> None:
     """The gemini adapter reads temperature through the same bounded
     reader, so the same mistake cannot slip past one vendor's adapter."""
-    from deadeye.providers.gemini import GeminiProvider
+    from deadeye.providers.gemini import generation_settings as gemini_generation_settings
 
-    frame = MediaPayload(name="f.png", mime_type="image/png", kind="frame", data=b"x")
-    request = ReviewRequest(prompt="p", media=(frame,), model="m", timeout_seconds=1.0)
     _write(
         isolated_config,
         "config.local.toml",
         '[providers.gemini]\napi_key = "test"\ntemperature = 3\n',
     )
     with pytest.raises(DeadeyeError, match=r"providers\.gemini\.temperature.*from 0 to 2"):
-        GeminiProvider().review(request)
+        gemini_generation_settings()
 
 
 def test_doctor_reports_an_unusable_endpoint_override(isolated_config, capsys) -> None:
