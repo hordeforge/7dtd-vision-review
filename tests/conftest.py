@@ -12,13 +12,16 @@ from typing import Any
 import pytest
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def isolated_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     """A private, empty config directory and a clean process-wide cache.
 
-    The checkout's own `config.toml` / `config.local.toml` must never leak
-    into an assertion, so the environment points at a directory the test owns
-    and the cache is dropped on both sides of the test.
+    Autouse, because the config cache is process-wide: any test that reads a
+    setting would otherwise load the checkout's own `config.toml`, and the
+    developer's gitignored `config.local.toml` on top of it, into an assertion
+    that has no business depending on the machine it runs on. Every test gets
+    an empty directory of its own; the ones that exercise a config file
+    request this fixture by name and write into what it yields.
     """
     from deadeye import config
 

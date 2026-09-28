@@ -72,12 +72,15 @@ def _decode_envelope(provider: str, raw: bytes, headers: Any) -> str:
     if declared:
         try:
             return raw.decode(declared)
-        except (UnicodeError, LookupError):
+        except (UnicodeError, LookupError, ValueError):
             # UnicodeError, not just UnicodeDecodeError: a name that resolves
             # to a codec whose decode raises plain UnicodeError (`charset=
             # undefined`, for one) is refused here like any other undecodable
             # declaration, rather than escaping as a bare traceback past this
-            # module's fault mapping after a billed submission.
+            # module's fault mapping after a billed submission. ValueError
+            # covers a name bytes.decode rejects outright (`charset=\0`); the
+            # declaration is untrusted response data, so every way of failing
+            # to use it falls back to UTF-8 rather than out of this module.
             pass  # undecodable or unknown name: UTF-8 gets the next attempt
     try:
         return raw.decode("utf-8")

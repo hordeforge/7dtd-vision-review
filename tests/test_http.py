@@ -269,6 +269,44 @@ def test_a_declared_charset_whose_codec_raises_is_a_fault_not_a_crash(http_opene
     assert envelope["modelVersion"] == "m"
 
 
+def test_a_declared_charset_bytes_decode_rejects_is_a_fault_not_a_crash(http_opener) -> None:
+    """A Content-Type whose charset parameter is not a usable codec name at
+    all (`charset=\0`, which `bytes.decode` refuses with a plain ValueError,
+    neither a UnicodeError nor a LookupError) must take the same
+    fall-back-to-UTF-8 path as every other unusable declaration, not escape
+    as a bare traceback past the fault mapping after a billed submission."""
+
+    def answering_open(request, timeout):
+        return _CharsetResponse(b'{"modelVersion": "m"}', "application/json; charset=\0")
+
+    http_opener(answering_open)
+    envelope = post_json(
+        "gemini",
+        "https://generativelanguage.googleapis.com/v1beta/models/m:generateContent",
+        body={},
+        headers={"x-goog-api-key": "k"},
+        timeout_seconds=1.0,
+        credential_env="GEMINI_API_KEY",
+    )
+    assert envelope["modelVersion"] == "m"
+
+
+def test_an_undecodable_body_with_a_declared_charset_names_both_attempts(http_opener) -> None:
+    """When the declared charset cannot be used and the bytes are not UTF-8
+    either, the refusal names both attempts: the operator needs to know the
+    declared charset did not win, not just that decoding failed."""
+
+    def answering_open(request, timeout):
+        return _CharsetResponse(b'{"modelVersion": "caf\xe9"}', "application/json; charset=bogus")
+
+    http_opener(answering_open)
+    with pytest.raises(DeadeyeError) as excinfo:
+        _post()
+    message = str(excinfo.value)
+    assert "bogus" in message
+    assert "UTF-8" in message
+
+
 def test_a_trickling_response_body_is_cut_off_at_the_overall_deadline(
     http_opener, monkeypatch
 ) -> None:

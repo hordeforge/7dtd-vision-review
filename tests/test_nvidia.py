@@ -12,6 +12,7 @@ from __future__ import annotations
 import base64
 import io
 import os
+from pathlib import Path
 
 import pytest
 
@@ -139,18 +140,19 @@ def test_a_non_media_payload_is_refused_at_body_build_time() -> None:
         build_body(ReviewRequest(prompt="p", media=(audio,), model="m", timeout_seconds=1.0))
 
 
-def test_a_non_positive_output_cap_is_refused_before_submission(isolated_config) -> None:
+def test_a_non_positive_output_cap_is_refused_before_submission(isolated_config: Path) -> None:
     """A cap is the only thing between a looping generation and unbounded
     spend, and a provider that reads zero or a negative cap as 'no limit'
     turns a botched key into exactly that. The refusal names the key."""
-    (isolated_config / "config.local.toml").write_text(
-        "[providers.nvidia]\nmax_tokens = -1\n", encoding="utf-8"
-    )
     from deadeye import config
 
-    config.reset()
-    with pytest.raises(DeadeyeError, match="at least 1"):
-        build_body(ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0))
+    for value in ("0", "-1"):
+        (isolated_config / "config.local.toml").write_text(
+            f"[providers.nvidia]\nmax_tokens = {value}\n", encoding="utf-8"
+        )
+        config.reset()
+        with pytest.raises(DeadeyeError, match="at least 1"):
+            build_body(ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0))
 
 
 def test_the_instruction_travels_in_its_own_system_message() -> None:
@@ -233,6 +235,79 @@ def test_a_refused_review_closes_the_error_body(monkeypatch, http_opener) -> Non
     with pytest.raises(DeadeyeError, match="rejected the credential"):
         NvidiaProvider().review(ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0))
     assert body.closed
+
+
+def _answer(monkeypatch, http_opener, envelope: dict) -> None:
+    """Answer the next submission with `envelope` instead of a live call."""
+    import json
+
+    monkeypatch.setenv("NVIDIA_API_KEY", "k")
+    body = json.dumps(envelope).encode("utf-8")
+    http_opener(lambda request, timeout: io.BytesIO(body))
+
+
+def test_a_truncated_generation_is_a_refusal_not_a_half_verdict(monkeypatch, http_opener) -> None:
+    """A finish_reason the adapter does not recognise (a content filter, an
+    upstream abort) means the model never finished the verdict. A truncated
+    JSON fragment must be refused, not parsed into a half-scored result that
+    looks like real evidence."""
+    _answer(
+        monkeypatch,
+        http_opener,
+        {
+            "model": "m",
+            "choices": [
+                {"finish_reason": "content_filter", "message": {"content": '{"confidence": 0.9}'}}
+            ],
+        },
+    )
+    with pytest.raises(DeadeyeError, match="ended the response early"):
+        NvidiaProvider().review(ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0))
+
+
+def test_a_complete_generation_reports_usage_and_the_model_it_came_from(
+    monkeypatch, http_opener
+) -> None:
+    """Usage and the model the provider says it used ride into the evidence
+    envelope, so a later reader can tell a cheap run from an expensive one
+    and a substituted model from the requested one."""
+    _answer(
+        monkeypatch,
+        http_opener,
+        {
+            "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+            "usage": {"total_tokens": 128, "prompt_tokens": 100},
+            "choices": [{"finish_reason": "stop", "message": {"content": '{"confidence": 0.9}'}}],
+        },
+    )
+    response = NvidiaProvider().review(
+        ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0)
+    )
+    assert response.raw_text == '{"confidence": 0.9}'
+    assert response.model_reported == "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
+    assert response.usage == {"total_tokens": 128, "prompt_tokens": 100}
+
+
+def test_a_usage_block_that_is_not_an_object_is_dropped_not_wrapped(
+    monkeypatch, http_opener
+) -> None:
+    """A provider that answers `usage: "n/a"` must not put a bare string into
+    the evidence envelope, where a reader would treat it as a number-shaped
+    field. The verdict still stands; only the unusable usage is dropped."""
+    _answer(
+        monkeypatch,
+        http_opener,
+        {
+            "model": "m",
+            "usage": "n/a",
+            "choices": [{"finish_reason": "stop", "message": {"content": '{"confidence": 0.9}'}}],
+        },
+    )
+    response = NvidiaProvider().review(
+        ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0)
+    )
+    assert response.usage is None
+    assert response.raw_text
 
 
 @pytest.mark.parametrize("choices", [{"message": {}}, ["not an object"]])

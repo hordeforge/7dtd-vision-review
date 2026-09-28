@@ -172,6 +172,68 @@ def test_a_non_ascii_model_name_is_percent_encoded_into_the_url(monkeypatch, htt
     assert seen["url"].endswith("/gem%C3%ADn%202.5%20flash:generateContent")
 
 
+def test_a_truncated_generation_is_a_refusal_not_a_half_verdict(monkeypatch, http_opener) -> None:
+    """A finishReason the adapter does not recognise (a safety block, a
+    recitation stop) means the model never finished the verdict. A truncated
+    JSON fragment must be refused, not parsed into a half-scored result that
+    would read like real evidence."""
+    import json as json_module
+
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    envelope = {
+        "candidates": [
+            {
+                "finishReason": "SAFETY",
+                "content": {"parts": [{"text": '{"confidence": 0.9, "issues": ['}]},
+            }
+        ]
+    }
+    http_opener(lambda request, timeout: _FakeResponse(json_module.dumps(envelope).encode()))
+    with pytest.raises(DeadeyeError, match="ended the response early"):
+        GeminiProvider().review(_review_request())
+
+
+def test_a_complete_generation_reports_usage_and_the_model_it_came_from(
+    monkeypatch, http_opener
+) -> None:
+    """Usage and the model version the provider reports ride into the
+    evidence envelope, so a later reader can tell a cheap run from an
+    expensive one and a substituted model from the requested one."""
+    import json as json_module
+
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    envelope = {
+        "modelVersion": "gemini-2.5-flash",
+        "usageMetadata": {"totalTokenCount": 91, "promptTokenCount": 40},
+        "candidates": [{"finishReason": "STOP", "content": {"parts": [{"text": "ok"}]}}],
+    }
+    http_opener(lambda request, timeout: _FakeResponse(json_module.dumps(envelope).encode()))
+    response = GeminiProvider().review(_review_request())
+    assert response.raw_text == "ok"
+    assert response.model_reported == "gemini-2.5-flash"
+    assert response.usage == {"totalTokenCount": 91, "promptTokenCount": 40}
+
+
+def test_a_usage_block_that_is_not_an_object_is_dropped_not_wrapped(
+    monkeypatch, http_opener
+) -> None:
+    """A provider that answers `usageMetadata: "n/a"` must not put a bare
+    string into the evidence envelope, where a reader would treat it as a
+    number-shaped field. The verdict still stands; only the usage is dropped."""
+    import json as json_module
+
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    envelope = {
+        "modelVersion": "gemini-2.5-flash",
+        "usageMetadata": "n/a",
+        "candidates": [{"finishReason": "STOP", "content": {"parts": [{"text": "ok"}]}}],
+    }
+    http_opener(lambda request, timeout: _FakeResponse(json_module.dumps(envelope).encode()))
+    response = GeminiProvider().review(_review_request())
+    assert response.usage is None
+    assert response.raw_text == "ok"
+
+
 def _capture_body(monkeypatch, http_opener, envelope: dict) -> dict:
     """POST through a stub opener; return the JSON body the adapter built."""
     import json as json_module
@@ -216,23 +278,22 @@ def test_max_output_tokens_can_be_overridden_by_config(
     assert seen["body"]["generationConfig"]["maxOutputTokens"] == 1024
 
 
-def test_a_non_positive_output_cap_is_refused_before_submission(monkeypatch, tmp_path) -> None:
+def test_a_non_positive_output_cap_is_refused_before_submission(
+    monkeypatch, isolated_config
+) -> None:
     """A cap is the only thing between a looping generation and unbounded
     spend, and a provider that reads zero or a negative cap as 'no limit'
     turns a botched key into exactly that. The refusal names the key."""
     from deadeye import config
 
-    (tmp_path / "config.local.toml").write_text(
-        "[providers.gemini]\nmax_output_tokens = 0\n", encoding="utf-8"
-    )
-    monkeypatch.setenv("DEADEYE_CONFIG_DIR", str(tmp_path))
     monkeypatch.setenv("GEMINI_API_KEY", "k")
-    config.reset()
-    try:
+    for value in ("0", "-1"):
+        (isolated_config / "config.local.toml").write_text(
+            f"[providers.gemini]\nmax_output_tokens = {value}\n", encoding="utf-8"
+        )
+        config.reset()
         with pytest.raises(DeadeyeError, match="at least 1"):
             GeminiProvider().review(_review_request())
-    finally:
-        config.reset()
 
 
 def test_the_instruction_travels_as_the_system_instruction() -> None:

@@ -316,6 +316,11 @@ def test_python_dash_m_honors_the_exit_contract(tmp_path: Path) -> None:
         check=False,
     )
     assert ok.returncode == 0
+    # Exit code alone proves nothing: a `schema` that printed nothing, or
+    # printed a traceback, would still exit 0. The contract is the document.
+    schema = json.loads(ok.stdout)
+    assert set(schema) == {"intent", "result"}
+    assert schema["result"]["keys"]
 
     missing = tmp_path / "no-such-clip"
     failed = subprocess.run(
