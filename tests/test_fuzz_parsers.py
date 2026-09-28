@@ -19,7 +19,9 @@ invariants the pipeline depends on:
 - a sanitized envelope re-serializes under RFC 8259: no `NaN`, no `Infinity`,
   no `1e999`, whatever the provider emitted;
 - `flat_label_text` leaves no line separator or control character behind, so
-  a filename cannot forge an extra label-shaped line in the prompt.
+  a filename cannot forge an extra label-shaped line in the prompt;
+- an MCP client frame is answered in band or not at all: the id comes back,
+  the answer is one of result/error, and no frame takes the stdio loop down.
 
 Run with the rest of the suite (`make test`). A failure prints the
 falsifying example: pin it as a regression test next to the parser's unit
@@ -30,6 +32,7 @@ tests before changing anything. On a bare host without the dev group
 from __future__ import annotations
 
 import email.message
+import io
 import json
 import math
 from collections.abc import Iterator
@@ -47,6 +50,7 @@ except ImportError:
         allow_module_level=True,
     )
 
+from deadeye import mcp
 from deadeye.errors import DeadeyeError
 from deadeye.intent import load_intent, parse_intent
 from deadeye.json_safe import strict_json_numbers
@@ -403,3 +407,279 @@ def test_fuzz_filename_flattening_forges_no_prompt_line(name: str) -> None:
     # Flattening a flattened name changes nothing, so prompt text built
     # twice from the same file is byte-identical.
     assert flat_label_text(flattened) == flattened
+
+
+# ---------------------------------------------------------------------------
+# Target 5: the MCP server's JSON-RPC boundary.
+#
+# `deadeye mcp` reads newline-delimited JSON from a client process: frames and
+# tool arguments are as untrusted as a provider's answer, and they arrive on a
+# long-lived stdio loop where one unhandled exception tears the transport down
+# and leaves the client waiting. The invariants:
+#
+# - `handle_frame` answers every request frame in band (jsonrpc 2.0, the id
+#   echoed, exactly one of result/error) and raises nothing: a malformed
+#   frame is a spec error code, never an exception at the caller;
+# - a tool result is a text content block, and a refusal is that block marked
+#   isError, so a client can tell a fault from a verdict without parsing prose;
+# - a review call naming no real clip is always refused and never completes a
+#   submission, so a hostile argument set cannot bill one or spend a key.
+# ---------------------------------------------------------------------------
+
+# Paths that cannot exist, so a review call that gets as far as media
+# discovery is refused there: this module never submits anything, whatever
+# the arguments say.
+_ABSENT_CLIP = "/nonexistent-deadeye-fuzz/clip"
+
+
+def _json_object_values(max_size: int = 6) -> st.SearchStrategy[dict[str, Any]]:
+    return st.dictionaries(
+        st.text(max_size=24),
+        st.one_of(_scalars, st.lists(_scalars, max_size=3)),
+        max_size=max_size,
+    )
+
+
+def _text_values(max_size: int = 96) -> st.SearchStrategy[str]:
+    """Arbitrary client text, with NUL bytes and a lone surrogate mixed in."""
+    return st.one_of(
+        st.text(max_size=max_size),
+        st.text(min_size=1, max_size=16).map(lambda word: f"{word}\x00nul\x00\ud800\x00 "),
+    )
+
+
+# Tool arguments for `review`, with the two arguments that could spend money
+# pinned: the provider is the offline fake and the clip does not exist.
+_review_arguments = st.fixed_dictionaries(
+    {
+        "clip": st.just(_ABSENT_CLIP),
+        "provider": st.just("fake"),
+        "intent": st.sampled_from(["/nonexistent-deadeye-fuzz/i.json", "", " "]),
+        "intent_text": st.one_of(
+            st.none(), _json_text(_json_values(max_leaves=6)), _text_values(32)
+        ),
+        "model": st.one_of(st.none(), _text_values(32)),
+        "output": st.one_of(st.none(), st.just("/nonexistent-deadeye-fuzz/evidence.json")),
+        "allow_network": st.sampled_from([True, False, "true", 1, None, []]),
+        "keep_raw_response": st.sampled_from([True, False, "false", 0, None]),
+        "force": st.sampled_from([True, False, "no", 2, None]),
+        "timeout_seconds": st.one_of(
+            st.none(),
+            st.sampled_from([0, -1, 1.5, 1e999, float("nan"), "60", True, [], {}]),
+        ),
+        "idempotency_key": st.sampled_from(
+            [None, "", "  ", "k" * 200, "k" * 201, "fuzz-key", 7, [], {}]
+        ),
+    }
+)
+
+# Every tool whose arguments carry no media, so arbitrary client arguments
+# can be thrown at it without a submission in reach.
+_OFFLINE_TOOLS = ("doctor", "schema")
+_READ_ONLY_TOOLS = (*_OFFLINE_TOOLS, "prompt")
+
+_frame_ids = st.one_of(
+    st.none(),
+    st.integers(min_value=-(10**9), max_value=10**9),
+    st.text(max_size=16),
+    st.booleans(),
+)
+
+_frame_params = st.one_of(
+    st.none(),
+    _json_object_values(),
+    _json_values(max_leaves=6),
+    st.text(max_size=48),
+    st.integers(),
+)
+
+# The handshake and listing methods, and a method this server does not know.
+# `tools/call` is fuzzed separately, one tool at a time, so a fuzzed argument
+# set can never reach a submission from here.
+_frames = st.builds(
+    lambda method, request_id, params: {
+        key: value
+        for key, value in (
+            ("jsonrpc", "2.0"),
+            ("id", request_id),
+            ("method", method),
+            ("params", params),
+        )
+        if not (key == "id" and method == "notifications/initialized")
+    },
+    st.sampled_from(
+        ("initialize", "ping", "tools/list", "notifications/initialized", "", "no/such")
+    ),
+    _frame_ids,
+    _frame_params,
+)
+
+
+def _assert_jsonrpc_response(response: Any, request_id: Any) -> None:
+    """Every answered frame is a well-formed JSON-RPC response for `request_id`."""
+    assert isinstance(response, dict), "a request frame is always answered"
+    assert response["jsonrpc"] == "2.0"
+    assert response["id"] == request_id, "the answer carries the id it was asked under"
+    assert ("result" in response) != ("error" in response), "exactly one of result/error"
+    if "error" in response:
+        assert isinstance(response["error"]["code"], int)
+        assert isinstance(response["error"]["message"], str)
+        return
+    result = response["result"]
+    assert isinstance(result, dict)
+    for block in result.get("content", []):
+        assert block["type"] == "text"
+        assert isinstance(block["text"], str)
+    assert "isError" not in result or isinstance(result["isError"], bool)
+
+
+@settings(max_examples=200, deadline=None)
+@given(frame=_frames)
+def test_fuzz_mcp_frame_answers_in_band(frame: dict[str, Any]) -> None:
+    response = mcp.handle_frame(frame)
+    if "id" not in frame:
+        assert response is None, "a notification is answered with silence"
+        return
+    _assert_jsonrpc_response(response, frame["id"])
+    if "error" in response:
+        # Spec error codes only: a frame this server does not understand is
+        # not an internal fault, so a client can tell it from a server fault.
+        assert response["error"]["code"] in (-32600, -32601, -32602, -32603)
+
+
+# `prompt` renders a preview and touches the filesystem for its `clip` and
+# `intent` arguments, so path-shaped values are kept under a root that does not
+# exist: the fuzzer exercises the argument typing, not the checkout's tree.
+_prompt_arguments = st.dictionaries(
+    st.text(max_size=16),
+    st.one_of(
+        _scalars,
+        st.lists(_scalars, max_size=3),
+        st.text(max_size=24).map(lambda tail: _ABSENT_CLIP + "/" + tail),
+    ),
+    max_size=4,
+)
+
+
+@settings(max_examples=200, deadline=None)
+@given(
+    name=st.one_of(
+        st.sampled_from(_READ_ONLY_TOOLS),
+        st.text(max_size=16),
+        st.none(),
+        st.integers(),
+    ),
+    arguments=st.one_of(
+        _json_object_values(),
+        _prompt_arguments,
+        st.lists(_scalars, max_size=3),
+        st.none(),
+        st.text(max_size=24),
+    ),
+)
+def test_fuzz_mcp_read_only_tool_arguments_stay_in_band(name: Any, arguments: Any) -> None:
+    frame = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": name, "arguments": arguments},
+    }
+    response = mcp.handle_frame(frame)
+    _assert_jsonrpc_response(response, 1)
+    if "error" in response:
+        # A bad name or a non-object argument set is a params error, not a
+        # fault, and never a tool result.
+        assert response["error"]["code"] == -32602
+
+
+@settings(max_examples=200, deadline=None)
+@given(arguments=_review_arguments)
+def test_fuzz_mcp_review_arguments_never_submit_or_spend_a_key(arguments: dict[str, Any]) -> None:
+    frame = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": "review", "arguments": arguments},
+    }
+    before = dict(mcp._COMPLETED)
+    response = mcp.handle_frame(frame)
+    _assert_jsonrpc_response(response, 1)
+    # No real clip, so every call here is a refusal: nothing is submitted and
+    # no idempotency key is spent on media that never left the machine.
+    assert response["result"].get("isError") is True
+    assert response["result"]["content"][0]["text"].startswith("ERROR:")
+    assert dict(mcp._COMPLETED) == before, "a refused call must not record a ledger entry"
+
+
+# The transport itself: a client writes lines, the loop answers. Frames that
+# cannot be JSON, cannot be UTF-8, or exceed the frame cap get the spec's
+# parse error, and the loop keeps serving the lines after them.
+_transport_lines = st.lists(
+    st.one_of(
+        st.binary(max_size=48),
+        st.sampled_from(
+            [
+                b"",
+                b"{}",
+                b"null",
+                b'{"jsonrpc":"2.0","id":1,"method":"ping"}',
+                b'{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}',
+                b'{"jsonrpc":"2.0","id":null,"method":"initialize"}',
+                b"not json at all",
+                b"\xff\xfe\x00broken",
+                b"[]",
+                b'{"jsonrpc":"2.0","id":1}',
+                # A frame past the 1 MiB cap: discarded through its newline
+                # and answered as a parse error, never retained.
+                b'{"jsonrpc":"2.0","id":1,"method":"' + b"x" * (1024 * 1024) + b'"}',
+            ]
+        ),
+        st.text(max_size=48).map(str.encode),
+    ),
+    min_size=1,
+    max_size=4,
+)
+
+
+@settings(max_examples=100, deadline=None)
+@given(lines=_transport_lines)
+def test_fuzz_mcp_transport_answers_only_with_framed_json_rpc(
+    lines: list[bytes],
+) -> None:
+    stdout = io.StringIO()
+    assert mcp.serve(io.BytesIO(b"\n".join(lines) + b"\n"), stdout) == 0
+    answers = [line for line in stdout.getvalue().splitlines() if line]
+    for answer in answers:
+        frame = json.loads(answer)
+        assert isinstance(frame, dict), "stdout carries framed JSON-RPC and nothing else"
+        assert frame["jsonrpc"] == "2.0"
+        assert ("result" in frame) != ("error" in frame)
+        if "error" in frame:
+            assert frame["error"]["code"] in (-32600, -32700)
+    # Every request is answered exactly once and nothing else is: a client
+    # never waits on silence, and stdout never carries a second frame. The
+    # oracle counts the lines the transport actually sees, so a payload that
+    # carries its own newline is judged per newline, as the loop reads it.
+    assert len(answers) == _expected_answers(b"\n".join(lines).split(b"\n"))
+
+
+def _expected_answers(lines: list[bytes]) -> int:
+    """How many answers a set of client lines must draw.
+
+    Every non-blank line draws exactly one: a request gets its response, and
+    anything the loop cannot parse gets the spec's parse error rather than
+    silence. Only a frame with no `id` member is a notification, which the
+    spec answers with nothing at all.
+    """
+    expected = 0
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            frame = json.loads(line.decode("utf-8").strip())
+        except (UnicodeDecodeError, ValueError):
+            expected += 1
+            continue
+        if not (isinstance(frame, dict) and "id" not in frame):
+            expected += 1
+    return expected
