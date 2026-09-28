@@ -160,7 +160,8 @@ fully offline: no network, no credentials, no model.
 (the tagged commit's `SOURCE_DATE_EPOCH` under `LC_ALL=C`, `TZ=UTC`, and
 `PYTHONHASHSEED=0`, then the sdist canonicalizer), and `make dist-verify`
 builds the same tree a second time under a different clock, locale, timezone,
-and hash seed and diffs the bytes, which is the same check the release job
+and hash seed and a third time from a copy at a different absolute path, then
+diffs the bytes of all three, which is the same check the release job
 runs before it uploads. `make clean` removes the build outputs.
 
 CI runs that suite on Ubuntu with Python 3.11–3.13 and on macOS with 3.13.

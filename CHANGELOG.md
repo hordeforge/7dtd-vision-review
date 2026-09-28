@@ -161,6 +161,14 @@ required (`CONTRIBUTING.md`, "Changing a contract").
 
 ### Changed
 
+- `make dist-verify` builds a third time, from a copy of the tree at a
+  different absolute path, and compares the artifacts across all three runs.
+  The clock, locale, timezone, and hash-seed rebuilds catch host state leaking
+  into an artifact; only a second path catches a build path baked into one,
+  which nothing in the tree previously proved either way. The release job runs
+  the same three-way check before it uploads.
+- `make clean` removes the verification copy and the `src/*.egg-info` the
+  build regenerates in the source tree, not only `dist/`.
 - The Makefile runs every `uv` invocation with `--locked` rather than
   `--frozen`. `--frozen` installs whatever `uv.lock` happens to say even when
   `pyproject.toml` has moved on, so a contributor could lint, test, and build

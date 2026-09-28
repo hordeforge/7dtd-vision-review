@@ -61,7 +61,8 @@ help:
 	@echo "all       check + test + smoke: everything CI's offline job runs"
 	@echo "dist      build the sdist and wheel into dist/ the way a release does"
 	@echo "dist-verify   build the same tree twice under a different clock, locale,"
-	@echo "           timezone, and hash seed, and diff the artifacts byte for byte"
+	@echo "           timezone, and hash seed, and a third time from a different"
+	@echo "           absolute path, then diff the artifacts byte for byte"
 	@echo "clean     remove the build outputs"
 	@echo
 	@echo "single test module:  make test TEST=tests/test_config.py"
@@ -159,12 +160,22 @@ badge: coverage
 # is a default rather than an assignment on purpose: dist-verify rebuilds the
 # same tree with a different wall clock, locale, timezone, and hash seed, and
 # an override there is what makes the comparison mean something. A build that
-# honors none of them leaks that host state into the archive and the two runs
+# honors none of them leaks that host state into the archive and the runs
 # differ.
+#
+# The stamp every artifact carries. An explicit SOURCE_DATE_EPOCH wins; without
+# one it is the commit time of the checkout, which is the only clock a build
+# of a given tree can agree on. Empty in an unpacked sdist, which is why the
+# dist recipe refuses to build rather than stamp a default.
+SOURCE_DATE_EPOCH_DEFAULT := $(or $(SOURCE_DATE_EPOCH),$(shell git log -1 --pretty=format:%ct 2>/dev/null))
+
 BUILD_ENV := LC_ALL="$${LC_ALL:-C}" TZ="$${TZ:-UTC}" PYTHONHASHSEED="$${PYTHONHASHSEED:-0}" \
-	SOURCE_DATE_EPOCH="$${SOURCE_DATE_EPOCH:-$$(git log -1 --pretty=format:%ct)}"
+	SOURCE_DATE_EPOCH="$${SOURCE_DATE_EPOCH:-$(SOURCE_DATE_EPOCH_DEFAULT)}"
 DIST ?= dist
 VERIFY_DIST ?= .local/dist-verify
+# The path a build is verified from. It must not sit inside the tree it copies
+# itself, or the copy would carry the first build's outputs back in.
+VERIFY_PATH ?= .scratch/dist-verify-path
 
 dist:
 ifeq ($(UV_PRESENT),yes)
@@ -172,7 +183,7 @@ ifeq ($(UV_PRESENT),yes)
 	# is the only place it can come from: no git history and no caller-supplied
 	# epoch means an unstampable build, which must stop here rather than hand
 	# the canonicalizer an empty value.
-	@epoch="$${SOURCE_DATE_EPOCH:-$$(git log -1 --pretty=format:%ct 2>/dev/null || true)}"; \
+	@epoch="$${SOURCE_DATE_EPOCH:-$(SOURCE_DATE_EPOCH_DEFAULT)}"; \
 	if [ -z "$$epoch" ]; then \
 		echo "ERROR: no SOURCE_DATE_EPOCH in the environment and no git commit to derive it from" >&2; \
 		echo "       (an unpacked sdist has no history; build from a checkout, or export the epoch)" >&2; \
@@ -195,29 +206,61 @@ else
 endif
 
 # The reproducibility claim, checked rather than asserted: the same tree built
-# twice, seconds apart, under a different locale, timezone, and hash seed,
-# must produce the same bytes. A mismatch names the artifact and, when
-# diffoscope is installed, shows what inside it moved.
+# three ways must produce the same bytes. The first is the build a release
+# publishes. The second repeats it under a different clock, locale, timezone,
+# and hash seed, which is what a builder's own host state would leak through.
+# The third builds a copy of the tree at a different absolute path, which is
+# the only one of the three that catches a build path baked into an artifact.
+# A mismatch names the artifact and, when diffoscope is installed, shows what
+# inside it moved.
+#
+# The epoch is resolved once and exported to every rebuild: a copy of the tree
+# has no git history, so a rebuild that had to derive the epoch from the
+# commit it was copied from would stamp a different (or no) time and the
+# comparison would fail on the canonicalizer rather than on the build.
 dist-verify: dist
 	@verify_locale=C; \
 	if locale -a 2>/dev/null | grep -qi '^C\.utf-\?8$$'; then verify_locale=C.UTF-8; fi; \
 	LC_ALL="$$verify_locale" TZ=Asia/Tokyo PYTHONHASHSEED=1 \
 		$(MAKE) --no-print-directory dist DIST="$(VERIFY_DIST)"
-	@diff <(cd "$(DIST)" && ls -1) <(cd "$(VERIFY_DIST)" && ls -1) \
-		|| { echo "ERROR: the two builds produced different artifact sets" >&2; exit 1; }
+	# git ls-files rather than a file-system copy: it takes the tracked tree
+	# with the working-copy contents in it, and leaves .venv, build outputs,
+	# and caches out, so the third build sees what a fresh clone would.
+	@epoch="$${SOURCE_DATE_EPOCH:-$(SOURCE_DATE_EPOCH_DEFAULT)}"; \
+	if [ -z "$$epoch" ]; then \
+		echo "ERROR: no SOURCE_DATE_EPOCH in the environment and no git commit to derive it from" >&2; \
+		exit 1; \
+	fi; \
+	rm -rf "$(VERIFY_PATH)"; \
+	mkdir -p "$(VERIFY_PATH)"; \
+	git ls-files -z | tar --null -T - -cf - | (cd "$(VERIFY_PATH)" && tar -xf -); \
+	$(MAKE) --no-print-directory -C "$(VERIFY_PATH)" dist DIST=.local/dist-verify \
+		SOURCE_DATE_EPOCH="$$epoch" >/dev/null
+	@failed=0; \
+	for other in "$(VERIFY_DIST)" "$(VERIFY_PATH)/.local/dist-verify"; do \
+		diff <(cd "$(DIST)" && ls -1) <(cd "$$other" && ls -1) \
+			|| { echo "ERROR: $$other produced a different artifact set" >&2; failed=1; }; \
+	done; \
+	test "$$failed" -eq 0
 	@failed=0; \
 	for first in "$(DIST)"/*.whl "$(DIST)"/*.tar.gz; do \
-		second="$(VERIFY_DIST)/$$(basename "$$first")"; \
-		if cmp -s "$$first" "$$second"; then \
-			echo "reproducible: $$(basename "$$first")"; \
-		else \
-			failed=1; \
-			echo "NOT reproducible: $$(basename "$$first")" >&2; \
-			if command -v diffoscope >/dev/null 2>&1; then diffoscope "$$first" "$$second" || true; fi; \
-		fi; \
+		name="$$(basename "$$first")"; \
+		for other in "$(VERIFY_DIST)" "$(VERIFY_PATH)/.local/dist-verify"; do \
+			if cmp -s "$$first" "$$other/$$name"; then \
+				echo "reproducible: $$name ($$other)"; \
+			else \
+				failed=1; \
+				echo "NOT reproducible: $$name ($$other)" >&2; \
+				if command -v diffoscope >/dev/null 2>&1; then diffoscope "$$first" "$$other/$$name" || true; fi; \
+			fi; \
+		done; \
 	done; \
 	test "$$failed" -eq 0
 
+# The build outputs, and nothing else: dist/, the verification trees, the
+# setuptools egg-info the build regenerates in the source tree, and the
+# __pycache__ a compile or test run leaves behind.
 clean:
-	@rm -rf "$(DIST)" "$(VERIFY_DIST)"
+	@rm -rf "$(DIST)" "$(VERIFY_DIST)" "$(VERIFY_PATH)"
+	@rm -rf src/*.egg-info build
 	@find src tests scripts -name __pycache__ -type d -prune -exec rm -rf {} +
