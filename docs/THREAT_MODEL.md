@@ -101,7 +101,7 @@ prompt (intent + filenames + pixels) ──B6 model interpretation──> verdic
   malformed response.
 - **B5 outputs**: credentials must never reach stdout, JSON output, logs, or
   evidence; enforced by construction plus the `redact()` backstop
-  (`intent.py:298-316`).
+  (`intent.py:300-327`).
 - **B6 model interpretation**: the reviewer instruction, the author's
   statement, and reference filenames are assembled into one prompt
   (`prompt.py:31-121`) and the pixels are attached. Everything in that prompt
@@ -170,7 +170,7 @@ the verdict rather than over the process.
 | Consent gate runs before credential reads and any contact | all egress (I, R) | `review.py:68-73`; pinned by `tests/test_review.py:17-27` |
 | Credentials never accepted as arguments | argv/leakage (I) | `cli.py:38-197` (absence of any key flag) |
 | Header-only credential transport | URL/access-log leakage (I) | `gemini.py:132-134`, `nvidia.py:117-119` |
-| Name-based redaction backstop on params, usage, raw response | secret landing in evidence/stdout (I) | `intent.py:298-316` (`redact`), `intent.py:319-339` (`redact_json_text`); applied at `evidence.py:128,138`, `review.py:182,208`; pinned by `tests/test_intent.py:201-230` |
+| Name-based redaction backstop on params, usage, raw response | secret landing in evidence/stdout (I) | `intent.py:300-327` (`redact`), `intent.py:329-350` (`redact_json_text`); applied at `evidence.py:128,138`, `review.py:188,214`; pinned by `tests/test_intent.py:202-295` |
 | Vendor payload validated, refuse-not-coerce | hostile/malformed responses (T) | `result.py:104-134,137-287`; adapters extract text only |
 | Local limits before submission: suffix allowlist, byte budget, frame cap | oversized/unexpected uploads (D) | `base.py:26-39`; `sampling.py:80-107,180-259`; `review.py:264-271,292-293,307` |
 | Bounded HTTP success (8 MiB) and error-body (300-character) reads; socket closed on the fault path | unbounded provider payload retained in the MCP process (D) | `providers/_http.py` `_read_response_body` (`109-124`) / `_read_fault_body` (`127-154`) |
@@ -228,7 +228,13 @@ Redaction matches credential-ish *key names* (`intent.py:36-44`); a secret
 under any other name passes into evidence, stdout JSON, or the preserved raw
 response. Matching is case-fold based rather than `lower()`, so a spelling
 that differs from a sensitive name only under case folding (long s U+017F
-folds to ASCII 's') is still dropped. The usage block deliberately keeps
+folds to ASCII 's') is still dropped, and Unicode format characters (category
+Cf: zero-width space and non-joiner, ZWJ, word joiner, the bidi controls) are
+dropped before the comparison, because `api<ZWSP>_key` holds no `api_key`
+substring yet renders as `api_key` in every log and re-serialization. A key
+differing by a *visible* glyph is a different key and is not matched; adding a
+confusables policy is a sec-review decision, not this backstop's. The usage
+block deliberately keeps
 `token`-named billing counters (`evidence.py:36-42`), narrowing the rule
 there on purpose. One control, three high-impact output channels.
 

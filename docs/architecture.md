@@ -61,6 +61,21 @@ drops credential-named keys wherever they would otherwise land, and bounds its
 own walk depth so a deeply nested payload is dropped rather than escaping as an
 uncaught error from a submission that was already billed.
 
+**Text is not ASCII by construction.** A model's prose, an author's intent, and
+a filename are all non-ASCII by nature, and every encoding decision in the
+gateway is explicit for that reason: file reads are `rb` plus a named decode
+(including `utf-8-sig`, so an editor's BOM is not a parse error), provider
+bodies take the declared charset and fall back to UTF-8, evidence is written
+as bytes (`_atomic_write`) so the stored SHA-256 matches the file and the
+platform's newline translation cannot rewrite it, and `post_json` sends
+`ensure_ascii` JSON. Filenames and the intent reach the prompt through
+`flat_label_text`, which replaces every non-printable character (including
+category Cf: bidi controls, zero-width joiners) with a space so a name cannot
+forge a label-shaped line. Both presentation streams are bound to UTF-8 with
+`backslashreplace` in `_streams.py`: under a C or POSIX locale Python would
+otherwise bind stdout to ASCII and raise `UnicodeEncodeError` inside `print`
+after a billable submission, losing the verdict the caller paid for.
+
 **Advisory only.** `ADVISORY_NOTE` rides every result and every evidence
 envelope: a model critique cannot mark an asset accepted. Human sign-off in
 the real context decides that, in the consuming repository's gates.

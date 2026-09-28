@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import io
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -365,3 +367,48 @@ def test_a_closed_stdout_pipe_exits_141(clip_dir, minimal_intent, capsys, monkey
     captured = capsys.readouterr()
     assert code == 141
     assert captured.err == ""
+
+
+def test_output_survives_an_ascii_bound_stdout(tmp_path: Path) -> None:
+    """A review's prose and a filename's are not ASCII by construction, and
+    Python binds stdout to the locale's encoding. Under C or POSIX (cron, a
+    systemd unit, a CI job with no LANG) that is ASCII, and one non-ASCII
+    character used to raise UnicodeEncodeError inside `print` after the
+    submission had already been billed and the verdict validated: the caller
+    lost exactly the result it paid for. The run must print the text and
+    still exit 0."""
+    env = {
+        **os.environ,
+        "LC_ALL": "C",
+        "LANG": "C",
+        "PYTHONCOERCECLOCALE": "0",
+        "PYTHONUTF8": "0",
+    }
+    # The non-ASCII travels in a file, not in argv: under this locale the
+    # parent's own argv encoding is ASCII, and a test that fails there would
+    # be testing the harness rather than the tool.
+    intent = tmp_path / "intent.json"
+    intent.write_text('{"purpose": "中文字幕の品質"}', encoding="utf-8")
+    shown = subprocess.run(
+        [sys.executable, "-m", "deadeye", "prompt", "--intent", str(intent)],
+        capture_output=True,
+        env=env,
+        check=False,
+    )
+    assert shown.returncode == 0, shown.stderr.decode("utf-8", "replace")
+    assert "中文字幕の品質" in shown.stdout.decode("utf-8")
+
+
+def test_an_unencodable_character_never_dies_in_print(tmp_path: Path) -> None:
+    """A provider response may legally carry an unpaired surrogate
+    (RFC 8259 section 8.2) and Python's JSON parser accepts it. The verdict
+    must still reach stdout: an unencodable character is rendered as an
+    escape, not raised."""
+    from deadeye._streams import bind_utf8_output
+
+    bound = io.TextIOWrapper(io.BytesIO(), encoding="ascii")
+    bind_utf8_output(bound)
+    assert bound.encoding == "utf-8"
+    bound.write("lone: \ud800\n")
+    bound.flush()
+    assert b"lone: \\ud800" in bound.buffer.getvalue()

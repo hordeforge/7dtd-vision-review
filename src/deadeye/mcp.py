@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Any, TextIO, TypeVar
 
 from . import __version__
+from ._streams import bind_process_output
 from .errors import DeadeyeError, EvidenceWriteError
 from .evidence import sha256_bytes
 from .review import run_review as run_review_core
@@ -421,6 +422,22 @@ def _split_stdio_frames(
         leftover += chunk
 
 
+def _frame_size(payload: bytes | str) -> int:
+    """A frame's size in the bytes `_MAX_FRAME_BYTES` is named in.
+
+    The stdio transport is bytes, so bytes is the unit the cap counts there.
+    A text frame reaches the same cap through a different door, and measuring
+    it in code points would admit a frame of four-byte characters at four
+    times the intended size. `surrogatepass` keeps the measure total over
+    every `str`, so a lone surrogate in a text source cannot raise here
+    either; the bytes transport cannot carry one, and refusing the frame it
+    belongs to is the transport's business, not the counter's.
+    """
+    if isinstance(payload, bytes):
+        return len(payload)
+    return len(payload.encode("utf-8", "surrogatepass"))
+
+
 def _iter_pre_split_frames(source: Iterable[Any], max_bytes: int) -> Iterator[bytes | str | None]:
     """Bound frames that already arrive one line at a time (a list, a test double)."""
     for raw_line in source:
@@ -428,7 +445,7 @@ def _iter_pre_split_frames(source: Iterable[Any], max_bytes: int) -> Iterator[by
             payload: bytes | str = raw_line.removesuffix(b"\n")
         else:
             payload = raw_line.removesuffix("\n")
-        yield None if len(payload) > max_bytes else payload
+        yield None if _frame_size(payload) > max_bytes else payload
 
 
 def _iter_stdio_frames(source: Any, max_bytes: int) -> Iterator[bytes | str | None]:
@@ -461,6 +478,12 @@ def serve(
     """
     stdin = stdin if stdin is not None else sys.stdin
     stdout = stdout if stdout is not None else sys.stdout
+    # The verdict rides a JSON-RPC payload, and a fault trace rides stderr;
+    # neither may die in `print` under a C or POSIX locale once the review has
+    # been billed (see `_streams`). Injected streams are left alone: the
+    # caller owns the encoding of the object it passed in.
+    if stdout is sys.stdout:
+        bind_process_output()
     # The transport is UTF-8 JSON, so read bytes when the stream exposes them:
     # a frame with an invalid byte must get the spec's parse error like any
     # other malformed frame, not kill the loop inside the text iterator.

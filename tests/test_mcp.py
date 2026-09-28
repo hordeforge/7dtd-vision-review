@@ -596,3 +596,27 @@ def test_an_unusable_idempotency_key_is_refused_before_any_submission(tmp_path) 
         assert response["result"]["isError"] is True, bad
         assert "idempotency_key" in response["result"]["content"][0]["text"]
     assert not mcp._COMPLETED
+
+
+def test_the_frame_cap_counts_bytes_on_a_text_transport(monkeypatch) -> None:
+    """`_MAX_FRAME_BYTES` is named in bytes and the stdio transport is bytes,
+    so a text frame reaching the same cap through a test double or an
+    already-split iterable must be measured in bytes too. Counting code
+    points there admitted a frame of four-byte characters at four times the
+    intended size."""
+    import io
+
+    from deadeye import mcp
+
+    monkeypatch.setattr(mcp, "_MAX_FRAME_BYTES", 64)
+    # 22 characters, 66 UTF-8 bytes: over the cap as bytes, under it as
+    # characters. The next frame must still be served.
+    oversized_text = "\U0001f600" * 22
+    stdin = io.StringIO(
+        oversized_text + "\n" + '{"jsonrpc":"2.0","id":3,"method":"ping","params":{}}\n'
+    )
+    stdout = io.StringIO()
+    assert mcp.serve(stdin, stdout) == 0
+    lines = [json.loads(line) for line in stdout.getvalue().splitlines()]
+    assert lines[0]["error"]["code"] == -32700
+    assert lines[1]["id"] == 3 and lines[1]["result"] == {}

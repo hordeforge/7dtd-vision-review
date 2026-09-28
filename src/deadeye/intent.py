@@ -18,6 +18,7 @@ one, and a free description is accepted rather than refused.
 from __future__ import annotations
 
 import json
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -348,7 +349,15 @@ def _is_sensitive_key(key: str, parts: tuple[str, ...]) -> bool:
     # Case folding, not lower(): a key that differs from a sensitive name only
     # under case folding (long s U+017F folds to ASCII s) must not slip past
     # the backstop, and folding is locale-independent where this match must be.
-    folded = key.casefold()
+    # Format characters go first: `api<ZWSP>_key` holds no `api_key`
+    # substring, yet every reader, log, and re-serialization renders it as
+    # `api_key`, so it names the same thing. Category Cf is the invisible set
+    # (zero-width space and non-joiner, ZWJ, word joiner, the bidi controls,
+    # the variation selectors); a character with a visible glyph is kept,
+    # because a key that reads differently is a different key. No Unicode
+    # normalization: every name in `parts` is ASCII, so NFC would compose
+    # letters the match never looks at and leave the result identical.
+    folded = "".join(char for char in key if unicodedata.category(char) != "Cf").casefold()
     return folded == "key" or any(part in folded for part in parts)
 
 

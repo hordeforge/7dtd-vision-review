@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__, config
+from ._streams import bind_process_output
 from .errors import DeadeyeError, EvidenceWriteError
 from .review import run_review
 from .surface import (
@@ -225,6 +226,10 @@ def _handle_mcp(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Before anything is written: a model summary or a filename outside ASCII
+    # must not die in `print` under a C or POSIX locale, after a billable
+    # submission has already produced the verdict (see `_streams`).
+    bind_process_output()
     parser = _build_parser()
     args = parser.parse_args(argv)
     try:

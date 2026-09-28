@@ -11,6 +11,7 @@ from deadeye.errors import DeadeyeError
 from deadeye.intent import (
     CAMERA_PATHS,
     MAX_INTENT_BYTES,
+    _is_sensitive_key,
     load_intent,
     parse_intent,
     redact,
@@ -252,6 +253,35 @@ def test_redact_matches_case_fold_only_spellings() -> None:
     # folds to ASCII 's') must not slip through as an ASCII-only blind spot.
     value = {"paſsword": "hunter2", "SECRET": "x", "keep": 1}  # noqa: RUF001
     assert redact(value) == {"keep": 1}
+
+
+def test_redact_matches_keys_hiding_invisible_characters() -> None:
+    # `api<ZWSP>_key` contains no `api_key` substring, yet it renders as
+    # `api_key` in every log, viewer, and re-serialization, and the credential
+    # is the same credential. Every format character (category Cf) is dropped
+    # before the match so a key nobody can see cannot defeat the backstop.
+    # The three keys below carry a ZWJ, a word joiner, and a left-to-right
+    # embed, named by code point so the file's own text stays readable.
+    zero_width_join = chr(0x200D)
+    word_joiner = chr(0x2060)
+    left_to_right_embed = chr(0x202A)
+    value = {
+        "api_key": "nvapi-x",
+        f"sec{zero_width_join}ret": "y",
+        f"pass{word_joiner}word": "z",
+        f"k{left_to_right_embed}ey": "w",
+        "keep": 1,
+    }
+    assert redact(value) == {"keep": 1}
+
+
+def test_redact_keeps_a_key_that_differs_by_a_visible_glyph() -> None:
+    # The policy strips what no reader can see and nothing else. A key spelled
+    # with a different visible letter is a different key, not a hidden
+    # spelling of a sensitive name: matching it is a homoglyph policy call,
+    # and this backstop does not make one.
+    assert not _is_sensitive_key("api_k" + chr(0xE9) + "y", ("api_key",))
+    assert _is_sensitive_key("api_key", ("api_key",))
 
 
 def test_redact_passes_nan_leaves_through_untouched() -> None:
