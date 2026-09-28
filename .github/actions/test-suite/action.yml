@@ -1,0 +1,60 @@
+name: test-suite
+description: >
+  Check out the tree, build the locked environment for one interpreter, and
+  run the offline gate. The one place CI builds an environment and runs the
+  suite, so the ci and release workflows cannot drift apart.
+
+inputs:
+  python-version:
+    description: >
+      Interpreter to test. Empty reads .python-version, which keeps that file
+      the single home for the version a release publishes.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    # Actions pinned by full commit SHA (tag in comment) so a moved tag or a
+    # compromised major-version release cannot inject code into the pipeline.
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      with:
+        enable-cache: true
+
+    # UV_PYTHON reaches both `uv sync` and the `uv run` inside the Makefile.
+    # Without it, `uv run` would re-read .python-version (3.13) and replace the
+    # environment before the suite ran, and every matrix leg would test 3.13
+    # with 3.11 and 3.12 never executed.
+    - name: Resolve the interpreter under test
+      shell: bash
+      env:
+        REQUESTED: ${{ inputs.python-version }}
+      run: |
+        set -euo pipefail
+        version="$REQUESTED"
+        if [ -z "$version" ]; then
+          version="$(tr -d '[:space:]' < .python-version)"
+        fi
+        if [ -z "$version" ]; then
+          echo "ERROR: no interpreter given and .python-version is empty" >&2
+          exit 1
+        fi
+        echo "UV_PYTHON=$version" >> "$GITHUB_ENV"
+
+    - run: uv python install "$UV_PYTHON"
+      shell: bash
+    # The core has no runtime dependencies; `uv sync --locked` resolves from
+    # the committed uv.lock, verifies its hashes, and brings the dev group
+    # (ruff, mypy) that `make check` needs.
+    - run: uv sync --locked --python "$UV_PYTHON"
+      shell: bash
+    - run: echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+      shell: bash
+    # Exercise the installed console script, not only the source tree, so a
+    # broken entry point fails here rather than in a consumer's checkout.
+    # The Makefile owns these two invocations; CI and locals share them.
+    - run: make smoke
+      shell: bash
+    - run: make check test
+      shell: bash

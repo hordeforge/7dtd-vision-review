@@ -11,6 +11,12 @@ make all
 finish. `make check test` alone leaves the smoke step out, and a change that
 breaks an entry point passes it and fails the push.
 
+Both CI workflows (`.github/workflows/ci.yml` on pushes and pull requests,
+`release.yml` on tags) build that environment and run the gate through the
+composite action [`.github/actions/test-suite`](.github/actions/test-suite/action.yml),
+so the suite a tag is published against is the suite `main` already passed.
+Change a step there, not in one workflow.
+
 While iterating, run one module or one test instead of the whole suite:
 `make test TEST=tests/test_review.py`, filtering further with
 `make test TEST='-k NAME'`. It goes through the same interpreter and locked
