@@ -210,7 +210,14 @@ config that failed to parse is reported as an `ERROR: ...` line on stderr: a
 failed parse makes every provider read as `unavailable`, which in the array
 alone is indistinguishable from a missing credential.
 
-Values are validated before use, not deep inside a submission:
+Values are validated before use, not deep inside a submission: a file that
+sets a key deadeye does not read (`default_provder`, `providers.geminie`, a
+knob misspelled as `max_token`) is refused at load with the offending name,
+because a silently ignored setting leaves the built-in default in force while
+its author believes the file was honored. The complete key set is
+`default_provider`, `default_model`, `timeout_seconds`, a top-level
+`api_key`, and per provider `api_key`, `model`, `endpoint` plus that
+provider's generation parameters. Beyond that,
 `default_provider` must name a known provider (an unknown name is refused,
 never silently swapped for another), `timeout_seconds` and `--timeout` must
 be positive numbers, and a per-provider `endpoint` override must be an

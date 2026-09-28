@@ -7,7 +7,10 @@ process-wide cache, so the checkout's own file cannot leak into assertions.
 
 from __future__ import annotations
 
+import ast
 import json
+from importlib import import_module
+from pathlib import Path
 
 import pytest
 
@@ -407,3 +410,83 @@ def test_default_model_precedence(_isolated_config, tmp_path) -> None:
     provider = FakeProvider()
     run_review(clip, provider=provider, intent_path=intent, allow_network=True)
     assert provider.requests[-1].model == "deadeye-fake-vision-v1"
+
+
+def test_a_misspelled_key_is_refused_by_name_instead_of_ignored(_isolated_config) -> None:
+    """A name deadeye does not read must not leave the built-in default in
+    force while its author believes the file was honored."""
+    _write(_isolated_config, "config.toml", 'default_provder = "nvidia"\n')
+    with pytest.raises(ValueError, match=r"default_provder"):
+        config.load()
+    # The fail-soft readers read as unset, and doctor names the fault.
+    assert config.value(("default_provder",)) is None
+    from deadeye.cli import main
+
+    assert main(["doctor"]) == 0
+
+
+def test_a_misspelled_provider_or_knob_is_refused_by_name(_isolated_config) -> None:
+    _write(_isolated_config, "config.local.toml", '[providers.geminie]\napi_key = "k"\n')
+    with pytest.raises(ValueError, match=r"providers\.geminie"):
+        config.load()
+    config.reset()
+    _write(_isolated_config, "config.local.toml", "[providers.nvidia]\nmax_token = 4096\n")
+    with pytest.raises(ValueError, match=r"providers\.nvidia\.max_token"):
+        config.load()
+    assert "max_tokens" in config.PROVIDER_KEYS["nvidia"]
+
+
+def test_documented_settings_load_and_an_empty_table_is_not_a_setting(_isolated_config) -> None:
+    """Every documented key, plus the empty `[providers.fake]` a reader may
+    write, must load: the refusal above must not reject real configuration."""
+    _write(
+        _isolated_config,
+        "config.toml",
+        'default_provider = "nvidia"\ndefault_model = "m"\ntimeout_seconds = 30\n'
+        'api_key = "top"\n\n[providers.fake]\n\n[providers.gemini]\n'
+        'model = "g"\napi_key = "g"\nmax_output_tokens = 1024\n'
+        'endpoint = "https://example.test/v1"\n\n[providers.nvidia]\n'
+        'model = "n"\ntemperature = 0.1\ntop_p = 0.5\nreasoning_budget = 8\n',
+    )
+    loaded = config.load()
+    assert loaded.value(("default_provider",)) == "nvidia"
+    assert loaded.value(("providers", "gemini", "max_output_tokens")) == 1024
+
+
+def test_the_key_schema_covers_the_registry_and_every_key_the_adapters_read() -> None:
+    """Drift guard: an adapter reading a key the schema omits would have that
+    key refused as unreadable, so the schema must track the code."""
+    from deadeye.surface import PROVIDERS
+
+    assert set(config.PROVIDER_KEYS) == set(PROVIDERS)
+    for name in sorted(PROVIDERS):
+        known = config.PROVIDER_KEYS[name]
+        for key in _keys_read_by(import_module(f"deadeye.providers.{name}"), name):
+            assert key in known, f"providers.{name}.{key} is read but not in the schema"
+
+
+def _keys_read_by(module: object, provider: str) -> set[str]:
+    """Per-provider config keys an adapter module reads, from its own source.
+
+    The two shapes an adapter uses: a `config.<reader>(("providers", name,
+    key))` key path, and the `int_setting`/`float_setting` knob readers that
+    take the key as an argument.
+    """
+    readers = {"value", "text", "endpoint", "endpoint_problem"}
+    knobs = {"int_setting", "float_setting"}
+    source = Path(str(module.__file__))
+    keys: set[str] = set()
+    for node in ast.walk(ast.parse(source.read_text(encoding="utf-8"))):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+            continue
+        if node.func.attr in readers and node.args:
+            path = node.args[0]
+            parts = list(path.elts) if isinstance(path, ast.Tuple) else []
+            strings = [part.value for part in parts if isinstance(part, ast.Constant)]
+            if len(parts) == 3 and len(strings) == 3 and strings[:2] == ["providers", provider]:
+                keys.add(strings[2])
+        elif node.func.attr in knobs and len(node.args) > 1:
+            key = node.args[1]
+            if isinstance(key, ast.Constant) and isinstance(key.value, str):
+                keys.add(key.value)
+    return keys

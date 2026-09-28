@@ -20,13 +20,15 @@ that carries one shadows the home one):
    `~/.config/deadeye/` — the home fallback for an installed tool.
 
 Only the files that exist are loaded; a local file without a base file (or
-vice versa) is fine. Values are read through `value(keys)` so a caller never
-handles the merge itself, and every leaf remembers which file supplied it,
-so `deadeye doctor` can name the file a credential came from. Values with
-safety constraints get validated readers: `endpoint()` refuses an API-root
-override that would send the provider credential anywhere but https or a
-loopback proxy, and `endpoint_problem()` reports the same fault for
-`deadeye doctor`.
+vice versa) is fine. A file that sets a key deadeye does not read is refused
+by name rather than quietly ignored, so a typo cannot leave the built-in
+default in force while its author believes the file was honored. Values are
+read through `value(keys)` so a caller never handles the merge itself, and
+every leaf remembers which file supplied it, so `deadeye doctor` can name the
+file a credential came from. Values with safety constraints get validated
+readers: `endpoint()` refuses an API-root override that would send the
+provider credential anywhere but https or a loopback proxy, and
+`endpoint_problem()` reports the same fault for `deadeye doctor`.
 """
 
 from __future__ import annotations
@@ -47,6 +49,31 @@ DEFAULT_TIMEOUT_SECONDS = 120.0
 # Hosts for which a plain-http endpoint override is tolerated: a local
 # self-hosted proxy. Anywhere else, the credential must ride https.
 LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+# Every key deadeye reads from a config file, and nothing else. A key outside
+# these tables is a typo (`default_provder`, `providers.geminie.api_key`) or a
+# setting another tool owns; loading refuses it instead of quietly running on
+# the built-in default while the operator believes their file was honored.
+# A test pins these tables against the provider registry and against the keys
+# the adapters actually read, so a new adapter's key cannot land outside them.
+TOP_LEVEL_KEYS = frozenset(
+    {"api_key", "default_model", "default_provider", "providers", "timeout_seconds"}
+)
+PROVIDER_KEYS: dict[str, frozenset[str]] = {
+    "fake": frozenset(),
+    "gemini": frozenset({"api_key", "endpoint", "max_output_tokens", "model"}),
+    "nvidia": frozenset(
+        {
+            "api_key",
+            "endpoint",
+            "max_tokens",
+            "model",
+            "reasoning_budget",
+            "temperature",
+            "top_p",
+        }
+    ),
+}
 
 
 def _merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -79,6 +106,52 @@ def _record_origins(
                 origins[child] = filename
 
     walk(data, ())
+
+
+def _unknown_provider_keys(providers: dict[str, Any]) -> list[str]:
+    """Keys under `[providers.*]` that no adapter reads, as dotted paths."""
+    unknown: list[str] = []
+    for name, table in providers.items():
+        known = PROVIDER_KEYS.get(name)
+        if known is None:
+            unknown.append(f"providers.{name}")
+            continue
+        if not isinstance(table, dict):
+            continue
+        for key, value in table.items():
+            path = f"providers.{name}.{key}"
+            if isinstance(value, dict):
+                # A known key holding a table is as unusable as an unknown one.
+                unknown.extend(_unknown_keys(value, ("providers", name, key)))
+            elif key not in known:
+                unknown.append(path)
+    return unknown
+
+
+def _unknown_keys(data: dict[str, Any], path: tuple[str, ...] = ()) -> list[str]:
+    """Dotted paths of every setting in `data` that deadeye does not read."""
+    unknown: list[str] = []
+    for key, value in data.items():
+        child = (*path, key)
+        if child == ("providers",):
+            if isinstance(value, dict):
+                unknown.extend(_unknown_provider_keys(value))
+            continue
+        if isinstance(value, dict):
+            unknown.extend(_unknown_keys(value, child))
+        elif key not in TOP_LEVEL_KEYS:
+            unknown.append(".".join(child))
+    return unknown
+
+
+def _unknown_setting_error(filename: str, unknown: list[str]) -> ValueError:
+    listed = ", ".join(f"'{name}'" for name in sorted(unknown))
+    plural = "keys" if len(unknown) > 1 else "key"
+    return ValueError(
+        f"config file {filename} sets {plural} deadeye does not read: {listed}; "
+        "fix the name or drop the line, or the built-in default applies instead "
+        "(docs/reference.md, Configuration, lists every key)"
+    )
 
 
 def _load_file(path: Path) -> dict[str, Any]:
@@ -133,12 +206,26 @@ class Config:
         local = directory / LOCAL_NAME
         if base.is_file():
             base_data = _load_file(base)
+            self._reject_unread(base, base_data, BASE_NAME)
             _record_origins(base_data, self._origins, BASE_NAME)
             self.data = _merge(self.data, base_data)
         if local.is_file():
             local_data = _load_file(local)
+            self._reject_unread(local, local_data, LOCAL_NAME)
             _record_origins(local_data, self._origins, LOCAL_NAME)
             self.data = _merge(self.data, local_data)
+
+    @staticmethod
+    def _reject_unread(path: Path, data: dict[str, Any], filename: str) -> None:
+        """Refuse a file holding settings deadeye does not read, naming them.
+
+        The failure is the whole file, not the individual key: a name deadeye
+        ignores is a name the operator believes it applied, and the built-in
+        default it fell back to is the wrong value at review time.
+        """
+        unknown = _unknown_keys(data)
+        if unknown:
+            raise _unknown_setting_error(str(path), unknown)
 
     def value(self, keys: tuple[str, ...]) -> Any:
         """A value by key path (e.g. `("providers", "nvidia", "api_key")`), or None."""

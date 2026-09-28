@@ -44,6 +44,11 @@ left to be discovered by a failing parse downstream.
 - `deadeye schema --help` and `deadeye mcp --help` gained the `description` and
   examples every other subcommand already carried. Help text only; no behavior
   or output change.
+- A config file that sets a key deadeye does not read is now refused at load
+  with the offending name, instead of leaving the built-in default in force
+  while its author believes the file applied. A misspelled top-level key, a
+  misspelled provider table, and a misspelled per-provider knob are all named
+  in the error. Every documented key loads unchanged.
 
 ## [0.1.1] - 2026-09-20
 
