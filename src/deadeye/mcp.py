@@ -39,7 +39,7 @@ from typing import Any, Literal, TextIO, TypeVar, overload
 
 from . import __version__
 from ._streams import bind_process_output
-from .errors import DeadeyeError, EvidenceWriteError, NoVerdictError
+from .errors import DeadeyeError, EvidenceWriteError, NoVerdictError, UsageError
 from .evidence import sha256_bytes
 from .review import run_review as run_review_core
 from .surface import (
@@ -216,12 +216,22 @@ TOOLS: list[dict[str, Any]] = [
         "name": "doctor",
         "description": "Report provider capability state and the effective "
         "configuration without contacting any provider.",
-        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": False,
+        },
     },
     {
         "name": "schema",
         "description": "The intent and result schemas as JSON.",
-        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": False,
+        },
     },
     {
         "name": "prompt",
@@ -260,8 +270,35 @@ def _tool_result(payload: Any) -> dict[str, Any]:
     return {"content": [{"type": "text", "text": json.dumps(payload, indent=2, sort_keys=True)}]}
 
 
-def _tool_error(message: str) -> dict[str, Any]:
-    return {"content": [{"type": "text", "text": f"ERROR: {message}"}], "isError": True}
+def _error_code(exc: DeadeyeError) -> str:
+    """The machine-readable kind of a tool refusal.
+
+    A client holding an idempotency key has to tell a spent submission from a
+    free one before it decides whether to retry, and the prose cannot carry
+    that: `errors.py` types the refusals for exactly this reason, so the type
+    is what travels here. `no_verdict` is the one that bills; `usage` and
+    `refused` name caller's mistakes and a provider that refused before
+    running the review, and both are retryable under the same key.
+    """
+    if isinstance(exc, NoVerdictError):
+        return "no_verdict"
+    if isinstance(exc, UsageError):
+        return "usage"
+    return "refused"
+
+
+def _tool_error(message: str, code: str) -> dict[str, Any]:
+    """A refused tool call: the prose a person reads and the code a client
+    branches on. The `ERROR:` prefix stays the one text contract every
+    transport shares; the code rides `structuredContent`, the spec's
+    machine-readable channel, so a client that ignores it loses nothing and a
+    client that reads it does not have to match on message text."""
+
+    return {
+        "content": [{"type": "text", "text": f"ERROR: {message}"}],
+        "isError": True,
+        "structuredContent": {"error": {"code": code, "message": message}},
+    }
 
 
 def _boolean(tool: str, params: dict[str, Any], name: str) -> bool:
@@ -569,6 +606,14 @@ def handle_frame(frame: dict[str, Any]) -> dict[str, Any] | None:
     if "id" not in frame:
         return None  # notification (e.g. notifications/initialized)
     request_id = frame["id"]
+    version = frame.get("jsonrpc")
+    if version is not None and version != "2.0":
+        # A member that names a different protocol version is a frame this
+        # server does not speak, which the spec classes as an invalid request.
+        # An absent member is served: the version is the one thing a lenient
+        # client may leave out without changing what the frame asks for, and
+        # refusing it would buy nothing a wrong version does not already cost.
+        return _error(request_id, -32600, "Invalid Request: the jsonrpc member must be '2.0'")
     method = frame.get("method")
     if not isinstance(method, str):
         return _error(request_id, -32600, "Invalid Request")
@@ -617,18 +662,31 @@ def handle_frame(frame: dict[str, Any]) -> dict[str, Any] | None:
                         }
                     ],
                     "isError": True,
+                    "structuredContent": {
+                        "error": {"code": "evidence_write", "message": str(exc)},
+                        "envelope": exc.document,
+                    },
                 },
             }
         except DeadeyeError as exc:
-            return {"jsonrpc": "2.0", "id": request_id, "result": _tool_error(str(exc))}
-        except (KeyError, TypeError, ValueError, OSError) as exc:
-            # A bare KeyError's str is just the quoted key ('clip'), which
-            # names neither the tool nor the fault; keep the type and tool on
-            # the record so the client sees what argument was missing.
             return {
                 "jsonrpc": "2.0",
                 "id": request_id,
-                "result": _tool_error(f"tool {name!r} failed: {type(exc).__name__}: {exc}"),
+                "result": _tool_error(str(exc), _error_code(exc)),
+            }
+        except (KeyError, TypeError, ValueError, OSError) as exc:
+            # A bare KeyError's str is just the quoted key ('clip'), which
+            # names neither the tool nor the fault; keep the type and tool on
+            # the record so the client sees what argument was missing. `fault`
+            # is its own code because nothing here is known to be the caller's
+            # mistake, so a client must not read it as a refusal the same key
+            # could retry.
+            return {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "result": _tool_error(
+                    f"tool {name!r} failed: {type(exc).__name__}: {exc}", "fault"
+                ),
             }
     return _error(request_id, -32601, "Method not found")
 
@@ -785,7 +843,16 @@ def serve(
             _write_frame(stdout, _error(None, -32700, "Parse error"))
             continue
         if not isinstance(frame, dict):
-            _write_frame(stdout, _error(None, -32600, "Invalid Request"))
+            # A batch is an array of requests, and this transport takes one
+            # frame per line. Naming the reason beats a bare "Invalid
+            # Request": a client that batches otherwise reads the refusal as a
+            # server fault and retries the same shape forever.
+            message = (
+                "Invalid Request: JSON-RPC batching is not supported; send one request per line"
+                if isinstance(frame, list)
+                else "Invalid Request"
+            )
+            _write_frame(stdout, _error(None, -32600, message))
             continue
         try:
             response = handle_frame(frame)

@@ -13,6 +13,7 @@ import json
 import unicodedata
 from pathlib import Path
 
+from deadeye import mcp
 from deadeye.mcp import PROTOCOL_VERSION, handle_frame
 
 
@@ -378,11 +379,76 @@ def test_prompt_refuses_a_non_string_argument(tmp_path) -> None:
     assert "'intent' must be a string" in response["result"]["content"][0]["text"]
 
 
+def test_a_refusal_carries_a_code_a_client_can_branch_on(tmp_path, monkeypatch) -> None:
+    """The prose is for a person; the code is for the retry decision. A client
+    holding an idempotency key has to know whether the submission was spent
+    before it reuses the key, and `errors.py` already types the refusals for
+    exactly that distinction."""
+
+    from deadeye.providers import FakeProvider, ReviewResponse
+
+    class UnusableProvider(FakeProvider):
+        def review(self, request):
+            self.requests.append(request)
+            return ReviewResponse(raw_text="not json at all", usage=None, model_reported="fake")
+
+    monkeypatch.setitem(mcp.PROVIDERS, "fake", UnusableProvider)
+
+    arguments = _review_arguments(tmp_path)
+    del arguments["intent"]
+    usage = _call("tools/call", {"name": "review", "arguments": arguments})
+    assert usage["result"]["isError"] is True
+    assert usage["result"]["structuredContent"]["error"]["code"] == "usage"
+    assert usage["result"]["content"][0]["text"].startswith("ERROR: ")
+
+    spent = _call("tools/call", {"name": "review", "arguments": _review_arguments(tmp_path)})
+    assert spent["result"]["structuredContent"]["error"]["code"] == "no_verdict"
+
+
 def test_unknown_method_and_tool_get_spec_errors() -> None:
     error = _call("bogus", {})["error"]
     assert error["code"] == -32601
     response = _call("tools/call", {"name": "nope", "arguments": {}})
     assert response["error"]["code"] == -32602
+
+
+def test_every_published_tool_declares_its_required_arguments() -> None:
+    """`required` is present on every tool, empty where there is nothing to
+    require: a client reading the schemas should not have to know which of the
+    two shapes `inputSchema` takes."""
+    from deadeye.mcp import TOOLS
+
+    for tool in TOOLS:
+        assert "required" in tool["inputSchema"], tool["name"]
+
+
+def test_a_frame_naming_another_protocol_version_is_an_invalid_request() -> None:
+    """A `jsonrpc` member that is not "2.0" is a frame this server does not
+    speak, which the spec classes as an invalid request rather than a method
+    it does not know. A frame that omits the member entirely is served: the
+    version is the one omission a lenient client makes without changing what
+    the frame asks for."""
+    wrong = mcp.handle_frame({"jsonrpc": "1.0", "id": 4, "method": "ping"})
+    assert wrong == {
+        "jsonrpc": "2.0",
+        "id": 4,
+        "error": {
+            "code": -32600,
+            "message": "Invalid Request: the jsonrpc member must be '2.0'",
+        },
+    }
+    assert mcp.handle_frame({"id": 5, "method": "ping"})["result"] == {}
+
+
+def test_a_batch_frame_names_batching_as_the_reason_it_is_refused() -> None:
+    """This transport takes one request per line. A bare "Invalid Request" for
+    an array leaves a client that batches reading it as a server fault, so the
+    refusal says what to do instead."""
+    out = io.StringIO()
+    mcp.serve([json.dumps([{"jsonrpc": "2.0", "id": 1, "method": "ping"}]) + "\n"], out)
+    answer = json.loads(out.getvalue())
+    assert answer["error"]["code"] == -32600
+    assert "batching is not supported" in answer["error"]["message"]
 
 
 def test_an_argument_the_schema_does_not_declare_is_refused(tmp_path) -> None:

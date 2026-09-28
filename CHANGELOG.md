@@ -180,6 +180,17 @@ required (`CONTRIBUTING.md`, "Changing a contract").
   recent 128 keys, least recently used evicted. The guarantee is process-
   local: a restarted server is back to one call, one submission. Calls
   without a key behave exactly as before.
+- Every `isError` MCP tool result now carries `structuredContent.error.code`:
+  `usage`, `refused`, `no_verdict`, `evidence_write`, or `fault`. Before: a
+  client holding an `idempotency_key` had to match on message prose to tell a
+  submission that reached the provider from one that never did, which is the
+  decision the key exists to make correctly. After: it reads the code. The
+  `ERROR: ` text part and `isError` are unchanged, and the evidence-write
+  result carries its envelope under `structuredContent` too.
+- The `doctor` and `schema` MCP tools now publish `required: []` alongside
+  the tools that take arguments, so every published `inputSchema` has the same
+  shape. A client reading the schemas no longer has to know which of the two
+  forms it is looking at.
 
 ### Changed
 
@@ -279,6 +290,12 @@ required (`CONTRIBUTING.md`, "Changing a contract").
 
 ### Fixed
 
+- A JSON-RPC frame naming a protocol version other than `2.0` is now answered
+  with the spec's invalid-request error instead of being served as though it
+  were 2.0. A frame that omits the member entirely is still served.
+- A JSON-RPC batch (an array) is refused with a message that says batching is
+  unsupported and to send one request per line, rather than a bare "Invalid
+  Request" a client could read as a server fault and retry unchanged.
 - A Gemini answer whose first candidate is not an object was reported as a
   preflight refusal when the submission was already spent. Before: the
   adapter raised a bare `DeadeyeError`, so a deduplicating caller could not

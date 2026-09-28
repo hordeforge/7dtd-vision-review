@@ -111,6 +111,22 @@ one exception is a review whose evidence write failed after a billed
 submission: the text part is `{"error": ..., "envelope": ...}` and
 `isError` is still true.
 
+Every `isError` result also carries `structuredContent.error.code`, the one
+place a client reads instead of matching on message text:
+
+| Code | Meaning | Retry under the same `idempotency_key`? |
+|---|---|---|
+| `usage` | the call was malformed (the exactly-one intent route, an argument of the wrong type) | yes, nothing was submitted |
+| `refused` | a provider or configuration refusal raised before the review ran | yes, nothing was submitted |
+| `no_verdict` | the submission reached the provider and produced nothing usable | no, the attempt may have billed |
+| `evidence_write` | a billed verdict that could not be persisted; the envelope rides alongside | no, and the envelope is the answer |
+| `fault` | an unexpected exception inside the tool; the trace is on stderr | no, the server is in an unknown state |
+
+`no_verdict` and `evidence_write` are the two the key decides on: they are the
+refusals `errors.py` types apart precisely so a deduplicating caller can tell a
+spent key from a free one. The `ERROR: ` text and `isError` are unchanged for
+a client that reads neither; the code is additive.
+
 `review` accepts `intent` or `intent_text`, never both and never neither: the
 core's exactly-one rule applies verbatim, and passing both is the refusal
 "takes exactly one of --intent PATH or --intent-text JSON, never both" despite
@@ -122,6 +138,14 @@ refusal.
 `params` and `tools/call`'s `arguments` are objects: present but not an object
 is `-32602`, including the falsy forms (`[]`, `""`, `0`, `false`). Omitted or
 explicitly null is absent, and is served.
+
+A frame whose `jsonrpc` member names a version other than `2.0` is an invalid
+request (`-32600`), and the message says so. A frame that omits the member
+entirely is served, since that is the one omission a lenient client makes
+without changing what the frame asks for. One frame per line is the whole
+transport: a JSON-RPC batch (an array) is refused with the same `-32600` and a
+message naming batching as the reason, rather than a bare invalid request a
+client would read as a server fault and retry forever.
 
 A tool takes exactly the arguments its schema publishes
 (`additionalProperties: false`), and an undeclared one is refused by name
