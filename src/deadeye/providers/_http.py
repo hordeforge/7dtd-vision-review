@@ -412,7 +412,8 @@ def post_json(
             # bytes the provider may already have charged for. `NoVerdictError`
             # is what tells a deduplicating caller the key is spent.
             raise no_verdict(
-                provider, f"connection failed before any response arrived: {exc.reason}"
+                f"provider {provider!r} connection failed after the request was on "
+                f"the wire, before any response arrived: {exc.reason}"
             ) from exc
         # The connection never came up: no name resolved, no port answered.
         # Nothing was submitted, so the refusal stays a plain one and the key
