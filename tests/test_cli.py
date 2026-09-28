@@ -177,17 +177,28 @@ def test_a_rerun_into_an_occupied_output_never_reaches_the_provider(
     assert "already holds an earlier review" in err
 
 
-def test_doctor_reports_offline_state(capsys) -> None:
+def test_doctor_reports_offline_state(capsys, monkeypatch) -> None:
+    # The credential environment is driven here rather than read from the
+    # host, so the reported state is an assertion about the mapping instead
+    # of whatever the machine running the suite happens to export.
+    for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "NVIDIA_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
     code, out, _ = _run(["doctor", "--json"], capsys)
     assert code == 0
     states = json.loads(out)
     by_name = {state["name"]: state for state in states}
     assert set(by_name) == {"fake", "gemini", "nvidia"}
     assert by_name["fake"]["state"] == "configured"
-    # gemini/nvidia's state depends on the host's env; what matters is that
-    # doctor reports *something* without contacting any provider.
-    assert by_name["gemini"]["state"] in ("configured", "unavailable")
-    assert by_name["nvidia"]["state"] in ("configured", "unavailable")
+    assert by_name["gemini"]["state"] == "unavailable"
+    assert by_name["nvidia"]["state"] == "unavailable"
+
+    monkeypatch.setenv("GOOGLE_API_KEY", "x")
+    monkeypatch.setenv("NVIDIA_API_KEY", "y")
+    code, out, _ = _run(["doctor", "--json"], capsys)
+    assert code == 0
+    by_name = {state["name"]: state for state in json.loads(out)}
+    assert by_name["gemini"]["state"] == "configured"
+    assert by_name["nvidia"]["state"] == "configured"
 
 
 def test_doctor_prints_the_effective_settings_without_crashing(capsys) -> None:

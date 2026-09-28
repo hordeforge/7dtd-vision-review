@@ -12,7 +12,6 @@ from __future__ import annotations
 import email.message
 import io
 import json
-import time
 import urllib.error
 import urllib.request
 
@@ -146,14 +145,21 @@ def test_an_oversized_success_response_is_refused_with_a_bounded_read(
 
     monkeypatch.setattr(_http, "_MAX_RESPONSE_BYTES", 16)
 
+    sizes: list[int] = []
+
     class RecordingResponse(io.BytesIO):
-        def read(self, size=-1):
-            assert size == 17
-            return super().read(size)
+        # `read1`, not `read`: `_read_chunk` prefers it when the response
+        # offers it, and `io.BytesIO` always does. Overriding `read` here
+        # would leave the assertion below never reached.
+        def read1(self, size=-1):  # type: ignore[override]
+            sizes.append(size)
+            return super().read1(size)
 
     http_opener(lambda request, timeout: RecordingResponse(b"x" * 17))
     with pytest.raises(DeadeyeError, match="more than 16 response bytes"):
         _post()
+    # One byte past the cap, so the loop can tell "at the cap" from "over it".
+    assert sizes == [17]
 
 
 def test_an_oversized_error_body_is_read_only_up_to_the_fault_cap(http_opener, monkeypatch) -> None:
@@ -369,7 +375,7 @@ def test_a_connection_that_dies_mid_body_is_a_billable_submission_with_no_verdic
     assert not isinstance(excinfo.value, NoVerdictError)
 
 
-def test_a_slow_drip_provider_is_refused_at_the_total_budget(http_opener) -> None:
+def test_a_slow_drip_provider_is_refused_at_the_total_budget(http_opener, monkeypatch) -> None:
     """The advertised seconds bound the whole call, not one socket read.
 
     urllib's `timeout=` is a per-operation timeout: a provider answering a few
@@ -377,15 +383,22 @@ def test_a_slow_drip_provider_is_refused_at_the_total_budget(http_opener) -> Non
     indefinitely and keeps billing while it never finishes. The budget is
     enforced on a monotonic deadline across the reads, so the drip ends as the
     same timeout refusal a stalled provider gets.
+
+    The clock is a counter rather than the wall clock: each read advances it
+    past the budget in one step, so the bound is asserted without the test
+    waiting for it and without a loaded machine deciding the outcome.
     """
+    from deadeye.providers import _http
+
+    clock = [0.0]
+    monkeypatch.setattr(_http.time, "monotonic", lambda: clock[0])
 
     class DrippingResponse(io.BytesIO):
         def read1(self, size=-1):  # type: ignore[override]
-            time.sleep(0.05)
+            clock[0] += 0.1
             return b"{"
 
     http_opener(lambda request, timeout: DrippingResponse(b""))
-    started = time.monotonic()
     with pytest.raises(DeadeyeError, match=r"did not answer within 0\.3s"):
         post_json(
             "gemini",
@@ -395,5 +408,5 @@ def test_a_slow_drip_provider_is_refused_at_the_total_budget(http_opener) -> Non
             timeout_seconds=0.3,
             credential_env="GEMINI_API_KEY",
         )
-    # The refusal lands on the budget, not a read-time multiple past it.
-    assert time.monotonic() - started < 1.0
+    # The refusal lands on the budget, not several drip intervals past it.
+    assert clock[0] <= 0.5

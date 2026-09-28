@@ -64,8 +64,12 @@ def test_oversized_fields_are_refused_before_any_submission() -> None:
 
     with pytest.raises(DeadeyeError, match="the limit is"):
         parse_intent({"purpose": "x" * (MAX_FIELD_CHARS + 1)}, "intent")
-    # The budget applies to the stripped text.
-    assert parse_intent({"purpose": "x" * MAX_FIELD_CHARS}, "intent").purpose
+    # The budget applies to the stripped text, and the accepted value is the
+    # whole field, not a prefix of it.
+    padded = "  " + "x" * MAX_FIELD_CHARS + "  "
+    assert parse_intent({"purpose": padded}, "intent").purpose == "x" * MAX_FIELD_CHARS
+    with pytest.raises(DeadeyeError, match="the limit is"):
+        parse_intent({"purpose": padded + "x"}, "intent")
 
 
 def test_reference_and_list_counts_are_capped() -> None:
@@ -209,13 +213,46 @@ def test_inline_intent_text_with_a_leading_bom_parses() -> None:
     assert intent.purpose == "x"
 
 
-def test_an_oversized_intent_file_is_refused_without_reading_it_all(tmp_path) -> None:
+def test_an_oversized_intent_file_is_refused_without_reading_it_all(tmp_path, monkeypatch) -> None:
     """The field caps only run after the document is in memory. A huge file
-    on the MCP review path must be refused at the read, not retained."""
+    on the MCP review path must be refused at the read, not retained, so the
+    read itself is pinned: one byte past the cap, never the whole file."""
+    from pathlib import Path
+
     path = tmp_path / "huge.json"
     path.write_bytes(b'{"purpose": "' + b"x" * (MAX_INTENT_BYTES) + b'"}')
+
+    sizes: list[int] = []
+    real_open = Path.open
+
+    def recording_open(self, mode="r", *args, **kwargs):
+        handle = real_open(self, mode, *args, **kwargs)
+        if "b" not in mode:
+            return handle
+        return _ReadRecording(handle, sizes)
+
+    monkeypatch.setattr(Path, "open", recording_open)
     with pytest.raises(DeadeyeError, match=f"{MAX_INTENT_BYTES} bytes"):
         load_intent(path, None)
+    assert sizes == [MAX_INTENT_BYTES + 1]
+
+
+class _ReadRecording:
+    """A binary handle that records the sizes `read` was asked for."""
+
+    def __init__(self, handle, sizes: list[int]) -> None:
+        self._handle = handle
+        self._sizes = sizes
+
+    def read(self, size=-1):
+        self._sizes.append(size)
+        return self._handle.read(size)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        return self._handle.__exit__(*exc_info)
 
 
 def test_deeply_nested_json_is_refused_not_crashed() -> None:

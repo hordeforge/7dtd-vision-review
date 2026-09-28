@@ -236,6 +236,33 @@ def test_a_refused_review_closes_the_error_body(monkeypatch, http_opener) -> Non
     assert body.closed
 
 
+def test_the_credential_travels_as_a_header_and_never_in_the_url(monkeypatch, http_opener) -> None:
+    """The key rides an Authorization header, never a query parameter: a URL
+    is what a proxy log, a redirect chain, and a crash report all keep. This
+    pins the request the adapter actually builds."""
+    import json
+
+    monkeypatch.setenv("NVIDIA_API_KEY", "secret-key")
+    body = json.dumps(
+        {"choices": [{"finish_reason": "stop", "message": {"content": "verdict"}}]}
+    ).encode("utf-8")
+    sent = []
+
+    def answering_open(request, timeout):
+        sent.append(request)
+        return io.BytesIO(body)
+
+    http_opener(answering_open)
+    NvidiaProvider().review(ReviewRequest(prompt="p", media=(), model="m", timeout_seconds=1.0))
+
+    assert len(sent) == 1
+    request = sent[0]
+    headers = {name.lower(): value for name, value in request.header_items()}
+    assert headers.get("authorization") == "Bearer secret-key"
+    assert "secret-key" not in request.full_url
+    assert "secret-key" not in (request.data or b"").decode("utf-8")
+
+
 def _answer(monkeypatch, http_opener, envelope: dict) -> None:
     """Answer the next submission with `envelope` instead of a live call."""
     import json

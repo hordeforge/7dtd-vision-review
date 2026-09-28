@@ -48,6 +48,34 @@ def test_review_without_credential_refuses_locally(monkeypatch) -> None:
         GeminiProvider().review(request)
 
 
+def test_the_credential_travels_as_a_header_and_never_in_the_url(monkeypatch, http_opener) -> None:
+    """The key is a header, not a query parameter: a URL is what a proxy log,
+    a redirect chain, and a crash report all keep. This pins the request the
+    adapter actually builds rather than the `post_json` call it makes."""
+    import json as json_module
+
+    monkeypatch.setenv("GEMINI_API_KEY", "secret-key")
+    sent = []
+
+    def answering_open(request, timeout):
+        sent.append(request)
+        return _FakeResponse(
+            json_module.dumps(
+                {"candidates": [{"content": {"parts": [{"text": "verdict"}]}}]}
+            ).encode("utf-8")
+        )
+
+    http_opener(answering_open)
+    GeminiProvider().review(_review_request())
+
+    assert len(sent) == 1
+    request = sent[0]
+    headers = {name.lower(): value for name, value in request.header_items()}
+    assert headers.get("x-goog-api-key") == "secret-key"
+    assert "secret-key" not in request.full_url
+    assert "secret-key" not in (request.data or b"").decode("utf-8")
+
+
 class _FakeResponse(io.BytesIO):
     """A urlopen stand-in: a context manager carrying one JSON body."""
 

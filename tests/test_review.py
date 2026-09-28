@@ -212,6 +212,7 @@ def test_every_envelope_carries_the_evidence_key(clip_dir, intent_path, tmp_path
 
 def test_evidence_is_written_and_hashes_address_it(clip_dir, intent_path, tmp_path) -> None:
     import hashlib
+    from pathlib import Path
 
     output = tmp_path / "evidence.json"
     envelope = run_review(
@@ -225,8 +226,13 @@ def test_evidence_is_written_and_hashes_address_it(clip_dir, intent_path, tmp_pa
     assert document["kind"] == "deadeye-review"
     assert document["media"], "every submitted file is hashed into evidence"
     for entry in document["media"]:
-        assert len(entry["sha256"]) == 64
-    assert document["intent"]["sha256"]
+        # The digest has to address the bytes that were actually submitted:
+        # a length check passes for any 64 hex characters, so a stale or
+        # placeholder hash would go unnoticed.
+        path = Path(entry["path"])
+        assert entry["sha256"] == hashlib.sha256(path.read_bytes()).hexdigest()
+        assert entry["bytes"] == path.stat().st_size
+    assert document["intent"]["sha256"] == hashlib.sha256(intent_path.read_bytes()).hexdigest()
     assert document["provider"]["name"] == "fake"
     assert envelope["evidence"]["sha256"] == hashlib.sha256(output.read_bytes()).hexdigest()
 
@@ -946,13 +952,19 @@ _FRAMES_WIRE_BYTES = 64  # the fake's 8 sampled frames of 4 raw bytes each
 
 
 def _prompt_wire_bytes(clip_dir, intent_path) -> int:
-    """What the prompt costs on the wire, measured from a real submission."""
-    from deadeye.review import _json_string_bytes
+    """What the prompt costs on the wire, measured from a real submission.
 
+    Measured here with `json.dumps` rather than through
+    `deadeye.review._json_string_bytes`: the budget this feeds is checked by
+    the function under test, so importing it would let an undercounting
+    implementation pick a threshold that fits its own mistake.
+    """
     provider = FakeProvider()
     run_review(clip_dir, provider=provider, intent_path=intent_path, allow_network=True)
     request = provider.requests[-1]
-    return _json_string_bytes(request.system_prompt) + _json_string_bytes(request.prompt)
+    return sum(
+        len(json.dumps(text).encode("utf-8")) for text in (request.system_prompt, request.prompt)
+    )
 
 
 def test_a_video_that_only_the_prompt_pushes_over_falls_back_to_the_frames(
