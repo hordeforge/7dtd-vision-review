@@ -25,7 +25,11 @@ invariants the pipeline depends on:
 - a config file and an endpoint override refuse by name rather than by
   traceback, and an accepted override is always https or a loopback http, so
   the string that decides where a provider credential goes cannot be the one
-  thing an unvalidated reader waves through.
+  thing an unvalidated reader waves through;
+- the redacting serializer over a raw provider response either leaves the text
+  byte-identical or hands back a document a strict reader can parse, and the
+  frame positions a clip directory turns into are distinct, in range, and
+  keep the first and last frame.
 
 Run with the rest of the suite (`make test`). A failure prints the
 falsifying example: pin it as a regression test next to the parser's unit
@@ -64,8 +68,9 @@ from deadeye.json_safe import strict_json_numbers
 from deadeye.prompt_text import flat_label_text
 from deadeye.providers._http import _decode_envelope
 from deadeye.providers.base import float_setting, int_setting
-from deadeye.redaction import SENSITIVE_KEY_PARTS, redact
+from deadeye.redaction import SENSITIVE_KEY_PARTS, redact, redact_json_text
 from deadeye.result import BASE_RUBRIC, RESULT_KEYS, parse_model_json, validate_result
+from deadeye.sampling import MIME_BY_SUFFIX, _evenly_spaced_indices, mime_for_suffix
 
 FUZZ = settings(max_examples=300, deadline=None)
 
@@ -885,3 +890,142 @@ def test_fuzz_generation_knobs_are_absent_or_usable(leaf: object) -> None:
     # A value that reaches the request body is finite: `nan` or `inf` would
     # serialize as a token no JSON reader on the provider side accepts.
     assert math.isfinite(temperature)
+
+
+# ---------------------------------------------------------------------------
+# Target 7: the redacting serializer over a raw provider response.
+#
+# `redact_json_text` is what `review.py` runs over the bytes a provider sent
+# back, on both the stored-evidence path and the keep-raw path, and a
+# submission that reached it has already been billed. It is the one place a
+# hostile string reaches `json.loads` before it is written, so the invariants
+# are about what leaves it:
+#
+# - a text that is not a JSON object or array comes back byte-identical, so
+#   model prose and a truncated body stay the record rather than a rewrite;
+# - a text that is one comes back as a document a strict reader can parse, so
+#   the `NaN` and `1e999` tokens the redactor is there to neutralize cannot
+#   reach evidence, stdout, or an MCP payload;
+# - no credential-bearing key survives, however deep and however spelled;
+# - a second pass finds nothing left to change, so the write-then-read round
+#   trip consumers perform lands on the same bytes.
+# ---------------------------------------------------------------------------
+
+_NOT_JSON = object()
+
+# Nesting past the interpreter's recursion limit is the shape that reaches
+# this walk: `json.loads` accepts a tree the redactor's bounded walk cannot
+# finish, and the response arrives either way.
+_deeply_nested_text = st.integers(min_value=1, max_value=3000).map(
+    lambda depth: "[" * depth + "]" * depth
+)
+
+_response_texts = st.one_of(
+    st.text(max_size=256),
+    _json_text(_json_values(max_leaves=10)),
+    _deeply_nested_text,
+    # Hostile code points as text: the control characters, the BOM, and the
+    # replacement character a mis-decoded body carries, in the positions a
+    # provider's answer can put them.
+    st.lists(st.sampled_from(_HOSTILE_BYTES), min_size=1, max_size=3).map(
+        lambda chunks: b"".join(chunks).decode("latin-1")
+    ),
+    # JSON the provider emitted around a non-finite number and a hidden
+    # credential name: the two leaves this function exists for.
+    st.sampled_from(
+        [
+            '{"usage": {"totalTokenCount": 1, "api_key": "k"}, "score": NaN}',
+            '{"usage": {"totalTokenCount": 1, "api_key": "k"}, "score": Infinity}',
+            '{"usage": {"totalTokenCount": 1, "api_key": "k"}, "score": -Infinity}',
+            '{"usage": {"totalTokenCount": 1, "api_key": "k"}, "score": 1e999}',
+            '{"usage": {"totalTokenCount": 1, "api_key": "k"}, "score": -1e999}',
+            '{"usage": {"totalTokenCount": 1, "api_key": "k"}, "score": 0}',
+        ]
+    ),
+)
+
+
+@FUZZ
+@given(text=_response_texts)
+def test_fuzz_redact_json_text_rewrites_only_a_strict_readable_document(text: str) -> None:
+    cleaned = redact_json_text(text)
+    stripped = text.strip()
+    try:
+        parsed = json.loads(stripped)
+    except (ValueError, RecursionError):
+        parsed = _NOT_JSON
+    # The same guard the serializer applies: only a document that opens with
+    # a brace or a bracket is structure to clean, so a bare scalar or model
+    # prose is never rewritten. The oracle is an independent read of that
+    # rule, not the serializer's own decision.
+    structured = stripped[:1] in ("{", "[") and isinstance(parsed, (dict, list))
+    if not structured:
+        assert cleaned == text, "an unstructured response is never rewritten"
+        return
+    # A structured response comes back as an object or array a strict reader
+    # accepts, with no `NaN`, `Infinity`, or `1e999` token in the bytes.
+    try:
+        document = json.loads(cleaned, parse_constant=_reject_constant)
+    except ValueError as exc:
+        raise AssertionError(f"redacted response is not strict JSON: {exc}") from exc
+    assert isinstance(document, (dict, list))
+    for key in _walk_keys(document):
+        assert not _looks_sensitive(key), f"credential-bearing key {key!r} survived redaction"
+    # Redacting the redacted text is a fixed point, so a consumer that reads
+    # the document back and writes it out again lands on the same bytes.
+    assert redact_json_text(cleaned) == cleaned
+
+
+# ---------------------------------------------------------------------------
+# Target 8: the clip-directory boundary.
+#
+# A clip is a directory of authored files: the frame count and the suffixes
+# are whatever the author put there, and both are turned into a submission
+# before anything is sent. The invariants:
+#
+# - the frame positions are distinct, ascending, and in range, and keep the
+#   first and last frame, so a provider's frame limit never silently drops
+#   the boundary frames or submits one frame twice;
+# - a non-positive frame limit is a refusal, not an empty or broken selection;
+# - a suffix answers with a MIME type from the table or refuses by name, so
+#   no filename can invent a type to put in a request part header.
+# ---------------------------------------------------------------------------
+
+
+@FUZZ
+@given(
+    available=st.integers(min_value=0, max_value=2000),
+    count=st.integers(min_value=-3, max_value=2000),
+)
+def test_fuzz_frame_positions_are_distinct_in_range_and_keep_both_ends(
+    available: int, count: int
+) -> None:
+    try:
+        indices = _evenly_spaced_indices(available, count)
+    except DeadeyeError:
+        assert count <= 0, "a positive frame limit is always serviceable"
+        return
+    assert count > 0
+    assert len(indices) == min(count, available), "the frame limit is met exactly"
+    assert all(isinstance(index, int) and 0 <= index < available for index in indices)
+    assert list(indices) == sorted(set(indices)), "no frame is submitted twice"
+    if available and count:
+        assert indices[0] == 0, "the first frame is always submitted"
+    if available and count > 1:
+        assert indices[-1] == available - 1, "the last frame is always submitted"
+
+
+@FUZZ
+@given(
+    suffix=st.one_of(
+        st.text(max_size=16),
+        st.sampled_from(["", ".", "..", "/", ".PNG", ".Mp4", ".TAR.GZ", ".PNG ", " .png"]),
+    )
+)
+def test_fuzz_mime_type_comes_from_the_table_or_is_refused(suffix: str) -> None:
+    try:
+        mime = mime_for_suffix(suffix)
+    except DeadeyeError:
+        return  # refusal: the only allowed failure mode
+    assert mime in set(MIME_BY_SUFFIX.values()), "no suffix invents its own MIME type"
+    assert "/" in mime and mime == mime.strip()
