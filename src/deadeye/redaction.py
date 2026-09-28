@@ -1,7 +1,7 @@
 """The one redaction backstop every output path runs through.
 
-Credentials are never accepted as arguments in the first place, so this is
-the control behind that rule, not the rule itself: every document deadeye
+Credentials are never accepted as arguments in the first place, so this is the
+control behind that rule, not the rule itself: every document deadeye
 hands a caller (the evidence envelope, stdout JSON, an MCP tool result) is
 passed through `redact` first, so a credential-named key cannot land even
 when a caller feeds the API a document it assembled itself.

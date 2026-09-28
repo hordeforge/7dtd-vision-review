@@ -146,9 +146,13 @@ def _scan_directory(directory: Path) -> tuple[list[Path], Path | None, Path | No
                 logs.append(candidate)
             elif suffix in IMAGE_SUFFIXES:
                 fallback_images.append(candidate)
-            match = _FRAME_RE.match(entry.name)
-            if match:
-                numbered.append((int(match.group(1)), entry.name, candidate))
+                # The pattern ends in one of the image suffixes, so a match is
+                # impossible for any other entry: a directory that also holds
+                # a muxed clip, a client log, and hundreds of unrelated files
+                # spent a regex match on each of them for nothing.
+                match = _FRAME_RE.match(entry.name)
+                if match:
+                    numbered.append((int(match.group(1)), entry.name, candidate))
 
     if numbered:
         numbered.sort(key=lambda item: (item[0], item[1]))

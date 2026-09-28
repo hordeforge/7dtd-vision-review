@@ -199,6 +199,11 @@ def _user_config_dir() -> Path:
     return Path.home() / ".config" / "deadeye"
 
 
+def _holds_config_file(directory: Path) -> bool:
+    """Whether `directory` holds either config file."""
+    return (directory / BASE_NAME).is_file() or (directory / LOCAL_NAME).is_file()
+
+
 def _discover() -> Path | None:
     """The config directory to use, or None when no config file exists anywhere."""
     explicit = os.environ.get(CONFIG_ENV, "").strip()
@@ -206,11 +211,18 @@ def _discover() -> Path | None:
     # `XDG_CONFIG_HOME`: a quoted `DEADEYE_CONFIG_DIR="~/deadeye"` is a shell
     # that never expanded it, and a literal `~` directory is a silent miss on
     # every platform, not only the one where `~` is not a home alias.
-    candidates = [Path(explicit).expanduser()] if explicit else [Path.cwd(), _user_config_dir()]
-    for directory in candidates:
-        if (directory / BASE_NAME).is_file() or (directory / LOCAL_NAME).is_file():
-            return directory
-    return None
+    first = Path(explicit).expanduser() if explicit else Path.cwd()
+    if _holds_config_file(first):
+        return first
+    if explicit:
+        return None
+    # The home fallback costs a `Path.home()` (which reads the password
+    # database when `HOME` is unset) and two more stats, and it is consulted on
+    # every single config read. A checkout holding its own config file never
+    # reaches it, so resolving it is deferred until it is actually needed
+    # rather than built into the candidate list up front.
+    fallback = _user_config_dir()
+    return fallback if _holds_config_file(fallback) else None
 
 
 class Config:
@@ -323,15 +335,19 @@ def load() -> Config:
     """
     # Discovery runs again so a directory that only now holds a config file
     # (a fresh checkout, a new DEADEYE_CONFIG_DIR) invalidates the cache
-    # without a restart.
+    # without a restart. It runs exactly once per call and the result serves
+    # the signature check, the load, and the cached signature alike: a review
+    # and a `doctor` each read config a dozen times, and rediscovering per
+    # read (walking the candidate directories and stat-ing both source files
+    # each time) was the dominant cost of a cached read.
+    directory = _discover()
     if (_Cache.loaded is not None or _Cache.failed is not None) and _source_signature(
-        _discover()
+        directory
     ) == _Cache.signature:
         if _Cache.loaded is None:
             raise ValueError(_Cache.failed or "config failed to load")
         return _Cache.loaded
     try:
-        directory = _discover()
         note: str | None = None
         if directory is None:
             explicit = os.environ.get(CONFIG_ENV, "").strip()
@@ -345,7 +361,7 @@ def load() -> Config:
         _Cache.loaded = None
         _Cache.failed = str(exc)
         _Cache.note = None
-        _Cache.signature = _source_signature(_discover())
+        _Cache.signature = _source_signature(directory)
         raise
     _Cache.loaded = loaded
     _Cache.failed = None

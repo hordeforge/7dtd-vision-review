@@ -101,7 +101,7 @@ prompt (intent + filenames + pixels) ──B6 model interpretation──> verdic
   malformed response.
 - **B5 outputs**: credentials must never reach stdout, JSON output, logs, or
   evidence; enforced by construction plus the `redact()` backstop
-  (`redaction.py`, `redact`).
+  (`redaction.py:59-83` `redact`, `redaction.py:109-134` `redact_json_text`).
 - **B6 model interpretation**: the reviewer instruction, the author's
   statement, and reference filenames are assembled into one prompt
   (`prompt.py` `build_prompt_parts`; `ReviewRequest.system_prompt` vs
@@ -172,7 +172,7 @@ the verdict rather than over the process.
 | Consent gate runs before credential reads and any contact | all egress (I, R) | `review.py:68-73`; pinned by `tests/test_review.py:17-27` |
 | Credentials never accepted as arguments | argv/leakage (I) | `cli.py:38-197` (absence of any key flag) |
 | Header-only credential transport | URL/access-log leakage (I) | `gemini.py:132-134`, `nvidia.py:117-119` |
-| Name-based redaction backstop on params, usage, raw response | secret landing in evidence/stdout (I) | `redaction.py` (`redact`, `redact_json_text`); applied at `evidence.py`, `review.py`; pinned by `tests/test_redaction.py` |
+| Name-based redaction backstop on params, usage, raw response | secret landing in evidence/stdout (I) | `redaction.py:59-83` (`redact`), `redaction.py:109-134` (`redact_json_text`); applied at `evidence.py:141,151`, `review.py:225,251`; pinned by `tests/test_redaction.py` |
 | Vendor payload validated, refuse-not-coerce | hostile/malformed responses (T) | `result.py:104-134,137-287`; adapters extract text only |
 | Local limits before submission: suffix allowlist, byte budget, frame cap | oversized/unexpected uploads (D) | `base.py:26-39`; `sampling.py:80-107,179-267`; `review.py:264-271,292-293,307` |
 | Bounded HTTP success (8 MiB) and error-body (300-character) reads; socket closed on the fault path | unbounded provider payload retained in the MCP process (D) | `providers/_http.py` `_read_response_body` (`109-124`) / `_read_fault_body` (`127-154`) |
