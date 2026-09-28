@@ -81,7 +81,10 @@ else
 		echo "ERROR: CI requires ruff; run scripts/bootstrap or: uv tool install ruff" >&2; \
 		exit 1; \
 	else \
-		echo "note: ruff not installed; skipped python linting"; \
+		echo "WARNING: ruff not installed; python linting did NOT run." >&2; \
+		echo "         CI installs ruff and fails without it, so a green local" >&2; \
+		echo "         run here can still fail the push. Install it:" >&2; \
+		echo "           scripts/bootstrap   (or: uv tool install ruff)" >&2; \
 	fi
 endif
 
@@ -93,7 +96,10 @@ else
 		echo "ERROR: CI requires shellcheck for the shell scripts under scripts/" >&2; \
 		exit 1; \
 	else \
-		echo "note: shellcheck not installed; skipped shell linting"; \
+		echo "WARNING: shellcheck not installed; shell linting did NOT run." >&2; \
+		echo "         CI installs shellcheck (it ships in the runner image) and" >&2; \
+		echo "         fails without it, so a green local run here can still fail" >&2; \
+		echo "         the push. Install it from your system package manager." >&2; \
 	fi
 endif
 
@@ -105,7 +111,10 @@ else
 		echo "ERROR: CI requires mypy; run scripts/bootstrap or: uv tool install mypy" >&2; \
 		exit 1; \
 	else \
-		echo "note: mypy not installed; skipped type checking"; \
+		echo "WARNING: mypy not installed; type checking did NOT run." >&2; \
+		echo "         CI installs mypy and fails without it, so a green local run" >&2; \
+		echo "         here can still fail the push. Install it:" >&2; \
+		echo "           scripts/bootstrap   (or: uv tool install mypy)" >&2; \
 	fi
 endif
 
