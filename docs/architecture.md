@@ -11,14 +11,17 @@ generation parameters the request carried.
 ## The flow
 
 ```
-caller ──(deadeye review CLI)──> consent gate → evidence-path guard
-       → intent validation → clip discovery → provider limits → sampling
-       → disclosure → provider.review(request) → validate_result
-       → evidence envelope
+caller ──(deadeye review CLI)──> intent-route check → consent gate
+       → evidence-path guard → intent validation → clip discovery
+       → provider limits → sampling → disclosure → provider.review(request)
+       → validate_result → evidence envelope
 ```
 
-Order matters and is tested: consent first of all (before credentials are
-read), then the evidence-path guard (a rerun into an occupied `--output` is
+Order matters and is tested: the intent route is argv alone, so the CLI checks
+it before handing over, and a caller who passed neither `--intent` nor
+`--intent-text` gets the usage line and exit 2 rather than a consent refusal
+for a submission it cannot make. Then consent first of all (before credentials
+are read), then the evidence-path guard (a rerun into an occupied `--output` is
 refused before anything is contacted), then local validation, then limits,
 then disclosure, then submission, then structural validation, then evidence. A
 failure at any step raises one user-actionable message and preserves no

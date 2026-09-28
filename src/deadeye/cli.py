@@ -27,6 +27,7 @@ from typing import Any
 from . import __version__, config
 from ._streams import bind_process_output
 from .errors import DeadeyeError, EvidenceWriteError, UsageError
+from .intent import require_intent_route
 from .prompt_text import flat_label_text
 from .review import run_review
 from .surface import (
@@ -78,6 +79,10 @@ def _build_parser() -> tuple[argparse.ArgumentParser, dict[str, argparse.Argumen
             "authored assets to a third party: it never happens without "
             "--allow-network."
         ),
+        epilog=(
+            "exit codes: 0 success, 1 a refusal, 2 usage misuse, 130 interrupted, "
+            "141 stdout closed early. 'deadeye review --help' lists them all."
+        ),
     )
     parser.add_argument("--version", action="version", version=f"deadeye {__version__}")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -104,7 +109,14 @@ def _build_parser() -> tuple[argparse.ArgumentParser, dict[str, argparse.Argumen
             "      --provider gemini --allow-network --output evidence.json\n"
             "      a real, billable review, evidence kept beside the clip\n"
             "\n"
-            "Exactly one of --intent PATH / --intent-text JSON is required."
+            "Exactly one of --intent PATH / --intent-text JSON is required.\n"
+            "\n"
+            "exit codes:\n"
+            "  0    the review completed (or --output was written)\n"
+            "  1    a refusal: no consent, no credential, no verdict, a failed write\n"
+            "  2    usage misuse: an unknown flag, a bad value, a missing intent route\n"
+            "  130  interrupted (SIGINT); the submission may still have billed\n"
+            "  141  stdout closed early (SIGPIPE)"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -316,6 +328,15 @@ def _handle_review(args: argparse.Namespace) -> int:
     def notify(line: str) -> None:
         print(line, file=sys.stderr)
 
+    # The intent route is a property of the argv alone, so it is checked
+    # before `run_review` rather than after its consent gate. A caller who
+    # passed neither route used to be told to consent to the upload first,
+    # and only learned the command was wrong on a second run; the exit code
+    # was 1 for a usage mistake argparse would have refused as 2. The
+    # consent gate is still the first thing `run_review` does, before any
+    # credential is read.
+    require_intent_route(args.intent, args.intent_text)
+
     provider_name = resolve_provider(args.provider)
     timeout = resolve_timeout(args.timeout)
     try:
@@ -347,23 +368,51 @@ def _handle_review(args: argparse.Namespace) -> int:
 def _present_review(args: argparse.Namespace, envelope: dict[str, Any]) -> None:
     if args.json:
         print(json.dumps(envelope, indent=2, sort_keys=True))
-    else:
-        result = envelope["result"]
-        print(f"provider: {envelope['provider']['name']}")
-        reported = envelope["provider"]["model_reported"]
-        requested = envelope["provider"]["model_requested"]
-        print(f"model: {reported or requested}")
-        # The summary is the one line here a model wrote, and a terminal
-        # reads a carriage return, an escape, or an OSC sequence as an
-        # instruction to rewrite the screen rather than as text. Every other
-        # line below is a value this tool composed. Flattened the same way a
-        # filename is before it reaches a prompt: the prose is shown, the
-        # control characters are not.
-        print(f"summary: {flat_label_text(result['summary'])}")
-        print(f"issues: {len(result['issues'])}")
-        evidence = envelope.get("evidence") or {}
-        if evidence.get("path"):
-            print(f"evidence: {evidence['path']}")
+        return
+    result = envelope["result"]
+    print(f"provider: {envelope['provider']['name']}")
+    reported = envelope["provider"]["model_reported"]
+    requested = envelope["provider"]["model_requested"]
+    print(f"model: {reported or requested}")
+    # The summary is the one line here a model wrote, and a terminal
+    # reads a carriage return, an escape, or an OSC sequence as an
+    # instruction to rewrite the screen rather than as text. Every other
+    # line below is a value this tool composed. Flattened the same way a
+    # filename is before it reaches a prompt: the prose is shown, the
+    # control characters are not.
+    print(f"summary: {flat_label_text(result['summary'])}")
+    print(f"issues: {len(result['issues'])}")
+    for issue in result["issues"]:
+        print(f"  - {_issue_moment(issue)} {issue['description']}".rstrip())
+    # The rest of the result is the review: a reader who did not ask for
+    # `--json` asked to be told what the model found, and a bare count left
+    # them with nothing to act on. Counts keep the same `key: N` shape as
+    # `issues`, so a line-oriented reader can find any section by name.
+    for label, key in (
+        ("strength", "strengths"),
+        ("limitation", "limitations"),
+        ("recommended change", "recommended_changes"),
+    ):
+        items = result[key]
+        if items:
+            print(f"{label}s: {len(items)}")
+            for item in items:
+                print(f"  - {item}")
+    evidence = envelope.get("evidence") or {}
+    if evidence.get("path"):
+        print(f"evidence: {evidence['path']}")
+
+
+def _issue_moment(issue: dict[str, Any]) -> str:
+    """`at frame 3`, `at 1.5s`, or nothing, as a prefix for an issue line."""
+    for key, unit in (("at_frame", "frame"), ("at_seconds", "s")):
+        moment = issue.get(key)
+        if moment is None:
+            continue
+        if isinstance(moment, list):
+            return f"[{unit} {moment[0]:g}-{moment[-1]:g}{'' if unit == 'frame' else 's'}]"
+        return f"[{unit} {moment:g}{'' if unit == 'frame' else 's'}]"
+    return ""
 
 
 def _handle_prompt(args: argparse.Namespace) -> int:

@@ -47,6 +47,19 @@ def test_review_refuses_missing_intent(clip_dir, capsys) -> None:
     assert "deadeye review: error: needs exactly one of --intent" in captured.err
 
 
+def test_review_refuses_missing_intent_before_the_consent_gate(clip_dir, capsys) -> None:
+    """Usage misuse is refused before the consent gate, so `deadeye review CLIP`
+    names the missing flag instead of asking for consent to an upload the
+    command cannot make yet, and exits 2 rather than 1."""
+    with pytest.raises(SystemExit) as exc_info:
+        main(_review_argv(clip_dir, None))
+    assert exc_info.value.code == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "deadeye review: error: needs exactly one of --intent" in captured.err
+    assert "sends the authored media to a third-party service" not in captured.err
+
+
 def test_review_refuses_two_intent_routes(clip_dir, minimal_intent, capsys) -> None:
     """Both routes at once is the same misuse, refused before anything runs."""
     with pytest.raises(SystemExit) as exc_info:
@@ -109,10 +122,17 @@ def test_review_prints_the_envelope_with_json(clip_dir, minimal_intent, capsys) 
 
 
 def test_review_human_summary_without_json(clip_dir, minimal_intent, capsys) -> None:
+    """The default output is the review, not a count of it: a reader who did
+    not ask for `--json` asked what the model found."""
     code, out, _ = _run(_review_argv(clip_dir, minimal_intent, "--allow-network"), capsys)
     assert code == 0
     assert "summary:" in out
     assert "issues: 1" in out
+    assert "  - [frame 0-1]" in out
+    assert "every submitted byte is suspect" in out
+    assert "limitations: 2" in out
+    assert "  - the fake adapter received media and prompt but cannot see" in out
+    assert "recommended changes: 1" in out
 
 
 def test_review_refuses_unknown_provider(clip_dir, minimal_intent, capsys) -> None:
@@ -393,6 +413,18 @@ def test_prompt_requires_an_intent(capsys) -> None:
         main(["prompt"])
     assert exc_info.value.code == 2
     assert "deadeye prompt: error: needs exactly one of --intent" in capsys.readouterr().err
+
+
+def test_help_documents_the_exit_code_contract(capsys) -> None:
+    """The exit code is the machine contract, so a script author reading
+    `--help` must find it there and not only in docs/reference.md."""
+    for argv in (["--help"], ["review", "--help"]):
+        with pytest.raises(SystemExit) as exc_info:
+            main(argv)
+        assert exc_info.value.code == 0
+        out = capsys.readouterr().out
+        for code in ("0", "1", "2", "130", "141"):
+            assert code in out
 
 
 def test_python_dash_m_honors_the_exit_contract(tmp_path: Path) -> None:

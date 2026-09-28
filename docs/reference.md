@@ -25,7 +25,7 @@ source checkout, run the same commands through the project venv instead:
 | `--provider` | `fake` (offline) or a configured real provider |
 | `--model` | provider model identifier; default per provider |
 | `--allow-network` | consent to uploading the media to the provider; required for any real submission |
-| `--json` | print the full evidence envelope to stdout |
+| `--json` | print the full evidence envelope to stdout; without it the result is printed as `key: value` lines followed by one indented `- ` line per issue, strength, limitation, and recommended change |
 | `--output PATH` | also write the evidence envelope there; never overwrites an earlier one without `--force` |
 | `--keep-raw-response` | preserve a redacted copy of the provider's raw response in evidence |
 | `--force` | overwrite an earlier evidence envelope at `--output` |

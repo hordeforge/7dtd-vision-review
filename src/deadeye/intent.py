@@ -59,6 +59,14 @@ MAX_REFERENCES = 8
 MAX_INTENT_BYTES = 64 * 1024
 """Whole-document cap before parse, so a huge file cannot fill the process."""
 
+BOTH_INTENT_ROUTES = "takes exactly one of --intent PATH or --intent-text JSON, never both"
+"""The refusal when both intent routes were supplied at once."""
+
+NO_INTENT_ROUTE = (
+    "needs exactly one of --intent PATH (the reproducible route) or --intent-text JSON"
+)
+"""The refusal when neither intent route was supplied."""
+
 
 def _line_safe(value: str) -> str:
     """`value` with every non-printable character flattened to a space.
@@ -285,6 +293,27 @@ def parse_intent(data: Any, origin: str) -> ReviewIntent:
     )
 
 
+def require_intent_route(path: Path | None, text: str | None) -> None:
+    """Refuse unless exactly one of the two intent routes was supplied.
+
+    Arguments alone, so it reads no file and resolves no credential. That is
+    what lets the CLI call it before the consent gate: a caller who passed
+    neither route gets the usage line and exit 2, not the upload-consent
+    refusal they cannot act on until they fix the command anyway.
+    """
+    if path is not None and text is not None:
+        raise UsageError(BOTH_INTENT_ROUTES)
+    if path is None and text is None:
+        raise UsageError(NO_INTENT_ROUTE)
+
+
+def _require_inline_text(text: str | None) -> str:
+    """The inline route's text, narrowed past the no-route case."""
+    if text is None:
+        raise UsageError(NO_INTENT_ROUTE)
+    return text
+
+
 def load_intent(path: Path | None, text: str | None) -> tuple[ReviewIntent, bytes]:
     """The intent from exactly one of a file path or inline text, with its bytes.
 
@@ -292,8 +321,7 @@ def load_intent(path: Path | None, text: str | None) -> tuple[ReviewIntent, byte
     CLI and the MCP server refuse identically instead of drifting into two
     wordings.
     """
-    if path is not None and text is not None:
-        raise UsageError("takes exactly one of --intent PATH or --intent-text JSON, never both")
+    require_intent_route(path, text)
     if path is not None:
         origin = f"intent file {path}"
         try:
@@ -301,7 +329,8 @@ def load_intent(path: Path | None, text: str | None) -> tuple[ReviewIntent, byte
                 raw = handle.read(MAX_INTENT_BYTES + 1)
         except OSError as exc:
             raise DeadeyeError(f"cannot read {origin}: {exc}") from exc
-    elif text is not None:
+    else:
+        text = _require_inline_text(text)
         origin = "--intent-text"
         # The inline route can carry a str UTF-8 cannot encode, and both
         # sources of one are real: the OS decodes argv with surrogateescape,
@@ -320,10 +349,6 @@ def load_intent(path: Path | None, text: str | None) -> tuple[ReviewIntent, byte
                 f"at position {exc.start} has no UTF-8 encoding. Pass the intent "
                 "as a file (--intent PATH) instead of inlining it"
             ) from exc
-    else:
-        raise UsageError(
-            "needs exactly one of --intent PATH (the reproducible route) or --intent-text JSON"
-        )
     if len(raw) > MAX_INTENT_BYTES:
         raise DeadeyeError(
             f"{origin} is larger than {MAX_INTENT_BYTES} bytes; the intent is a "

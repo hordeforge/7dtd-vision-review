@@ -76,9 +76,9 @@ not a network one.
 
 | Entry point | Reference | Input |
 |---|---|---|
-| `deadeye review` flags | `src/deadeye/cli.py:84-155` | clip path, `--intent`/`--intent-text`, `--provider`, `--model`, `--allow-network`, `--json`, `--output`, `--keep-raw-response`, `--timeout`, `--force` |
-| `deadeye prompt` | `src/deadeye/cli.py:196-230` | same intent/clip inputs; renders the reviewer prompt locally, no submission |
-| `deadeye doctor` / `schema` | `src/deadeye/cli.py:157-194` | none beyond env/config reads |
+| `deadeye review` flags | `src/deadeye/cli.py:90-168` | clip path, `--intent`/`--intent-text`, `--provider`, `--model`, `--allow-network`, `--json`, `--output`, `--keep-raw-response`, `--timeout`, `--force` |
+| `deadeye prompt` | `src/deadeye/cli.py:209-243` | same intent/clip inputs; renders the reviewer prompt locally, no submission |
+| `deadeye doctor` / `schema` | `src/deadeye/cli.py:170-207` | none beyond env/config reads |
 | `deadeye mcp` stdio transport | `src/deadeye/mcp.py:841-908` (`serve`), framing at `mcp.py:719-832` | newline-delimited JSON-RPC 2.0 frames on stdin |
 | MCP `tools/call` parameters | `src/deadeye/mcp.py:162-210` | `clip`, `intent`, `intent_text`, `model`, `provider`, `output` (arbitrary path), `force`, `keep_raw_response`, `timeout_seconds`, `allow_network`, `idempotency_key` (`mcp.py:201-209`, validated at `mcp.py:475-500`); a key pins one full envelope in the process-global ledger for the life of the server |
 | Other MCP tools | `src/deadeye/mcp.py:216-264` | `doctor`, `schema`, and `prompt` take no dangerous arguments. `prompt` takes a client-named `clip` path (`mcp.py:254-258`) the server reads and summarizes through `sampling.discover` (`surface.py:130`): an unconfined read with no consent gate, no egress, and no write |
