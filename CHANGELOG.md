@@ -28,6 +28,8 @@ left to be discovered by a failing parse downstream.
 
 ### Fixed
 
+- `scripts/e2e.sh --help` printed the usage text one line short, dropping the
+  `2  usage error` exit code from its own listing.
 - `deadeye doctor --json` no longer hides a malformed config. A config that
   fails to parse makes every provider report `unavailable`, so the array on
   stdout was byte-identical to a missing API key; the fault now rides stderr
@@ -76,6 +78,10 @@ left to be discovered by a failing parse downstream.
 
 ### Changed
 
+- A provider envelope whose verdict object is present but not an object now
+  refuses with the same wording from both hosted adapters (`invalid candidate
+  'content'` / `invalid choice 'message'`) instead of two separately worded
+  refusals. Refusal text only; no result, envelope, or exit-code change.
 - `deadeye schema --help` and `deadeye mcp --help` gained the `description` and
   examples every other subcommand already carried. Help text only; no behavior
   or output change.
@@ -88,6 +94,12 @@ left to be discovered by a failing parse downstream.
   real review sends (`0 = the first submitted frame`), so a preview matches
   the submission it previews. The review prompt itself is unchanged;
   `prompt_version` still reads "2".
+- `scripts/e2e.sh` keeps its own shell and calls three new scripts for what it
+  used to embed as `python3 -c` bodies and a heredoc:
+  `scripts/doctor_query.py` (provider selection, state, credential detail),
+  `scripts/playtest_detect.py` (the sibling 7dtd-playtest install queries), and
+  `scripts/e2e_report.py` (suite id, clip size, closing summary). The e2e's
+  steps, arguments, and output are unchanged.
 
 ## [0.1.1] - 2026-09-20
 

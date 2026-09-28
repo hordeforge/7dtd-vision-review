@@ -144,6 +144,32 @@ def first_response_object(
     return entry
 
 
+def response_object(
+    entry: dict[str, Any],
+    *,
+    key: str,
+    item_name: str,
+    provider_name: str,
+) -> dict[str, Any]:
+    """The object at `entry[key]`, an empty one when absent, or a refusal.
+
+    Both hosted envelopes nest the verdict one level down (`content` inside a
+    candidate, `message` inside a choice). An absent level carries no verdict
+    either, so it reads as an empty object and the caller's own emptiness
+    check names the fault; a present-but-not-object level is a malformed
+    provider response that must not escape as an AttributeError.
+    """
+    value = entry.get(key)
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise DeadeyeError(
+            f"provider {provider_name!r} returned invalid {item_name} {key!r}; "
+            "no verdict was produced"
+        )
+    return value
+
+
 def _unusable(provider: str, key: str, value: Any, expected: str) -> DeadeyeError:
     return DeadeyeError(
         f"config providers.{provider}.{key} must be {expected}, not {value!r}; "

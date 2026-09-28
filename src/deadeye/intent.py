@@ -255,14 +255,13 @@ def parse_intent(data: Any, origin: str) -> ReviewIntent:
             f"{origin}: 'purpose' must not be empty; context is never inferred from a filename"
         )
 
-    camera_path = _string_field(data, "camera_path", origin)
-    # The canonical kinds are documented, but any free description is accepted:
-    # what matters is that the author states the motion the clip claims to show.
-
+    # The canonical `camera_path` kinds are documented (CAMERA_PATHS), but any
+    # free description is accepted: what matters is that the author states the
+    # motion the clip claims to show.
     return ReviewIntent(
         purpose=purpose,
         subject=_string_field(data, "subject", origin),
-        camera_path=camera_path,
+        camera_path=_string_field(data, "camera_path", origin),
         desired_qualities=_string_field(data, "desired_qualities", origin),
         avoid=_string_list(data, "avoid", origin),
         references=_references_field(data, origin),

@@ -87,10 +87,9 @@ def run_review(
     intent, intent_raw = load_intent(intent_path, intent_text)
 
     media = sampling.discover(clip)
-    if model is not None:
-        resolved_model = model
-    else:
-        resolved_model = config.text(("default_model",)) or provider.default_model
+    resolved_model = (
+        model if model is not None else config.text(("default_model",)) or provider.default_model
+    )
     if not provider.is_configured():
         raise DeadeyeError(
             f"provider {provider.name!r} is not configured: {provider.configuration_hint()}"

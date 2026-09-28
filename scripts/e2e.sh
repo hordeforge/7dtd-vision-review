@@ -50,7 +50,7 @@ die() {
     exit 1
 }
 usage() {
-    sed -n '2,44p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,45p' "$0" | sed 's/^# \{0,1\}//'
     exit 0
 }
 
@@ -91,6 +91,17 @@ done
 
 say() { echo "e2e: $*"; }
 
+# Every Python step below is a real script under scripts/, never a `-c` body or
+# a heredoc: the JSON reading, the sibling detection, and the closing summary
+# stay in files the linter and the type checker see. The two deadeye-side
+# helpers are stdlib-only; playtest detection runs against the sibling
+# checkout's own environment, because that is where its module lives.
+doctor_query.py() { python3 "$HERE/doctor_query.py" "$@"; }
+e2e_report.py() { python3 "$HERE/e2e_report.py" "$@"; }
+playtest_detect.py() {
+    uv run --project "$PLAYTEST_ROOT" python3 "$HERE/playtest_detect.py" "$PLAYTEST_ROOT" "$@"
+}
+
 # --------------------------------------------------------------- preflight
 command -v deadeye >/dev/null 2>&1 || {
     if [[ -x "$ROOT/.venv/bin/deadeye" ]]; then
@@ -128,84 +139,26 @@ fi
 DOCTOR="$(deadeye doctor --json)" || die "deadeye doctor failed"
 if [[ -z "$PROVIDER" ]]; then
     CONFIG_DEFAULT="$(sed -n 's/^default_provider[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$ROOT/config.toml" | head -1)"
-    PROVIDER="$(printf '%s' "$DOCTOR" | python3 -c '
-import json, sys
-doc = json.load(sys.stdin)
-preferred = sys.argv[1]
-for entry in doc:
-    if entry.get("name") == preferred and entry.get("state") == "configured":
-        print(preferred)
-        sys.exit(0)
-for entry in doc:
-    if entry.get("state") == "configured" and entry.get("name") != "fake":
-        print(entry.get("name"))
-        sys.exit(0)
-' "$CONFIG_DEFAULT" || true)"
+    PROVIDER="$(printf '%s' "$DOCTOR" | doctor_query.py select "$CONFIG_DEFAULT" || true)"
 fi
 [[ -n "$PROVIDER" ]] || die "no configured provider; put a key in config.local.toml (see config.local.toml.example) or pass --provider NAME"
-PROVIDER_STATE="$(printf '%s' "$DOCTOR" | python3 -c '
-import json, sys
-try:
-    doc = json.load(sys.stdin)
-except Exception:
-    sys.exit(2)
-for entry in doc:
-    if entry.get("name") == sys.argv[1]:
-        print(entry.get("state", ""))
-        sys.exit(0)
-sys.exit(1)
-' "$PROVIDER" 2>/dev/null || true)"
+PROVIDER_STATE="$(printf '%s' "$DOCTOR" | doctor_query.py state "$PROVIDER" 2>/dev/null || true)"
 if [[ "$PROVIDER_STATE" != "configured" ]]; then
-    PROVIDER_DETAIL="$(printf '%s' "$DOCTOR" | python3 -c '
-import json, sys
-doc = json.load(sys.stdin)
-for entry in doc:
-    if entry.get("name") == sys.argv[1]:
-        print(entry.get("detail", "no credential configured"))
-        sys.exit(0)
-print("unknown provider")
-' "$PROVIDER" 2>/dev/null || true)"
-    die "provider '$PROVIDER' is not configured: $PROVIDER_DETAIL (put the key in config.local.toml)"
+    PROVIDER_DETAIL="$(printf '%s' "$DOCTOR" | doctor_query.py detail "$PROVIDER" 2>/dev/null || true)"
+    die "provider '$PROVIDER' is not configured: ${PROVIDER_DETAIL:-unknown provider} (put the key in config.local.toml)"
 fi
 say "provider: $PROVIDER (configured); config dir: $DEADEYE_CONFIG_DIR"
 
 # Detection helpers - all of them ask 7dtd-playtest's own code, which is the
 # single place Steam installs are resolved in this workspace.
-python_detect() { # $1 = python body; further args become sys.argv[2..]
-    local body="$1"
-    shift
-    uv run --project "$PLAYTEST_ROOT" python3 -c "$body" "$PLAYTEST_ROOT/scripts" "$@" 2>/dev/null || true
-}
 detect_game() {
-    python_detect '
-import sys
-sys.path.insert(0, sys.argv[1])
-import playtest_run as p
-print(p.client_game_dir() or "")
-'
+    playtest_detect.py game 2>/dev/null || true
 }
 compat_for_game() {
-    python_detect '
-import pathlib, sys
-sys.path.insert(0, sys.argv[1])
-import playtest_run as p
-print(p.client_compat_for_game(pathlib.Path(sys.argv[2])))
-' "$1"
+    playtest_detect.py compat "$1" 2>/dev/null || true
 }
 detect_server() {
-    python_detect '
-import sys
-sys.path.insert(0, sys.argv[1])
-import playtest_run as p
-for lib in p.steam_library_dirs():
-    cand = lib / "common" / "7 Days to Die Dedicated Server"
-    if (cand / "7DaysToDieServer.x86_64").is_file():
-        print(cand)
-        sys.exit(0)
-default = p.DEFAULT_GAME_SRV
-if (default / "7DaysToDieServer.x86_64").is_file():
-    print(default)
-'
+    playtest_detect.py server 2>/dev/null || true
 }
 
 # In-game capture needs the client install and a dedicated server; the
@@ -287,7 +240,7 @@ EOF
             "$SHAMWAY" acceptance-provider --harness-dll "$HARNESS_DLL" --install --json \
                 > .provider.json
         )
-        SUITE="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["suite"])' "$MOD_DIR/.provider.json")"
+        SUITE="$(e2e_report.py suite "$MOD_DIR/.provider.json")"
         [[ -n "$SUITE" ]] || die "shamway acceptance-provider reported no suite id"
         printf '%s\n' "$SUITE" > "$MOD_DIR/.suite"
         cat > "$MOD_DIR/thing.review.json" <<EOF
@@ -340,7 +293,7 @@ fi
 INTENT="${INTENT:-$MOD_DIR/thing.review.json}"
 [[ -f "$INTENT" ]] || die "no intent file at $INTENT (pass --intent FILE or scaffold the fixture)"
 EVIDENCE="$RUN_DIR/evidence.json"
-CLIP_BYTES="$(python3 -c 'import os, sys; print(os.stat(sys.argv[1]).st_size)' "$CLIP_INPUT")"
+CLIP_BYTES="$(e2e_report.py size "$CLIP_INPUT")"
 if [[ "$PROVIDER" == "fake" ]]; then
     say "reviewing $CLIP_INPUT ($CLIP_BYTES bytes) with the offline fake provider"
 else
@@ -355,22 +308,5 @@ deadeye "${ARGS[@]}" > "$RUN_DIR/evidence.stdout.json"
 [[ -s "$EVIDENCE" ]] || die "review returned success but wrote no evidence"
 
 # ------------------------------------------------------------- summary
-python3 - "$EVIDENCE" "$CLIP_INPUT" <<'EOF'
-import json, sys
-evidence = json.load(open(sys.argv[1], encoding="utf-8"))
-result = evidence.get("result", {})
-provider = evidence.get("provider") or {}
-print()
-print("E2E REVIEWED")
-print(f"  clip       {sys.argv[2]}")
-print(f"  provider   {provider.get('name', '?')} / {provider.get('model_reported', '?')}")
-print(f"  review_id  {evidence.get('review_id', '?')}")
-print(f"  verdict    {result.get('summary', '(no summary)')}")
-print(f"  confidence {result.get('confidence', '?')}")
-issues = result.get("issues") or []
-print(f"  issues     {len(issues)}")
-for issue in issues[:5]:
-    print(f"    - {issue.get('description', '?')}")
-print(f"  evidence   {sys.argv[1]}")
-EOF
+e2e_report.py summary "$EVIDENCE" "$CLIP_INPUT"
 say "end-to-end test passed: in-game capture reviewed, evidence written to $EVIDENCE"

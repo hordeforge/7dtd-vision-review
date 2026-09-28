@@ -52,7 +52,7 @@ class FakeProvider:
         payload = {
             "summary": (
                 f"Received {len(request.media)} file(s) named "
-                f"{', '.join(payload.name for payload in request.media)}; "
+                f"{', '.join(item.name for item in request.media)}; "
                 f"candidate {candidate.name!r} is {len(candidate.data)} bytes "
                 f"(sha256 {hashlib.sha256(candidate.data).hexdigest()[:16]}). "
                 "The fake provider sees nothing and critiques from the request "

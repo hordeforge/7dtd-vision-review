@@ -44,6 +44,7 @@ from .base import (
     first_response_object,
     float_setting,
     int_setting,
+    response_object,
 )
 
 API_ROOT = "https://integrate.api.nvidia.com/v1/chat/completions"
@@ -125,13 +126,9 @@ class NvidiaProvider:
         choice = first_response_object(
             envelope, key="choices", item_name="choice", provider_name=self.name
         )
-        message = choice.get("message")
-        if message is None:
-            message = {}
-        if not isinstance(message, dict):
-            raise DeadeyeError(
-                "provider 'nvidia' returned invalid choice message; no verdict was produced"
-            )
+        message = response_object(
+            choice, key="message", item_name="choice", provider_name=self.name
+        )
         text = message.get("content")
         if not isinstance(text, str) or not text.strip():
             raise DeadeyeError(

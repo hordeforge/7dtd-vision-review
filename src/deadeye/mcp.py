@@ -444,6 +444,12 @@ def _iter_stdio_frames(source: Any, max_bytes: int) -> Iterator[bytes | str | No
     yield from _split_stdio_frames(read, first, newline, max_bytes)
 
 
+def _write_frame(stdout: TextIO, frame: dict[str, Any]) -> None:
+    """Write one response frame and flush it; the transport is unbuffered."""
+    print(json.dumps(frame), file=stdout)
+    stdout.flush()
+
+
 def serve(
     stdin: Iterable[str | bytes] | None = None,
     stdout: TextIO | None = None,
@@ -461,15 +467,13 @@ def serve(
     source = getattr(stdin, "buffer", stdin)
     for raw_line in _iter_stdio_frames(source, _MAX_FRAME_BYTES):
         if raw_line is None:
-            print(json.dumps(_error(None, -32700, "Parse error")), file=stdout)
-            stdout.flush()
+            _write_frame(stdout, _error(None, -32700, "Parse error"))
             continue
         if isinstance(raw_line, bytes):
             try:
                 line = raw_line.decode("utf-8").strip()
             except UnicodeDecodeError:
-                print(json.dumps(_error(None, -32700, "Parse error")), file=stdout)
-                stdout.flush()
+                _write_frame(stdout, _error(None, -32700, "Parse error"))
                 continue
         else:
             line = raw_line.strip()
@@ -482,12 +486,10 @@ def serve(
             # not a fault in this loop: it gets the spec's parse error like
             # any other malformed frame instead of killing the transport
             # (the same treatment intent.py gives such documents).
-            print(json.dumps(_error(None, -32700, "Parse error")), file=stdout)
-            stdout.flush()
+            _write_frame(stdout, _error(None, -32700, "Parse error"))
             continue
         if not isinstance(frame, dict):
-            print(json.dumps(_error(None, -32600, "Invalid Request")), file=stdout)
-            stdout.flush()
+            _write_frame(stdout, _error(None, -32600, "Invalid Request"))
             continue
         try:
             response = handle_frame(frame)
@@ -499,6 +501,5 @@ def serve(
             traceback.print_exc(file=sys.stderr)
             response = _error(frame.get("id"), -32603, "Internal error")
         if response is not None:
-            print(json.dumps(response), file=stdout)
-            stdout.flush()
+            _write_frame(stdout, response)
     return 0

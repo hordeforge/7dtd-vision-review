@@ -71,6 +71,21 @@ Everything lands under `.local/` in this repository (gitignored):
 Re-running the script creates a new stamp dir; an existing evidence envelope
 is never overwritten. `--fresh` rebuilds the fixture modlet from scratch.
 
+## Helper scripts
+
+`scripts/e2e.sh` is shell only: every Python step it needs lives in its own
+file under `scripts/`, so the linter (`make lint`) and the type checker
+(`make typecheck`) see the JSON reading and the sibling detection.
+
+| Script | What the e2e asks it |
+|---|---|
+| `scripts/doctor_query.py` | which provider to use, that provider's state, and why it is not configured (reads `deadeye doctor --json` on stdin) |
+| `scripts/playtest_detect.py` | 7dtd-playtest's answers: client install, Proton prefix, dedicated server (run against the sibling checkout) |
+| `scripts/e2e_report.py` | the generated suite id, a clip's byte size, and the closing review summary |
+
+Each takes its inputs as arguments and prints the answer; none of them
+changes state, and all three exit non-zero on a usage error.
+
 ## Options
 
 | Flag | Meaning |

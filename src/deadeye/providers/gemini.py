@@ -37,6 +37,7 @@ from .base import (
     attachment_label,
     first_response_object,
     int_setting,
+    response_object,
 )
 
 API_ROOT = "https://generativelanguage.googleapis.com/v1beta/models"
@@ -148,13 +149,9 @@ class GeminiProvider:
         candidate = first_response_object(
             envelope, key="candidates", item_name="candidate", provider_name=self.name
         )
-        content = candidate.get("content")
-        if content is None:
-            content = {}
-        if not isinstance(content, dict):
-            raise DeadeyeError(
-                "provider 'gemini' returned invalid candidate content; no verdict was produced"
-            )
+        content = response_object(
+            candidate, key="content", item_name="candidate", provider_name=self.name
+        )
         raw_parts = content.get("parts", [])
         if not isinstance(raw_parts, list):
             raise DeadeyeError(
