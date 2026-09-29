@@ -1,4 +1,4 @@
-# 👁️ Deadeye (7DTD Vision Review)
+# 👁️ Deadeye (Vision Review)
 
 > **Part of [HordeForge](https://github.com/hordeforge)**: High-Performance Systems Engineering for 7 Days to Die.
 
@@ -8,8 +8,8 @@
 ![last commit](https://img.shields.io/github/last-commit/hordeforge/7dtd-vision-review)
 
 **deadeye** reviews game clips with a vision model. You hand it a clip (a
-muxed video or a folder of frames) plus an *intent* — what the clip is
-supposed to demonstrate — and it returns structured feedback
+muxed video or a folder of frames) plus an *intent* (what the clip is
+supposed to demonstrate), and it returns structured feedback
 (`summary`, `issues`, `confidence`, …). The verdict is advisory evidence
 for a human call, never an acceptance.
 
@@ -53,7 +53,7 @@ from is under "How to use"; everything else is detail in
 ### You have a clip already
 
 A clip is a folder of frames or a video file. An intent is a small JSON that
-says what the review should judge — one required field, `purpose`:
+says what the review should judge, with one required field, `purpose`:
 
 ```json
 {"purpose": "the garment must survive a full turn without clipping",
@@ -82,15 +82,15 @@ scripts/e2e.sh
 ```
 
 It finds the game install itself (export `GAME` to override), but needs a
-dedicated server — pass `--game-srv DIR` or export
-`SEVEN_DAYS_TO_DIE_SERVER_DIR` — plus sibling checkouts of
+dedicated server (pass `--game-srv DIR` or export
+`SEVEN_DAYS_TO_DIE_SERVER_DIR`), plus sibling checkouts of
 `7dtd-asset-pipeline`, `7dtd-playtest`, and `7dtd-fastconnect`, and `ffmpeg`
 and `uv` on `PATH`. Prerequisites, options, and artifacts:
 [docs/e2e.md](docs/e2e.md).
 
 ### No game and no network
 
-`--provider fake` reviews without credentials or upload — it proves the CLI
+`--provider fake` reviews without credentials or upload; it proves the CLI
 plumbing works offline. `--allow-network` is still required: every review
 passes the same consent gate, and nothing leaves the machine for the fake
 provider.
@@ -141,13 +141,13 @@ index signature behind it, so that file is the verification path.
 
 ## Reference
 
-- [docs/reference.md](docs/reference.md) — command reference, intent schema,
+- [docs/reference.md](docs/reference.md): command reference, intent schema,
   result shape, evidence envelope, configuration rules
-- [docs/providers.md](docs/providers.md) — the provider protocol and adapters
-- [docs/integration.md](docs/integration.md) — the consumer call contract
-- [docs/e2e.md](docs/e2e.md) — the end-to-end test in detail
-- [docs/architecture.md](docs/architecture.md) — the boundaries that must not blur
-- [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) — the attack surface
+- [docs/providers.md](docs/providers.md): the provider protocol and adapters
+- [docs/integration.md](docs/integration.md): the consumer call contract
+- [docs/e2e.md](docs/e2e.md): the end-to-end test in detail
+- [docs/architecture.md](docs/architecture.md): the boundaries that must not blur
+- [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md): the attack surface
 
 ## Development
 
