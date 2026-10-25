@@ -35,8 +35,11 @@ runs:
     - name: Resolve the interpreter under test
       shell: bash
       # A script under scripts/, not inline shell: the logic `make lint-shell`
-      # analyzes, and runnable on its own.
-      run: echo "UV_PYTHON=$(scripts/resolve_test_python.sh '${{ inputs.python-version }}')" >> "$GITHUB_ENV"
+      # analyzes, and runnable on its own. It prints the whole
+      # `UV_PYTHON=<version>` assignment, so the environment file takes its
+      # output as is; wrapping it in another `UV_PYTHON=` handed uv the literal
+      # string "UV_PYTHON=3.13" as the interpreter request.
+      run: scripts/resolve_test_python.sh '${{ inputs.python-version }}' >> "$GITHUB_ENV"
 
     - run: uv python install "$UV_PYTHON"
       shell: bash
