@@ -33,6 +33,10 @@ jobs:
           - os: macos-latest
             python-version: "3.13"
     steps:
+      # A local action is read from the checkout, so the repository has to be
+      # there before the action is resolved. Without this the job died on
+      # "Can't find 'action.yml' under .github/actions/test-suite".
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # The shared composite action owns the environment build and the gate
       # invocations, so the release workflow runs the identical suite.
       - uses: ./.github/actions/test-suite

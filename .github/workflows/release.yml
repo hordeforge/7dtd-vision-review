@@ -22,6 +22,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      # A local action is read from the checkout, so the repository has to be
+      # there before the action is resolved.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # The shared composite action owns the environment build and the gate
       # invocations, exactly as in the CI workflow. No python-version input:
       # the action reads .python-version, which keeps that file the single home
