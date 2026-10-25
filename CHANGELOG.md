@@ -23,6 +23,8 @@ required (`CONTRIBUTING.md`, "Changing a contract").
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-25
+
 ### Fixed
 
 - A publish killed between its temporary write and its rename no longer leaves
