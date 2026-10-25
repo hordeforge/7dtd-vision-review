@@ -225,7 +225,12 @@ def _user_config_dir() -> Path:
     xdg = os.environ.get("XDG_CONFIG_HOME", "").strip()
     if xdg:
         return Path(xdg).expanduser() / "deadeye"
-    if sys.platform == "darwin":
+    # Read through a name rather than comparing sys.platform directly: mypy
+    # types the literal per platform, so on a macOS leg the last return is
+    # unreachable and on a Linux leg the darwin one is, and the platform slice
+    # of CI fails on the branch the other platform would have taken.
+    platform = sys.platform
+    if platform == "darwin":
         return Path.home() / "Library" / "Application Support" / "deadeye"
     return Path.home() / ".config" / "deadeye"
 
